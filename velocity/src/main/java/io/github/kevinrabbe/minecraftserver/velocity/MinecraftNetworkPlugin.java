@@ -25,20 +25,22 @@ public final class MinecraftNetworkPlugin {
 
     @Subscribe
     public void onProxyInitialization(ProxyInitializeEvent event) {
-        database = Database.open(DatabaseConfig.fromEnvironment());
-        database.migrate();
-        zoneRouter = new ZoneRouter(database.dataSource(), INSTANCE_HEARTBEAT_FRESHNESS);
+        try {
+            database = Database.open(DatabaseConfig.fromEnvironment());
+            database.migrate();
+            zoneRouter = new ZoneRouter(database.dataSource(), INSTANCE_HEARTBEAT_FRESHNESS);
+        } catch (RuntimeException exception) {
+            closeDatabase();
+            throw exception;
+        }
 
         LOGGER.log(System.Logger.Level.INFO, "Minecraft network plugin initialized with PostgreSQL zone routing");
     }
 
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
-        if (database != null) {
-            database.close();
-            database = null;
-        }
         zoneRouter = null;
+        closeDatabase();
     }
 
     ZoneRouter zoneRouter() {
@@ -46,5 +48,12 @@ public final class MinecraftNetworkPlugin {
             throw new IllegalStateException("Zone router is not initialized");
         }
         return zoneRouter;
+    }
+
+    private void closeDatabase() {
+        if (database != null) {
+            database.close();
+            database = null;
+        }
     }
 }
