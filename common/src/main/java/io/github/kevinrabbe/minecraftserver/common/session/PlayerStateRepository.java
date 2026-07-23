@@ -67,9 +67,8 @@ public final class PlayerStateRepository {
                         || !Objects.equals(owner.backendId(), normalizedBackendId)
                         || owner.stateVersion() != expectedStateVersion
                         || (owner.status() != SessionStatus.ACTIVE
-                        && owner.status() != SessionStatus.TRANSFERRING
                         && owner.status() != SessionStatus.RECOVERING)) {
-                    throw new SessionConflictException("Stale or non-owning player state commit rejected for session " + sessionId);
+                    throw new SessionConflictException("Stale, frozen, or non-owning player state commit rejected for session " + sessionId);
                 }
 
                 long newVersion;
