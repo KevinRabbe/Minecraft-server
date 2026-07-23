@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# IntelliJ
+.idea/
+*.iml
+out/
+
+# Runtime
+runtime/
+logs/
+*.log
+
+# Minecraft/Paper/Velocity runtime files
+world/
+world_nether/
+world_the_end/
+plugins/
+server.properties
+eula.txt
+velocity.toml
+forwarding.secret
+
+# Local secrets/config
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
