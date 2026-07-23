@@ -110,6 +110,7 @@ try {
         $directory = Join-Path $ServersRoot $server.Id
         $arguments = "-Xms256M -Xmx$($server.Memory) -jar server.jar nogui"
         Start-JavaProcess $server.Id $directory $arguments @{
+            BACKEND_ID = $server.Id
             SERVER_ID = $server.Id
             SERVER_ROLE = $server.Role
         } | Out-Null
