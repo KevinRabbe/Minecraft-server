@@ -32,8 +32,8 @@ public record DatabaseConfig(
         Objects.requireNonNull(environment, "environment");
 
         String url = valueOrDefault(environment, "DATABASE_URL", DEFAULT_URL);
-        String user = valueOrDefault(environment, "DATABASE_USER", DEFAULT_USER);
-        String password = environment.getOrDefault("DATABASE_PASSWORD", DEFAULT_PASSWORD);
+        String user = firstNonBlank(environment, "DATABASE_USER", "POSTGRES_USER", DEFAULT_USER);
+        String password = firstNonBlank(environment, "DATABASE_PASSWORD", "POSTGRES_PASSWORD", DEFAULT_PASSWORD);
         int poolSize = parsePositiveInt(environment.get("DATABASE_POOL_SIZE"), DEFAULT_POOL_SIZE, "DATABASE_POOL_SIZE");
 
         return new DatabaseConfig(url, user, password, poolSize);
@@ -42,6 +42,25 @@ public record DatabaseConfig(
     private static String valueOrDefault(Map<String, String> environment, String name, String defaultValue) {
         String value = environment.get(name);
         return value == null || value.isBlank() ? defaultValue : value.trim();
+    }
+
+    private static String firstNonBlank(
+            Map<String, String> environment,
+            String primaryName,
+            String fallbackName,
+            String defaultValue
+    ) {
+        String primary = environment.get(primaryName);
+        if (primary != null && !primary.isBlank()) {
+            return primary.trim();
+        }
+
+        String fallback = environment.get(fallbackName);
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback.trim();
+        }
+
+        return defaultValue;
     }
 
     private static int parsePositiveInt(String value, int defaultValue, String name) {
