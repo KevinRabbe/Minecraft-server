@@ -38,7 +38,7 @@ Development defaults are intentionally local-only. Override `POSTGRES_PASSWORD` 
 
 ## Java / server baseline
 
-- Paper 26.2 requires Java 25.
+- Stable Paper target: 26.1.2 on Java 25.
 - Velocity currently requires Java 21+, but the repository uses Java 25 consistently across modules/processes.
 - Backend Paper ports must not be exposed publicly once Velocity forwarding is configured.
 
