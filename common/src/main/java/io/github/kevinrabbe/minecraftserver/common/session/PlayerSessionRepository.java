@@ -198,6 +198,7 @@ public final class PlayerSessionRepository {
             Duration leaseDuration
     ) throws SQLException {
         Objects.requireNonNull(transferId, "transferId");
+        Objects.requireNonNull(targetInstanceId, "targetInstanceId");
         String normalizedTargetBackendId = requireNonBlank(targetBackendId, "targetBackendId");
         long leaseMillis = requirePositiveDurationMillis(leaseDuration, "leaseDuration");
 
@@ -208,6 +209,13 @@ public final class PlayerSessionRepository {
                 if (transfer.consumed() || !transfer.unexpired()) {
                     throw new SessionConflictException("Transfer ticket is consumed or expired: " + transferId);
                 }
+
+                requireTargetInstance(
+                        connection,
+                        targetInstanceId,
+                        normalizedTargetBackendId,
+                        transfer.targetZoneId()
+                );
 
                 SessionRow session = lockSession(connection, transfer.sessionId());
                 if (session.status() != SessionStatus.TRANSFERRING
@@ -399,6 +407,7 @@ public final class PlayerSessionRepository {
                 SELECT network_session_id,
                        player_id,
                        source_backend_id,
+                       target_zone_id,
                        expected_state_version,
                        consumed_at IS NOT NULL AS consumed,
                        expires_at > NOW() AS unexpired
@@ -415,10 +424,38 @@ public final class PlayerSessionRepository {
                         results.getObject("network_session_id", UUID.class),
                         results.getObject("player_id", UUID.class),
                         results.getString("source_backend_id"),
+                        results.getString("target_zone_id"),
                         results.getLong("expected_state_version"),
                         results.getBoolean("consumed"),
                         results.getBoolean("unexpired")
                 );
+            }
+        }
+    }
+
+    private static void requireTargetInstance(
+            Connection connection,
+            UUID instanceId,
+            String backendId,
+            String targetZoneId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT 1
+                FROM zone_instances
+                WHERE instance_id = ?
+                  AND backend_id = ?
+                  AND zone_id = ?
+                  AND status = 'ACTIVE'
+                """)) {
+            statement.setObject(1, instanceId);
+            statement.setString(2, backendId);
+            statement.setString(3, targetZoneId);
+            try (ResultSet results = statement.executeQuery()) {
+                if (!results.next()) {
+                    throw new SessionConflictException(
+                            "Transfer target instance does not match the ticket's logical zone/backend"
+                    );
+                }
             }
         }
     }
@@ -487,6 +524,7 @@ public final class PlayerSessionRepository {
             UUID sessionId,
             UUID playerId,
             String sourceBackendId,
+            String targetZoneId,
             long expectedStateVersion,
             boolean consumed,
             boolean unexpired
