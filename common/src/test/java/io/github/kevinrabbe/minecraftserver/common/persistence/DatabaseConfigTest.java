@@ -34,6 +34,17 @@ class DatabaseConfigTest {
     }
 
     @Test
+    void acceptsComposePostgresEnvironmentAsFallback() {
+        DatabaseConfig config = DatabaseConfig.fromEnvironment(Map.of(
+                "POSTGRES_USER", "compose_user",
+                "POSTGRES_PASSWORD", "compose_secret"
+        ));
+
+        assertEquals("compose_user", config.username());
+        assertEquals("compose_secret", config.password());
+    }
+
+    @Test
     void rejectsInvalidPoolSize() {
         assertThrows(
                 IllegalArgumentException.class,
