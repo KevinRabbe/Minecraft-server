@@ -3,4 +3,4 @@ version: '0.1.0-SNAPSHOT'
 main: io.github.kevinrabbe.minecraftserver.paper.MinecraftServerPlugin
 description: Shared Paper gameplay backend for the Minecraft server network
 author: KevinRabbe
-api-version: '26.2'
+api-version: '26.1.2'
