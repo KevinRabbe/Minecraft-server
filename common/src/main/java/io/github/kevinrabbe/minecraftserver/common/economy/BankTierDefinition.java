@@ -9,6 +9,11 @@ public record BankTierDefinition(
 ) {
     private static final int MAX_INTEREST_BASIS_POINTS = 10_000;
 
+    /** Convenience form for tiers whose upgrade cost is configured elsewhere/zero in tests. */
+    public BankTierDefinition(int tier, long capacityMinor, int dailyInterestBasisPoints) {
+        this(tier, capacityMinor, 0L, dailyInterestBasisPoints);
+    }
+
     public BankTierDefinition {
         if (tier < 0) {
             throw new IllegalArgumentException("tier must be >= 0");
