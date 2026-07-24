@@ -7,16 +7,25 @@ import java.util.UUID;
 public record ItemLocation(ItemLocationKind kind, UUID locationId) {
     public ItemLocation {
         kind = Objects.requireNonNull(kind, "kind");
-        if (kind == ItemLocationKind.PLAYER_INVENTORY && locationId == null) {
-            throw new IllegalArgumentException("PLAYER_INVENTORY requires a player_id locationId");
+        if ((kind == ItemLocationKind.PLAYER_INVENTORY || kind == ItemLocationKind.PENDING_DELIVERY)
+                && locationId == null) {
+            throw new IllegalArgumentException(kind + " requires a locationId");
         }
-        if (kind != ItemLocationKind.PLAYER_INVENTORY && locationId != null) {
+        if ((kind == ItemLocationKind.QUARANTINE || kind == ItemLocationKind.DESTROYED)
+                && locationId != null) {
             throw new IllegalArgumentException(kind + " must not carry a locationId");
         }
     }
 
     public static ItemLocation playerInventory(UUID playerId) {
         return new ItemLocation(ItemLocationKind.PLAYER_INVENTORY, Objects.requireNonNull(playerId, "playerId"));
+    }
+
+    public static ItemLocation pendingDelivery(UUID deliveryId) {
+        return new ItemLocation(
+                ItemLocationKind.PENDING_DELIVERY,
+                Objects.requireNonNull(deliveryId, "deliveryId")
+        );
     }
 
     public static ItemLocation quarantine() {
