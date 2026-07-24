@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   build:
@@ -27,6 +28,7 @@ jobs:
           gradle-version: '9.6.1'
 
       - name: Build
+        id: gradle-build
         shell: bash
         run: |
           set +e
@@ -38,3 +40,20 @@ jobs:
             exit "$status"
           fi
           tail -n 40 build.log
+
+      - name: Report Gradle failure on PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          {
+            echo '<!-- gradle-build-failure -->'
+            echo '### Gradle build failure'
+            echo
+            echo '```text'
+            tail -n 100 build.log
+            echo '```'
+          } > gradle-failure.md
+          gh pr comment "$PR_NUMBER" --body-file gradle-failure.md
