@@ -172,7 +172,16 @@ final class PaperItemIdentityCodec {
         if (!view.has(key)) {
             throw new PaperItemRepresentationException("Missing item identity field " + fieldName);
         }
-        C value = view.get(key, type);
+
+        final C value;
+        try {
+            value = view.get(key, type);
+        } catch (IllegalArgumentException exception) {
+            throw new PaperItemRepresentationException(
+                    "Invalid persistent-data primitive for " + fieldName,
+                    exception
+            );
+        }
         if (value == null) {
             throw new PaperItemRepresentationException("Wrong persistent-data type for " + fieldName);
         }
