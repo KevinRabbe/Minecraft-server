@@ -5,12 +5,23 @@ $LocalNetwork = @{
     ProxyPort = 25565
     RuntimeRoot = Join-Path $PSScriptRoot "runtime"
     Servers = @(
-        @{ Id = "city-01";   Role = "CITY";   Port = 25566; Memory = "1024M" },
-        @{ Id = "mine-01";   Role = "MINE";   Port = 25567; Memory = "768M" },
-        @{ Id = "forest-01"; Role = "FOREST"; Port = 25568; Memory = "768M" },
-        @{ Id = "farm-01";   Role = "FARM";   Port = 25569; Memory = "768M" },
-        @{ Id = "nether-01"; Role = "NETHER"; Port = 25570; Memory = "768M" },
-        @{ Id = "pvp-01";    Role = "PVP";    Port = 25571; Memory = "768M" },
-        @{ Id = "war-01";    Role = "WAR";    Port = 25572; Memory = "768M" }
+        @{
+            Id = "paper-01"
+            Zone = "city"
+            ZoneTemplate = "city-dev-v1"
+            ZoneSoftCapacity = 100
+            ZoneHardCapacity = 150
+            Port = 25566
+            Memory = "1024M"
+        },
+        @{
+            Id = "paper-02"
+            Zone = "starter-woods"
+            ZoneTemplate = "starter-woods-dev-v1"
+            ZoneSoftCapacity = 20
+            ZoneHardCapacity = 25
+            Port = 25567
+            Memory = "768M"
+        }
     )
 }
