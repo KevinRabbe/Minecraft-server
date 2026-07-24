@@ -74,8 +74,6 @@ public final class PlayerIdentityRepository {
             } catch (SQLException | RuntimeException exception) {
                 rollbackQuietly(connection, exception);
                 throw exception;
-            } finally {
-                connection.setAutoCommit(true);
             }
         }
     }
