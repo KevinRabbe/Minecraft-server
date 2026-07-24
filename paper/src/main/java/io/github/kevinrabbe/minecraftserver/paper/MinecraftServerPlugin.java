@@ -1,6 +1,8 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
@@ -21,10 +23,12 @@ import java.util.logging.Level;
 public final class MinecraftServerPlugin extends JavaPlugin implements Listener {
     private static final long HEARTBEAT_PERIOD_TICKS = 100L;
     private static final long CHECKPOINT_PERIOD_TICKS = 100L;
+    private static final String ITEM_CATALOG_RESOURCE = "/content/items.json";
 
     private final AtomicInteger onlinePlayers = new AtomicInteger();
 
     private String backendId;
+    private ItemCatalog itemCatalog;
     private Database database;
     private BackendRegistry backendRegistry;
     private PaperSessionController sessionController;
@@ -37,6 +41,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         backendId = requireBackendId();
 
         try {
+            itemCatalog = new ItemCatalogLoader().loadResource(ITEM_CATALOG_RESOURCE);
+            PaperItemCatalogValidator.validate(itemCatalog);
+
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
 
@@ -64,7 +71,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             stopBootstrapZoneQuietly();
             markBackendOfflineQuietly();
             closeDatabase();
-            throw new IllegalStateException("Failed to initialize persistent network foundation", exception);
+            itemCatalog = null;
+            throw new IllegalStateException("Failed to initialize persistent network foundation/content", exception);
         }
 
         getServer().getPluginManager().registerEvents(this, this);
@@ -91,7 +99,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         String zoneDescription = bootstrapZoneInstance == null
                 ? "no bootstrap zone"
                 : "bootstrap zone " + bootstrapZoneInstance.zoneId();
-        getLogger().info(() -> "Started backend " + backendId + " with " + zoneDescription);
+        int itemDefinitionCount = itemCatalog.size();
+        getLogger().info(() -> "Started backend " + backendId + " with " + zoneDescription
+                + " and " + itemDefinitionCount + " validated item definitions");
     }
 
     @Override
@@ -114,6 +124,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         getServer().getMessenger().unregisterOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
         markBackendOfflineQuietly();
         closeDatabase();
+        itemCatalog = null;
     }
 
     @EventHandler
@@ -133,6 +144,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     /** Compatibility alias for the original bootstrap API. */
     public String serverId() {
         return backendId;
+    }
+
+    ItemCatalog itemCatalog() {
+        if (itemCatalog == null) {
+            throw new IllegalStateException("Item catalog is not initialized");
+        }
+        return itemCatalog;
     }
 
     private void sendHeartbeat() {
