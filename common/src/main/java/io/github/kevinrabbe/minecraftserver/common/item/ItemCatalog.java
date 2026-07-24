@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.item;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +32,7 @@ public final class ItemCatalog {
             }
         }
 
-        definitionsById = Map.copyOf(indexed);
+        definitionsById = Collections.unmodifiableMap(new LinkedHashMap<>(indexed));
     }
 
     public Optional<ItemDefinition> find(String definitionId) {
