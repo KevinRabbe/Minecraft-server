@@ -4,6 +4,7 @@ package io.github.kevinrabbe.minecraftserver.common.economy;
 public record BankTierDefinition(
         int tier,
         long capacityMinor,
+        long upgradeCostMinor,
         int dailyInterestBasisPoints
 ) {
     private static final int MAX_INTEREST_BASIS_POINTS = 10_000;
@@ -14,6 +15,12 @@ public record BankTierDefinition(
         }
         if (capacityMinor < 0) {
             throw new IllegalArgumentException("capacityMinor must be >= 0");
+        }
+        if (upgradeCostMinor < 0) {
+            throw new IllegalArgumentException("upgradeCostMinor must be >= 0");
+        }
+        if (tier == 0 && upgradeCostMinor != 0) {
+            throw new IllegalArgumentException("tier 0 upgradeCostMinor must be 0");
         }
         if (dailyInterestBasisPoints < 0 || dailyInterestBasisPoints > MAX_INTEREST_BASIS_POINTS) {
             throw new IllegalArgumentException(
