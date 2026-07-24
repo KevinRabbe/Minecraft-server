@@ -20,6 +20,7 @@ import java.util.logging.Level;
 
 public final class MinecraftServerPlugin extends JavaPlugin implements Listener {
     private static final long HEARTBEAT_PERIOD_TICKS = 100L;
+    private static final long CHECKPOINT_PERIOD_TICKS = 100L;
 
     private final AtomicInteger onlinePlayers = new AtomicInteger();
 
@@ -29,6 +30,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private PaperSessionController sessionController;
     private BootstrapZoneInstance bootstrapZoneInstance;
     private BukkitTask heartbeatTask;
+    private BukkitTask checkpointTask;
 
     @Override
     public void onEnable() {
@@ -51,8 +53,15 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 bootstrapZoneInstance.start();
             }
 
-            sessionController = new PaperSessionController(this, backendId, database.dataSource());
+            String currentZoneId = bootstrapZoneInstance == null ? null : bootstrapZoneInstance.zoneId();
+            sessionController = new PaperSessionController(
+                    this,
+                    backendId,
+                    currentZoneId,
+                    database.dataSource()
+            );
         } catch (RuntimeException | SQLException exception) {
+            stopBootstrapZoneQuietly();
             markBackendOfflineQuietly();
             closeDatabase();
             throw new IllegalStateException("Failed to initialize persistent network foundation", exception);
@@ -60,6 +69,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(sessionController, this);
+        getServer().getPluginManager().registerEvents(new FrozenPlayerMutationGuard(sessionController), this);
         getServer().getMessenger().registerOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
 
         PluginCommand devZone = Objects.requireNonNull(getCommand("devzone"), "devzone command missing from plugin.yml");
@@ -71,6 +81,12 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 HEARTBEAT_PERIOD_TICKS,
                 HEARTBEAT_PERIOD_TICKS
         );
+        checkpointTask = getServer().getScheduler().runTaskTimer(
+                this,
+                sessionController::checkpointOnlinePlayers,
+                CHECKPOINT_PERIOD_TICKS,
+                CHECKPOINT_PERIOD_TICKS
+        );
 
         String zoneDescription = bootstrapZoneInstance == null
                 ? "no bootstrap zone"
@@ -80,6 +96,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
     @Override
     public void onDisable() {
+        if (checkpointTask != null) {
+            checkpointTask.cancel();
+            checkpointTask = null;
+        }
         if (heartbeatTask != null) {
             heartbeatTask.cancel();
             heartbeatTask = null;
@@ -90,15 +110,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             sessionController = null;
         }
 
-        if (bootstrapZoneInstance != null) {
-            try {
-                bootstrapZoneInstance.stop();
-            } catch (SQLException exception) {
-                getLogger().log(Level.WARNING, "Could not mark bootstrap zone instance stopped", exception);
-            }
-            bootstrapZoneInstance = null;
-        }
-
+        stopBootstrapZoneQuietly();
         getServer().getMessenger().unregisterOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
         markBackendOfflineQuietly();
         closeDatabase();
@@ -138,6 +150,19 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperSessionController controller = sessionController;
         if (controller != null) {
             controller.heartbeat();
+        }
+    }
+
+    private void stopBootstrapZoneQuietly() {
+        if (bootstrapZoneInstance == null) {
+            return;
+        }
+        try {
+            bootstrapZoneInstance.stop();
+        } catch (SQLException exception) {
+            getLogger().log(Level.WARNING, "Could not mark bootstrap zone instance stopped", exception);
+        } finally {
+            bootstrapZoneInstance = null;
         }
     }
 
