@@ -25,6 +25,7 @@ final class AttachedPlayerSession {
     private String lastCommittedEntryPoint;
     private boolean frozen;
     private boolean transferStarted;
+    private boolean closed;
     private CompletableFuture<Long> commitTail;
 
     AttachedPlayerSession(
@@ -60,6 +61,10 @@ final class AttachedPlayerSession {
             String entryPoint,
             boolean force
     ) {
+        if (closed && !force) {
+            return CompletableFuture.completedFuture(stateVersion);
+        }
+
         byte[] payloadCopy = copy(payload);
         String normalizedZone = normalizeOptional(logicalZoneId);
         String normalizedEntryPoint = normalizeOptional(entryPoint);
@@ -83,7 +88,7 @@ final class AttachedPlayerSession {
     }
 
     synchronized boolean freezeForTransfer() {
-        if (frozen || transferStarted) {
+        if (closed || frozen || transferStarted) {
             return false;
         }
         frozen = true;
@@ -91,6 +96,9 @@ final class AttachedPlayerSession {
     }
 
     synchronized void transferStarted() {
+        if (closed) {
+            throw new IllegalStateException("Transfer cannot start after player attachment closed");
+        }
         if (!frozen) {
             throw new IllegalStateException("Transfer cannot start before player mutations are frozen");
         }
@@ -98,8 +106,15 @@ final class AttachedPlayerSession {
     }
 
     synchronized void transferFailedOrExpired() {
+        if (closed) {
+            return;
+        }
         transferStarted = false;
         frozen = false;
+    }
+
+    synchronized void closeAttachment() {
+        closed = true;
     }
 
     synchronized boolean isFrozen() {
@@ -108,6 +123,10 @@ final class AttachedPlayerSession {
 
     synchronized boolean isTransferStarted() {
         return transferStarted;
+    }
+
+    synchronized boolean isClosed() {
+        return closed;
     }
 
     synchronized long stateVersion() {
