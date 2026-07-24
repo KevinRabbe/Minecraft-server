@@ -101,7 +101,7 @@ class PendingUniqueDeliveryRepositoryIntegrationTest {
 
     @Test
     void issueCreatesOneOwnedItemInPendingCustodyAndIsIdempotent() throws SQLException {
-        UUID recipient = createPlayer("DeliveryRecipient");
+        UUID recipient = createPlayer("DeliveryUser");
         UUID operationId = UUID.randomUUID();
 
         PendingUniqueDeliveryIssueResult first = deliveries.issueNewIndividual(
