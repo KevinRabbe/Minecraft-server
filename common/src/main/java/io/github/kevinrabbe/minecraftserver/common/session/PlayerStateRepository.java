@@ -50,71 +50,18 @@ public final class PlayerStateRepository {
             String entryPoint,
             byte[] statePayload
     ) throws SQLException {
-        Objects.requireNonNull(sessionId, "sessionId");
-        String normalizedBackendId = requireNonBlank(backendId, "backendId");
-        if (expectedStateVersion < 0) {
-            throw new IllegalArgumentException("expectedStateVersion must not be negative");
-        }
-
-        String normalizedZoneId = normalizeOptional(logicalZoneId);
-        String normalizedEntryPoint = normalizeOptional(entryPoint);
-
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                SessionOwner owner = lockSessionOwner(connection, sessionId);
-                if (!owner.leaseValid()
-                        || !Objects.equals(owner.backendId(), normalizedBackendId)
-                        || owner.stateVersion() != expectedStateVersion
-                        || (owner.status() != SessionStatus.ACTIVE
-                        && owner.status() != SessionStatus.RECOVERING)) {
-                    throw new SessionConflictException("Stale, frozen, or non-owning player state commit rejected for session " + sessionId);
-                }
-
-                long newVersion;
-                try (PreparedStatement updateState = connection.prepareStatement("""
-                        UPDATE player_state
-                        SET state_version = state_version + 1,
-                            logical_zone_id = ?,
-                            entry_point = ?,
-                            state_payload = ?,
-                            updated_at = NOW()
-                        WHERE player_id = ?
-                          AND state_version = ?
-                        RETURNING state_version
-                        """)) {
-                    setNullableText(updateState, 1, normalizedZoneId);
-                    setNullableText(updateState, 2, normalizedEntryPoint);
-                    if (statePayload == null) {
-                        updateState.setNull(3, Types.BINARY);
-                    } else {
-                        updateState.setBytes(3, statePayload);
-                    }
-                    updateState.setObject(4, owner.playerId());
-                    updateState.setLong(5, expectedStateVersion);
-
-                    try (ResultSet results = updateState.executeQuery()) {
-                        if (!results.next()) {
-                            throw new SessionConflictException("Player state version changed concurrently");
-                        }
-                        newVersion = results.getLong("state_version");
-                    }
-                }
-
-                try (PreparedStatement updateSession = connection.prepareStatement("""
-                        UPDATE player_sessions
-                        SET state_version = ?
-                        WHERE network_session_id = ?
-                          AND state_version = ?
-                        """)) {
-                    updateSession.setLong(1, newVersion);
-                    updateSession.setObject(2, sessionId);
-                    updateSession.setLong(3, expectedStateVersion);
-                    if (updateSession.executeUpdate() != 1) {
-                        throw new SessionConflictException("Session version changed concurrently");
-                    }
-                }
-
+                long newVersion = commitWithinTransaction(
+                        connection,
+                        sessionId,
+                        backendId,
+                        expectedStateVersion,
+                        logicalZoneId,
+                        entryPoint,
+                        statePayload
+                );
                 connection.commit();
                 return newVersion;
             } catch (SQLException | RuntimeException exception) {
@@ -122,6 +69,93 @@ public final class PlayerStateRepository {
                 throw exception;
             }
         }
+    }
+
+    /**
+     * Applies the same fenced player-state commit inside a transaction owned by the caller.
+     *
+     * <p>This method never commits or rolls back. It exists for value-moving workflows that must atomically change
+     * the serialized live inventory and another authoritative table such as item custody. The caller must supply a
+     * connection with auto-commit disabled and must roll back the whole transaction on any failure.</p>
+     */
+    public long commitWithinTransaction(
+            Connection connection,
+            UUID sessionId,
+            String backendId,
+            long expectedStateVersion,
+            String logicalZoneId,
+            String entryPoint,
+            byte[] statePayload
+    ) throws SQLException {
+        Objects.requireNonNull(connection, "connection");
+        Objects.requireNonNull(sessionId, "sessionId");
+        String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        if (expectedStateVersion < 0) {
+            throw new IllegalArgumentException("expectedStateVersion must not be negative");
+        }
+        if (connection.getAutoCommit()) {
+            throw new IllegalArgumentException("commitWithinTransaction requires autoCommit=false");
+        }
+
+        String normalizedZoneId = normalizeOptional(logicalZoneId);
+        String normalizedEntryPoint = normalizeOptional(entryPoint);
+
+        SessionOwner owner = lockSessionOwner(connection, sessionId);
+        if (!owner.leaseValid()
+                || !Objects.equals(owner.backendId(), normalizedBackendId)
+                || owner.stateVersion() != expectedStateVersion
+                || (owner.status() != SessionStatus.ACTIVE
+                && owner.status() != SessionStatus.RECOVERING)) {
+            throw new SessionConflictException(
+                    "Stale, frozen, or non-owning player state commit rejected for session " + sessionId
+            );
+        }
+
+        long newVersion;
+        try (PreparedStatement updateState = connection.prepareStatement("""
+                UPDATE player_state
+                SET state_version = state_version + 1,
+                    logical_zone_id = ?,
+                    entry_point = ?,
+                    state_payload = ?,
+                    updated_at = NOW()
+                WHERE player_id = ?
+                  AND state_version = ?
+                RETURNING state_version
+                """)) {
+            setNullableText(updateState, 1, normalizedZoneId);
+            setNullableText(updateState, 2, normalizedEntryPoint);
+            if (statePayload == null) {
+                updateState.setNull(3, Types.BINARY);
+            } else {
+                updateState.setBytes(3, statePayload);
+            }
+            updateState.setObject(4, owner.playerId());
+            updateState.setLong(5, expectedStateVersion);
+
+            try (ResultSet results = updateState.executeQuery()) {
+                if (!results.next()) {
+                    throw new SessionConflictException("Player state version changed concurrently");
+                }
+                newVersion = results.getLong("state_version");
+            }
+        }
+
+        try (PreparedStatement updateSession = connection.prepareStatement("""
+                UPDATE player_sessions
+                SET state_version = ?
+                WHERE network_session_id = ?
+                  AND state_version = ?
+                """)) {
+            updateSession.setLong(1, newVersion);
+            updateSession.setObject(2, sessionId);
+            updateSession.setLong(3, expectedStateVersion);
+            if (updateSession.executeUpdate() != 1) {
+                throw new SessionConflictException("Session version changed concurrently");
+            }
+        }
+
+        return newVersion;
     }
 
     private static SessionOwner lockSessionOwner(Connection connection, UUID sessionId) throws SQLException {
