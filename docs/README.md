@@ -4,47 +4,63 @@ This directory is the canonical planning and architecture source for the project
 
 The project is a Minecraft-first persistent multiplayer game/server framework optimized for **repeatable retained player-hours per developer-hour and recurring maintenance cost**.
 
-## Documentation structure
+## Canonical hierarchy
 
-### `architecture/`
-System contracts that implementation must preserve. These documents describe boundaries, authority, state, transactions, gameplay systems, operations, and extension points. They should change only when an architectural decision changes.
+Read [`planning/PLANNING_HIERARCHY.md`](planning/PLANNING_HIERARCHY.md) first when documents appear to disagree.
 
-### `planning/`
-V1 scope, implementation order, and unresolved decisions. This is where work sequencing and explicit deferrals live.
-
-### `reference/`
-Stable design laws, terminology, and acceptance criteria used across the rest of the repository.
-
-### `v1/`
-Legacy compatibility paths from the first planning pass. These files are being retained only so old links remain useful; canonical content lives in the directories above.
-
-## Read first
+Highest-level product/planning order:
 
 1. [`reference/DESIGN_LAWS.md`](reference/DESIGN_LAWS.md)
 2. [`planning/V1_SCOPE.md`](planning/V1_SCOPE.md)
-3. [`architecture/SYSTEM_OVERVIEW.md`](architecture/SYSTEM_OVERVIEW.md)
-4. [`architecture/WORLD_ZONES_INSTANCES.md`](architecture/WORLD_ZONES_INSTANCES.md)
-5. [`architecture/AUTHORITY_MODEL.md`](architecture/AUTHORITY_MODEL.md)
-6. [`architecture/TRANSACTIONS_AND_ANTI_DUPE.md`](architecture/TRANSACTIONS_AND_ANTI_DUPE.md)
-7. [`planning/IMPLEMENTATION_ORDER.md`](planning/IMPLEMENTATION_ORDER.md)
+3. [`planning/MASTER_ROADMAP.md`](planning/MASTER_ROADMAP.md)
+4. [`planning/IMPLEMENTATION_ORDER.md`](planning/IMPLEMENTATION_ORDER.md)
+5. [`reference/ACCEPTANCE_CRITERIA.md`](reference/ACCEPTANCE_CRITERIA.md)
+6. [`planning/OPEN_DECISIONS.md`](planning/OPEN_DECISIONS.md)
+
+Architecture documents implement those locked decisions and must be updated before code when a product-level decision changes.
+
+## Documentation structure
+
+### `architecture/`
+System contracts implementation must preserve: authority, state, transactions, gameplay-system boundaries, operations, and extension points. Architecture is completed/updated **before** corresponding feature code proceeds.
+
+### `planning/`
+Canonical scope, roadmap, current execution order, planning precedence, and genuinely unresolved decisions.
+
+### `reference/`
+Stable design laws, terminology, and acceptance criteria.
+
+### `v1/`
+Legacy compatibility paths from the first planning pass. These files exist only so old links remain useful. They are not authoritative over the canonical documents above.
+
+## Current product summary
+
+- compact purpose-built gameplay zones; concurrency scales by instance replication;
+- PostgreSQL durable authority; Velocity routing; Paper live gameplay under explicit player-state ownership;
+- atomic/idempotent value movement with explicit custody, provenance, escrow/pending delivery, and economic evidence;
+- Coin pocket + protected Bank Manager;
+- player-driven Bazaar for fungible commodities and Auction House for individualized items;
+- crafting with bounded rolled gear quality and a narrow meaningful V1 item pool;
+- launch active skill cap 50, later 75, much later 100;
+- Portal/Map scalable PvE plus mob-family Bounties as the launch PvE backbone;
+- Bazaar-tradable bounty materials and category pouches/specialized gear;
+- server-authoritative historical PvE leaderboards;
+- clans plus previously locked opt-in ranked 1v1 PvP and controlled clan war;
+- player voting determines future world expansion direction;
+- ordinary districts have no developer-authored physical blueprint or minimum block count;
+- Nether/End are later major power milestones; they raise practical gear ceilings rather than gating Map difficulty numbers;
+- Day 0 begins canonical public history; private/closed beta state is disposable.
 
 ## Decision status convention
 
-Documents use these meanings:
+- **Locked** — architectural/product rule; implementation should conform unless intentionally reopened.
+- **Planned** — expected behavior whose internal implementation may still change.
+- **Balance/config** — numbers/content tuning to measure in playtests; not architecture.
+- **Deferred** — intentionally outside Day-0/V1 requirement.
+- **Open** — genuinely unresolved and listed in `planning/OPEN_DECISIONS.md`.
 
-- **Locked** — architectural rule; implementation should conform unless the decision is intentionally reopened.
-- **Planned** — expected V1 behavior, but implementation detail may still change without altering the architecture.
-- **Balance/config** — numbers and tuning values to be measured in playtests, not hardcoded into architecture.
-- **Deferred** — intentionally outside the current V1 launch/access scope.
-- **Open** — unresolved and listed in `planning/OPEN_DECISIONS.md`.
+## Development rule
 
-## Core summary
+Finish planning consistency, then complete the cross-cutting architecture contracts for all settled V1 systems. Only after that continue feature implementation in dependency order.
 
-- Minecraft supplies movement, inventory UI, building primitives, combat primitives, enchanting, brewing, multiplayer, and other useful mechanics where they already solve the problem.
-- Custom systems supply persistent progression, economy, cross-instance state, social systems, controlled resource generation, provenance, projects, and network orchestration.
-- Gameplay is organized into **small, dense, purpose-built zones**.
-- Concurrent capacity scales by **replicating zone instances**, not by making maps physically larger.
-- A **zone** is gameplay, an **instance** is one live copy, and a **backend** is infrastructure hosting one or more instances.
-- PostgreSQL is durable authority for persistent network state and critical transactions.
-- Velocity routes players; Paper owns moment-to-moment gameplay while it holds the active player-state lease.
-- Persistent valuable state must never depend on the lifetime of a disposable zone instance.
+Do not spend architecture time debating cheap tuning values such as exact damage, XP requirements, interest rates, boss HP, Map scaling, or bounty kill counts.
