@@ -232,7 +232,7 @@ class PendingUniqueDeliveryRepositoryIntegrationTest {
         assertArrayEquals(new byte[]{9}, states.load(recipient).statePayload());
         assertEquals(1, count("SELECT COUNT(*) FROM item_provenance"));
         assertEquals(1, count("SELECT COUNT(*) FROM economic_ledger"));
-        assertEquals(2, count("SELECT COUNT(*) FROM processed_operations"));
+        assertEquals(1, count("SELECT COUNT(*) FROM processed_operations"));
     }
 
     @Test
