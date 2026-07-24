@@ -7,14 +7,10 @@ import java.util.UUID;
 public record ItemLocation(ItemLocationKind kind, UUID locationId) {
     public ItemLocation {
         kind = Objects.requireNonNull(kind, "kind");
-        if ((kind == ItemLocationKind.PLAYER_INVENTORY
-                || kind == ItemLocationKind.PENDING_DELIVERY
-                || kind == ItemLocationKind.AUCTION_ESCROW)
-                && locationId == null) {
+        if (requiresLocationId(kind) && locationId == null) {
             throw new IllegalArgumentException(kind + " requires a locationId");
         }
-        if ((kind == ItemLocationKind.QUARANTINE || kind == ItemLocationKind.DESTROYED)
-                && locationId != null) {
+        if (!requiresLocationId(kind) && locationId != null) {
             throw new IllegalArgumentException(kind + " must not carry a locationId");
         }
     }
@@ -37,11 +33,26 @@ public record ItemLocation(ItemLocationKind kind, UUID locationId) {
         );
     }
 
+    public static ItemLocation clanStorage(UUID clanId) {
+        return new ItemLocation(ItemLocationKind.CLAN_STORAGE, Objects.requireNonNull(clanId, "clanId"));
+    }
+
+    public static ItemLocation warCustody(UUID warId) {
+        return new ItemLocation(ItemLocationKind.WAR_CUSTODY, Objects.requireNonNull(warId, "warId"));
+    }
+
     public static ItemLocation quarantine() {
         return new ItemLocation(ItemLocationKind.QUARANTINE, null);
     }
 
     public static ItemLocation destroyed() {
         return new ItemLocation(ItemLocationKind.DESTROYED, null);
+    }
+
+    private static boolean requiresLocationId(ItemLocationKind kind) {
+        return switch (kind) {
+            case PLAYER_INVENTORY, PENDING_DELIVERY, AUCTION_ESCROW, CLAN_STORAGE, WAR_CUSTODY -> true;
+            case QUARANTINE, DESTROYED -> false;
+        };
     }
 }
