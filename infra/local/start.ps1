@@ -112,7 +112,10 @@ try {
         Start-JavaProcess $server.Id $directory $arguments @{
             BACKEND_ID = $server.Id
             SERVER_ID = $server.Id
-            SERVER_ROLE = $server.Role
+            BOOTSTRAP_ZONE_ID = $server.Zone
+            BOOTSTRAP_ZONE_TEMPLATE = $server.ZoneTemplate
+            BOOTSTRAP_ZONE_SOFT_CAPACITY = $server.ZoneSoftCapacity
+            BOOTSTRAP_ZONE_HARD_CAPACITY = $server.ZoneHardCapacity
         } | Out-Null
     }
 
@@ -124,7 +127,8 @@ try {
     Write-Host ""
     Write-Host "Local network is running." -ForegroundColor Green
     Write-Host "Connect Minecraft to localhost:$($LocalNetwork.ProxyPort)"
-    Write-Host "Use /server to switch between configured backends during M0 testing."
+    Write-Host "Development transfer proof: /devzone starter-woods"
+    Write-Host "Do not use direct /server switching for persistent-state tests; it intentionally lacks a transfer ticket."
     Write-Host "Press Ctrl+C in this window to stop every Minecraft process cleanly."
 
     while ($true) {
