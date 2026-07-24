@@ -35,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PostgreSqlCorrectnessIntegrationTest {
     private static final Duration LEASE = Duration.ofSeconds(30);
     private static final Duration TICKET_LIFETIME = Duration.ofSeconds(30);
+    private static final Duration HEARTBEAT_FRESHNESS = Duration.ofSeconds(30);
 
     private Database database;
     private DataSource dataSource;
@@ -43,6 +44,7 @@ class PostgreSqlCorrectnessIntegrationTest {
     private PlayerStateRepository states;
     private BackendRegistry backends;
     private ZoneInstanceRegistry instances;
+    private TransferRoutingRepository transferRouting;
 
     @BeforeAll
     void openDatabase() {
@@ -61,6 +63,7 @@ class PostgreSqlCorrectnessIntegrationTest {
         states = new PlayerStateRepository(dataSource);
         backends = new BackendRegistry(dataSource);
         instances = new ZoneInstanceRegistry(dataSource);
+        transferRouting = new TransferRoutingRepository(dataSource, HEARTBEAT_FRESHNESS);
     }
 
     @BeforeEach
@@ -159,7 +162,7 @@ class PostgreSqlCorrectnessIntegrationTest {
     }
 
     @Test
-    void transferFreezesSourceWritesBindsTargetZoneAndRejectsReplay() throws SQLException {
+    void transferFreezesSourceWritesBindsRoutedTargetAndRejectsReplay() throws SQLException {
         backends.registerOnline("paper-source", 1);
         backends.registerOnline("paper-target", 0);
 
@@ -196,6 +199,11 @@ class PostgreSqlCorrectnessIntegrationTest {
                         new byte[]{7}
                 )
         );
+
+        RoutedTransfer routed = transferRouting.route(ticket.transferId()).orElseThrow();
+        assertEquals(correctMineInstance, routed.targetInstanceId());
+        assertEquals("paper-target", routed.targetBackendId());
+        assertEquals(ticket.transferId(), routed.transferId());
 
         assertThrows(
                 SessionConflictException.class,
@@ -234,6 +242,58 @@ class PostgreSqlCorrectnessIntegrationTest {
     }
 
     @Test
+    void transferRoutingUsesMinecraftIdentityAndReroutesAnUnhealthyTarget() throws SQLException {
+        backends.registerOnline("paper-source", 1);
+        backends.registerOnline("paper-a", 0);
+        backends.registerOnline("paper-b", 0);
+
+        UUID firstInstance = registerActiveInstance("woods", "paper-a", 10, 20, 25);
+        UUID secondInstance = registerActiveInstance("woods", "paper-b", 5, 20, 25);
+
+        UUID minecraftUuid = UUID.randomUUID();
+        UUID playerId = identities.ensurePlayer(minecraftUuid, "RouteTest");
+        SessionLease source = sessions.openSession(playerId, "paper-source", null, LEASE);
+        TransferTicket ticket = sessions.beginTransfer(
+                source.sessionId(),
+                "paper-source",
+                "woods",
+                source.stateVersion(),
+                TICKET_LIFETIME
+        );
+
+        RoutedTransfer firstRoute = transferRouting.routeForPlayer(minecraftUuid).orElseThrow();
+        assertEquals(ticket.transferId(), firstRoute.transferId());
+        assertEquals(firstInstance, firstRoute.targetInstanceId());
+        assertEquals(firstRoute, transferRouting.findRoutedTransfer(minecraftUuid).orElseThrow());
+
+        backends.markOffline("paper-a");
+        RoutedTransfer rerouted = transferRouting.route(ticket.transferId()).orElseThrow();
+
+        assertEquals(secondInstance, rerouted.targetInstanceId());
+        assertEquals("paper-b", rerouted.targetBackendId());
+        assertNotEquals(firstRoute.targetInstanceId(), rerouted.targetInstanceId());
+    }
+
+    @Test
+    void transferRoutingReturnsEmptyWhenNoHealthyInstanceExists() throws SQLException {
+        backends.registerOnline("paper-source", 1);
+
+        UUID minecraftUuid = UUID.randomUUID();
+        UUID playerId = identities.ensurePlayer(minecraftUuid, "NoRoute");
+        SessionLease source = sessions.openSession(playerId, "paper-source", null, LEASE);
+        sessions.beginTransfer(
+                source.sessionId(),
+                "paper-source",
+                "missing-zone",
+                source.stateVersion(),
+                TICKET_LIFETIME
+        );
+
+        assertTrue(transferRouting.routeForPlayer(minecraftUuid).isEmpty());
+        assertTrue(transferRouting.findRoutedTransfer(minecraftUuid).isEmpty());
+    }
+
+    @Test
     void routerPacksHealthyInstancesAndIgnoresUnavailableBackends() throws SQLException {
         backends.registerOnline("paper-a", 20);
         backends.registerOnline("paper-b", 20);
@@ -244,7 +304,7 @@ class PostgreSqlCorrectnessIntegrationTest {
         UUID unavailable = registerActiveInstance("woods", "paper-b", 19, 20, 25);
         backends.markOffline("paper-b");
 
-        ZoneRouter router = new ZoneRouter(dataSource, Duration.ofSeconds(30));
+        ZoneRouter router = new ZoneRouter(dataSource, HEARTBEAT_FRESHNESS);
         Optional<ZoneRoute> route = router.findPreferredActiveInstance("woods");
 
         assertTrue(route.isPresent());
