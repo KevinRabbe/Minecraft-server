@@ -47,6 +47,7 @@ public final class CoinWalletRepository {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                lockOperation(connection, operationId);
                 Optional<CoinWalletMutationResult> processed = findProcessedMutation(
                         connection,
                         operationId,
@@ -109,6 +110,7 @@ public final class CoinWalletRepository {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                lockOperation(connection, operationId);
                 Optional<CoinWalletMutationResult> processed = findProcessedMutation(
                         connection,
                         operationId,
@@ -180,6 +182,7 @@ public final class CoinWalletRepository {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                lockOperation(connection, operationId);
                 Optional<CoinTransferResult> processed = findProcessedTransfer(
                         connection,
                         operationId,
@@ -270,6 +273,22 @@ public final class CoinWalletRepository {
             } catch (SQLException | RuntimeException exception) {
                 rollbackQuietly(connection, exception);
                 throw exception;
+            }
+        }
+    }
+
+    /**
+     * Serializes simultaneous retries of the same operation_id before the idempotency lookup.
+     * Hash collisions only serialize unrelated operations; they cannot corrupt correctness.
+     */
+    private static void lockOperation(Connection connection, UUID operationId) throws SQLException {
+        long lockKey = operationId.getMostSignificantBits() ^ operationId.getLeastSignificantBits();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT pg_advisory_xact_lock(?)")) {
+            statement.setLong(1, lockKey);
+            try (ResultSet ignored = statement.executeQuery()) {
+                if (!ignored.next()) {
+                    throw new SQLException("PostgreSQL did not acquire operation advisory lock");
+                }
             }
         }
     }
