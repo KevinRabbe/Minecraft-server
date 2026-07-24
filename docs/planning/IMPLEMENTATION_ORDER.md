@@ -1,10 +1,10 @@
 # Implementation Order
 
-The current objective is to finish the V1 architecture contract before returning to feature implementation. Do not let milestone coding redefine unresolved architecture accidentally.
+**Current phase: Phase B — infrastructure/correctness foundation.** Phase A is complete enough to begin implementation. When coding reaches a genuinely unresolved architectural choice, stop at that boundary, update the contract, then continue; normal implementation details do not require another planning phase.
 
-## Phase A — architecture freeze
+## Phase A — architecture freeze — COMPLETE
 
-Complete and review the canonical documents under `docs/architecture`:
+The canonical documents under `docs/architecture` now cover:
 
 1. system overview and module boundaries
 2. world/zone/instance/backend model
@@ -21,7 +21,7 @@ Complete and review the canonical documents under `docs/architecture`:
 
 Architecture is sufficiently frozen when implementation teams can answer "who owns this state?", "what transaction protects this operation?", and "what survives an instance crash?" without inventing new rules.
 
-## Phase B — infrastructure/correctness foundation
+## Phase B — infrastructure/correctness foundation — ACTIVE
 
 1. preserve the existing local Windows bootstrap and Gradle/Paper/Velocity skeleton
 2. establish PostgreSQL schema/migrations for identity, session ownership, versioning, and critical ledgers
