@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.control.ZoneRoute;
+import io.github.kevinrabbe.minecraftserver.common.control.ZoneRouter;
 import io.github.kevinrabbe.minecraftserver.common.session.BackendSessionLeaseRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
@@ -8,6 +10,8 @@ import io.github.kevinrabbe.minecraftserver.common.session.SessionConflictExcept
 import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRecoveryRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRoutingRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.TransferTicket;
+import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -35,6 +39,7 @@ import java.util.logging.Level;
 /** Owns the Paper-side attachment of authenticated Minecraft players to exclusive persistent session leases. */
 final class PaperSessionController implements Listener {
     private static final Duration SESSION_LEASE = Duration.ofSeconds(60);
+    private static final Duration TRANSFER_TICKET_LIFETIME = Duration.ofSeconds(30);
     private static final Duration PENDING_LOGIN_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration ROUTE_HEARTBEAT_FRESHNESS = Duration.ofSeconds(15);
 
@@ -55,6 +60,7 @@ final class PaperSessionController implements Listener {
     private final BackendSessionLeaseRepository backendLeases;
     private final TransferRecoveryRepository transferRecovery;
     private final TransferRoutingRepository transferRouting;
+    private final ZoneRouter zoneRouter;
 
     private final ConcurrentHashMap<UUID, PendingSession> pendingByMinecraftUuid = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, SessionLease> activeByMinecraftUuid = new ConcurrentHashMap<>();
@@ -67,6 +73,7 @@ final class PaperSessionController implements Listener {
         this.backendLeases = new BackendSessionLeaseRepository(dataSource);
         this.transferRecovery = new TransferRecoveryRepository(dataSource);
         this.transferRouting = new TransferRoutingRepository(dataSource, ROUTE_HEARTBEAT_FRESHNESS);
+        this.zoneRouter = new ZoneRouter(dataSource, ROUTE_HEARTBEAT_FRESHNESS);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -121,6 +128,49 @@ final class PaperSessionController implements Listener {
 
         SessionLease finalLease = lease;
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> disconnectOrdinarySession(finalLease));
+    }
+
+    /** Begins a cross-backend handoff for a logical gameplay zone. Used by the temporary dev command for now. */
+    boolean requestZoneTransfer(Player player, String zoneId) {
+        String normalizedZoneId = requireZoneId(zoneId);
+        SessionLease lease = activeByMinecraftUuid.get(player.getUniqueId());
+        if (lease == null) {
+            player.sendMessage(Component.text("No active persistent session is attached to this backend."));
+            return false;
+        }
+
+        try {
+            Optional<ZoneRoute> candidate = zoneRouter.findPreferredActiveInstance(normalizedZoneId);
+            if (candidate.isEmpty()) {
+                player.sendMessage(Component.text("No healthy instance is currently available for zone " + normalizedZoneId + "."));
+                return false;
+            }
+            if (backendId.equals(candidate.orElseThrow().backendId())) {
+                player.sendMessage(Component.text(
+                        "Zone " + normalizedZoneId + " is hosted on this backend; the cross-backend dev route is not needed."
+                ));
+                return false;
+            }
+
+            TransferTicket ticket = sessions.beginTransfer(
+                    lease.sessionId(),
+                    backendId,
+                    normalizedZoneId,
+                    lease.stateVersion(),
+                    TRANSFER_TICKET_LIFETIME
+            );
+
+            player.sendPluginMessage(plugin, TransferPluginMessage.CHANNEL, TransferPluginMessage.encode(ticket.transferId()));
+            player.sendMessage(Component.text("Routing to zone " + normalizedZoneId + "..."));
+            return true;
+        } catch (SessionConflictException exception) {
+            player.sendMessage(SESSION_CONFLICT_MESSAGE);
+            return false;
+        } catch (SQLException exception) {
+            plugin.getLogger().log(Level.WARNING, "Could not begin zone transfer for " + player.getUniqueId(), exception);
+            player.sendMessage(STATE_UNAVAILABLE_MESSAGE);
+            return false;
+        }
     }
 
     /** Called from the plugin's asynchronous heartbeat task. */
@@ -255,6 +305,13 @@ final class PaperSessionController implements Listener {
         } catch (SQLException exception) {
             plugin.getLogger().log(Level.WARNING, "Could not release player session " + lease.sessionId(), exception);
         }
+    }
+
+    private static String requireZoneId(String zoneId) {
+        if (zoneId == null || !zoneId.matches("[a-z0-9][a-z0-9_-]{0,63}")) {
+            throw new IllegalArgumentException("zoneId must match [a-z0-9][a-z0-9_-]{0,63}");
+        }
+        return zoneId;
     }
 
     private record PendingSession(SessionLease lease, Instant createdAt) {
