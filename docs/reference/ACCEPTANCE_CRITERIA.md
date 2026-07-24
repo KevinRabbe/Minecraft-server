@@ -1,155 +1,292 @@
 # V1 Acceptance Criteria
 
-V1 is accepted only when the complete player/economy loop survives normal use and deliberate failure without duplication or authority corruption.
+V1 is accepted only when the complete persistent-world loop survives normal use and deliberate failure without duplication, double rewards, ambiguous ownership, invalid votes, or authority corruption.
 
-## A. Join and persistent identity
+Exact tuning values are not release gates unless they make the game unusable. Structural correctness is.
+
+## A. Join, identity, and persistent state
 
 A fresh player can:
 
 1. connect through Velocity;
 2. receive stable network identity/session;
 3. enter the starter region;
-4. disconnect/reconnect without duplicate player records or state loss beyond the documented checkpoint window.
+4. disconnect/reconnect without duplicate player records;
+5. preserve committed inventory, equipment, Coins, bank state, skills, bounty progression, clan membership, and logical location;
+6. recover safely if the previous backend/session lease is stale.
 
-## B. Compact zone routing/instancing
+## B. Zone routing and cross-backend ownership
 
-For at least Woodcutting, Mining, Farming, and one PvE zone:
+For starter gameplay and at least one disposable PvE activity:
 
-1. player requests/enters the logical zone;
-2. router selects an existing suitable instance;
-3. additional instances are created/opened only when that zone's concurrent demand requires them;
-4. players elsewhere on the network do not affect the zone's instance count;
-5. empty resettable instances can retire/recreate safely;
-6. progression/economy is identical across equivalent copies;
-7. player does not need to know backend/instance infrastructure IDs.
+1. players request logical gameplay zones, never backend IDs;
+2. router selects a suitable live instance/backend;
+3. additional instances are created only when that zone's concurrent demand requires them;
+4. one backend is the only active writer for a player's live persistent state;
+5. transfer freezes/commits/releases/claims with version fencing;
+6. stale source writes and ticket replays are rejected;
+7. instance/backend failure cannot duplicate inventory, Coins, XP, Map/Bounty rewards, or unique items;
+8. unavailable destinations fall back safely.
 
-## C. Authorized gathering and progression
+## C. Asset identity and economic evidence
 
-For each launch gathering skill:
+1. fungible commodities use quantity accounting rather than per-unit identities;
+2. individualized items receive stable `item_instance_id` custody/provenance;
+3. every valuable asset has exactly one authoritative location at a time;
+4. malformed/forged/stale live representations are rejected/quarantined/rebuilt from authority;
+5. full inventory can receive transaction output through safe pending delivery;
+6. economically meaningful operations have stable idempotency/operation identity;
+7. committed economic evidence/ledger/provenance is append-only where required;
+8. retries with the same operation identity cannot create another result.
 
-1. valid source generates configured resources/XP once;
-2. player-placed/replayed/invalid sources do not mint XP/value;
-3. skill benefit and XP eligibility are separately enforceable;
-4. use requirements block use without blocking ownership/trading;
-5. checkpoint/reconnect preserves committed progression.
+## D. Coin pocket and Bank Manager
 
-## D. Cross-backend state transfer
+### Pocket/spendable balance
 
-With at least two Paper backends available:
+- integer/fixed-point arithmetic only;
+- no negative spendable balance;
+- concurrent spending cannot exceed owned balance;
+- configured PvE death loss destroys only the intended pocket amount exactly once.
 
-1. player state has exactly one active writer;
-2. source freezes/commits and increments state version;
-3. target claims ownership through valid transfer ticket;
-4. stale source write is rejected;
-5. interruption/retry cannot duplicate inventory/Coins/XP;
-6. unavailable target routes player to valid fallback/retry path.
+### Protected bank
 
-## E. Item identity and inventory
+- deposited money is protected from ordinary PvE death loss;
+- deposits/withdrawals are atomic and idempotent;
+- configured bank capacity is enforced;
+- upgrades change configured capacity/interest eligibility without corrupting balance;
+- daily interest, when enabled, credits at most once per eligible period and is recorded as an explicit faucet;
+- changing interest/capacity configuration does not corrupt existing bank balances.
 
-1. stackable commodities use quantity accounting rather than per-unit identity;
-2. selected unique/non-fungible item receives stable `item_instance_id`;
-3. same instance ID cannot become authoritative in two locations;
-4. malformed/conflicting representation is rejected/quarantined rather than silently accepted;
-5. full inventory can receive transaction result through pending delivery without rollback/duplication.
+## E. Bazaar
 
-## F. Economy
+For at least one commodity before broad content expansion:
 
-### Wallet
-- fixed-point integer arithmetic only
-- no negative spendable balance
-- escrowed funds cannot be double-spent
+1. buy orders reserve/escrow sufficient Coin;
+2. sell orders reserve/escrow owned quantity;
+3. best-price/oldest-time matching is deterministic;
+4. partial fills preserve exact remaining quantity/value;
+5. cancel/fill races have one valid winner and never return sold escrow twice;
+6. offline settlement is correct;
+7. duplicate/retried fills do not execute twice;
+8. fees are explicit sinks;
+9. commodity + Coin accounting reconciles after high concurrency/crash injection;
+10. bounty materials and other configured fungible resources use the same market mechanism rather than bespoke pricing.
 
-### Bazaar
-- buy/sell order escrow
-- deterministic price-time matching
-- partial fills
-- cancellation returns only remaining escrow
-- offline settlement
-- retrying a committed fill does not fill twice
+## F. Auction House and individualized gear
 
-### Auction House
-- listing removes item from player control
-- purchase atomically moves Coin/item ownership
-- cancel/sale is exactly once
+1. listing an individualized item removes it from player control into authoritative escrow;
+2. one listing references the exact unique item instance;
+3. simultaneous buyers result in at most one successful purchase;
+4. cancel/purchase races cannot give the item to both seller and buyer;
+5. sale/cancel settlement works while the other party is offline;
+6. exact item roll quality/upgrades are visible/inspectable before purchase where relevant;
+7. finished gear remains tradable unless an explicit documented exception exists;
+8. retry/restart cannot duplicate the listed item or Coin proceeds.
 
-### Secure trade
-- offer changes clear confirmation
-- both sides settle atomically
-- cancellation/retry cannot duplicate value
+## G. Crafting, rolls, upgrade, and salvage
 
-### Salvage/bootstrap NPC
-- configured source/sink works
-- no trivial NPC/recipe/compression arbitrage loop
+1. a successful craft consumes all required inputs and creates outputs in one authoritative operation;
+2. duplicate craft requests return/refer to the original result rather than rerolling another item;
+3. individualized gear stores persistent normalized roll quality;
+4. changing balance definitions changes derived current stats without changing historical roll quality;
+5. configured roll ranges remain bounded per item (target envelope roughly 10–30% low-to-high relevant value);
+6. most ordinary rolls remain usable; perfect rolls are not required for progression;
+7. upgrade state is separate from intrinsic roll quality;
+8. salvage destroys exactly the intended unique item and creates configured output once;
+9. craft/Bazaar/transfer races cannot spend the same commodity twice.
 
-## G. Enchanting and brewing
+## H. Skills and staged caps
 
-1. normal Minecraft XP is the operational enchanting resource;
-2. Enchanting skill amplifier applies to configured other-skill XP only;
-3. Enchanting cannot amplify itself;
-4. bootstrap brewing inputs keep brewing functional before Nether unlock;
-5. bootstrap supplier does not require Nether backend/access to exist at launch.
+For Mining and Crafting first, then all launch skills:
 
-## H. Clans and leaderboards
+1. valid authoritative actions award configured XP once;
+2. replayed/player-placed/invalid sources cannot mint duplicate XP/value;
+3. concurrent valid XP events sum exactly without lost updates;
+4. skill benefits and XP eligibility are separately enforceable;
+5. unlocks/requirements derive consistently from committed progression;
+6. active launch cap is 50;
+7. XP does not accumulate invisibly beyond the active cap;
+8. test transition 50 -> 75 reopens progression without duplicating earlier rewards;
+9. test transition 75 -> 100 behaves the same way;
+10. use requirements may block use without blocking ownership/trading.
 
-1. clan create/invite/leave/kick/roles persist across reconnect/backends;
-2. War Rating and skill XP produce deterministic global ranking;
-3. Top-N cached view and personal rank can be read without rebuilding the entire ranking on every request;
-4. town prestige display can use an older valid snapshot during transient read failure.
+Enchanting/brewing retain their separately documented Minecraft integration and may not bypass staged-cap or source-gating invariants.
 
-## I. Ranked PvP
+## I. Authorized gathering/starter economy bridge
 
-1. opt-in player enters isolated match instance;
-2. standardized temporary loadout replaces economic advantage;
+For starter Woodcutting/Foraging, Mining, Farming, and ordinary PvE sources:
+
+1. valid source creates configured commodity/XP once;
+2. invalid/replayed/player-manufactured source cannot mint value where not intended;
+3. equivalent zone instances use identical persistent progression/economy rules;
+4. resource generation, transfer, Bazaar sale, crafting use, reconnect, and restart preserve exact accounting.
+
+## J. Portal/Map PvE
+
+### Instance lifecycle
+
+1. one authorized run creates one isolated PvE instance/run identity;
+2. participants/objective state are server-authoritative;
+3. completion/failure transition occurs once;
+4. completion reward occurs once;
+5. disposable runtime can be cleaned up without losing persistent result/evidence;
+6. disconnect/death/restart follows a documented deterministic policy.
+
+### Map object lifecycle
+
+1. an individualized Map may be owned/traded/listed before opening;
+2. opening consumes/moves the exact Map exactly once;
+3. open/trade/AH races cannot both succeed;
+4. one Map cannot create two valid runs;
+5. run configuration records difficulty/environment/enemy family/objective/modifiers/generation/balance context;
+6. failed run does not silently return the consumed Map;
+7. successful run can create configured Map materials/new nearby Maps once.
+
+### Difficulty
+
+1. Map difficulty is independent of player skill/character level permission;
+2. a player may attempt content above their practical power;
+3. scaling is data/config-driven and technically bounded;
+4. changing the curve does not mutate historical run evidence;
+5. major gear expansions raise practical clear ceilings rather than unlocking permission to enter difficulty numbers.
+
+## K. PvE leaderboards/history
+
+1. solo/group clears are derived from authoritative completed-run records;
+2. one run cannot create multiple competing completion records;
+3. clear records retain time, participants, Map configuration, relevant loadout context, balance version, timestamp, and world era;
+4. highest/fastest views are derived read models rather than mutable client scores;
+5. pre-Nether/pre-power-jump records remain historically queryable after later gear expansions;
+6. leaderboard prestige does not grant required combat power.
+
+## L. Bounties
+
+For one family/tier first, then the configured V1 families:
+
+1. contract fee is paid exactly once as an explicit Coin sink;
+2. only eligible category mob kills advance the bounty;
+3. duplicate/replayed kills do not advance twice;
+4. summon eligibility becomes available only after the configured requirement;
+5. one authorization cannot summon multiple valid bosses unless explicitly designed that way;
+6. boss completion/reward applies exactly once;
+7. failure/restart/disconnect follows deterministic contract/summon semantics;
+8. higher tiers can introduce higher-grade family materials;
+9. all configured bounty-family materials are Bazaar-tradable;
+10. personal completion is not required merely to buy/own/craft with a tradable family material.
+
+### Bounty pouches
+
+- each pouch stores only its configured family commodities;
+- capacity upgrades are authoritative;
+- moving/selling from a pouch cannot duplicate quantity;
+- pouch custody does not make the commodity non-tradable.
+
+## M. Clans
+
+1. create/invite/leave/kick/role lifecycle persists across reconnect/backends;
+2. treasury operations are atomic/audited;
+3. shared-storage permissions cannot be bypassed by lower roles;
+4. simultaneous withdrawals cannot duplicate commodities/unique items;
+5. leaving/kicking cannot create ambiguous ownership of personal versus clan assets;
+6. clan size is configurable without changing authority semantics.
+
+## N. Ranked PvP and clan war
+
+### Ranked 1v1
+
+1. explicit opt-in isolated match;
+2. standardized temporary loadout replaces persistent economic advantage;
 3. normal persistent inventory is not mutated by match inventory;
 4. result/rating applies exactly once;
 5. match instance can be discarded safely.
 
-## J. Clan war
+### Clan war
 
 1. challenge/accept/roster lifecycle works;
 2. real economic loadout enters explicit custody/snapshot;
 3. disposable match runtime cannot duplicate original gear;
-4. configured consumable/durability effects settle once;
-5. War Rating/history updates once;
-6. deliberate match-backend failure follows defined recovery/abort policy without duplication.
+4. configured consumable/durability/economic effects settle once;
+5. result/rating/history updates once;
+6. deliberate war-instance failure follows documented recovery/abort semantics without duplication.
 
-## K. Community project/history
+## O. World expansion voting, districts, and Chronicle
 
-1. material contribution removes player value and increases global project history once;
-2. project progress is the same regardless of City/zone instance;
-3. controlled build region permissions work;
-4. completion creates versioned archive metadata/checksum;
-5. historical entitlement/reward can be issued only once per qualifying player;
-6. completion can execute generic `ENABLE_FEATURE(feature_id)` action;
-7. Nether remains inaccessible before its feature unlock.
+1. candidate set/version is authoritative;
+2. vote eligibility/uniqueness is enforced server-side;
+3. retries cannot count a vote twice;
+4. resolution is deterministic and recorded immutably enough for audit/history;
+5. developers/admin tools cannot silently replace a legitimate result without an explicit audited recovery action;
+6. selected feature/capability transition happens exactly once;
+7. ordinary district physical form has no developer-authored blueprint, required appearance, or minimum block count;
+8. player construction cannot be rejected merely for being smaller/different than an imagined canonical district;
+9. Chronicle/history can record Day 0, votes/results, feature unlocks, significant clears, and other authoritative events;
+10. historical recognition remains prestige/record, not required mechanical power.
 
-## L. Failure tests
+Generic community-project/contribution infrastructure may be accepted separately for explicitly defined projects, but it cannot become an undocumented mandatory progress bar for ordinary voted districts.
 
-Deliberately test:
+## P. Nether/End progression boundary
 
-- Paper crash during ordinary play
-- Paper crash during/around transfer
-- repeated transfer request/ticket replay
-- database response lost after successful transaction commit
-- duplicate transaction request
-- player disconnect during transaction-safe and unsafe states
-- Velocity restart
-- PostgreSQL temporary unavailability
-- war-instance failure
-- restart with empty/active resettable instances
+1. Nether is inaccessible on Day 0;
+2. End is a later progression milestone;
+3. player-directed world progression controls when the population reaches these milestones according to the documented feature flow;
+4. no Map difficulty number becomes permission-gated solely by Nether/End state;
+5. stronger Nether/End gear can raise the practical Map ceiling;
+6. any physical player build associated with the milestone is not required to match a developer-authored blueprint.
 
-No test may produce duplicate persistent value or two valid player writers.
+## Q. Failure/adversarial tests
 
-## M. Backup/restore
+Deliberately test at minimum:
 
-Before public alpha:
+- Paper crash during ordinary play;
+- Paper crash during/around transfer;
+- repeated transfer ticket replay;
+- database response lost after a successful transaction commit;
+- duplicate economic/crafting/XP/Map/Bounty/vote operation requests;
+- Bazaar cancel/fill and AH cancel/buy races;
+- simultaneous bank/spend/death-loss operations;
+- player disconnect during sensitive operations;
+- Velocity restart;
+- PostgreSQL temporary unavailability;
+- Map instance failure;
+- bounty completion/summon failure timing;
+- clan storage/treasury races;
+- ranked/war instance failure;
+- restart with empty/active disposable instances;
+- intentional breaker/red-team exploit attempts.
 
-1. create documented backup of PostgreSQL + persistent City/project archives/config versions;
+No test may produce duplicate persistent value, two valid player writers, double rewards, impossible vote counts, or two authoritative owners for one unique item.
+
+## R. Backup/restore
+
+Before public launch:
+
+1. create documented backup of PostgreSQL + persistent world data + relevant config/catalog versions;
 2. restore into a disposable environment;
-3. verify player identity/inventory/wallet/skills/markets/clans/projects/history;
-4. verify world/project state corresponds to the chosen database recovery point;
-5. run at least a subset of economy/transfer acceptance tests after restore.
+3. verify identity/inventory/wallet/bank/skills/markets/items/clans/votes/features/history/leaderboards;
+4. verify persistent world state corresponds to the selected database recovery point;
+5. verify no disposable instance is required to recover valuable persistent state;
+6. run representative economy/transfer/Map/Bounty acceptance tests after restore.
 
-## N. Local-PC-first operational test
+## S. Private alpha / closed beta boundary
 
-The Windows development deployment must be startable/stoppable/recoverable without rented hosting. Moving to rented capacity later must not require changing gameplay identities or persistent data semantics.
+1. private alpha/closed-beta worlds are explicitly disposable/non-canonical;
+2. beta assets/history cannot leak into Day-0 authority;
+3. adversarial testers can be given accelerated/test-only access without producing production-authentic value;
+4. creator embargo/release logistics do not affect persistent authority.
+
+## T. Day-0 release gate
+
+The public world may open when:
+
+- no known critical persistent-state/economic duplication path remains;
+- recovery/restore has been proven;
+- core Map + Bounty PvE loops work end-to-end;
+- markets/crafting/skills/clans/voting survive required acceptance tests;
+- structural feature set is frozen for release;
+- remaining numerical uncertainty is tuning-scale rather than architecture-scale.
+
+A plausible 10–20% balance error is acceptable. A known structural defect capable of forcing a reset is not.
+
+## U. Local-PC-first operational test
+
+The Windows development deployment must remain startable/stoppable/recoverable without rented hosting during development. Moving to rented capacity later must not require changing gameplay identities, economic semantics, Map/Bounty authority, or persistent data contracts.
