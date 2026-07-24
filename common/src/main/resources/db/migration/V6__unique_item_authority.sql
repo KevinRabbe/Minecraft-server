@@ -70,3 +70,66 @@ CREATE TABLE item_provenance (
 
 CREATE INDEX item_provenance_item_time_idx
     ON item_provenance(item_instance_id, created_at, provenance_event_id);
+
+CREATE OR REPLACE FUNCTION validate_item_instance_player_location()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.location_kind = 'PLAYER_INVENTORY'
+       AND NOT EXISTS (SELECT 1 FROM players WHERE player_id = NEW.location_id) THEN
+        RAISE EXCEPTION 'PLAYER_INVENTORY location references unknown player_id %', NEW.location_id
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER item_instances_validate_player_location
+BEFORE INSERT OR UPDATE OF location_kind, location_id
+ON item_instances
+FOR EACH ROW
+EXECUTE FUNCTION validate_item_instance_player_location();
+
+CREATE OR REPLACE FUNCTION validate_item_provenance_player_locations()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.from_location_kind = 'PLAYER_INVENTORY'
+       AND NOT EXISTS (SELECT 1 FROM players WHERE player_id = NEW.from_location_id) THEN
+        RAISE EXCEPTION 'item provenance from-location references unknown player_id %', NEW.from_location_id
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    IF NEW.to_location_kind = 'PLAYER_INVENTORY'
+       AND NOT EXISTS (SELECT 1 FROM players WHERE player_id = NEW.to_location_id) THEN
+        RAISE EXCEPTION 'item provenance to-location references unknown player_id %', NEW.to_location_id
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER item_provenance_validate_player_locations
+BEFORE INSERT
+ON item_provenance
+FOR EACH ROW
+EXECUTE FUNCTION validate_item_provenance_player_locations();
+
+CREATE OR REPLACE FUNCTION reject_item_provenance_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'item_provenance is append-only'
+        USING ERRCODE = 'integrity_constraint_violation';
+END;
+$$;
+
+CREATE TRIGGER item_provenance_append_only
+BEFORE UPDATE OR DELETE
+ON item_provenance
+FOR EACH ROW
+EXECUTE FUNCTION reject_item_provenance_mutation();
