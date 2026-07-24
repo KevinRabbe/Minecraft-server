@@ -1,108 +1,174 @@
 # Implementation Order
 
-**Current phase: Phase B — infrastructure/correctness foundation.** Phase A is complete enough to begin implementation. When coding reaches a genuinely unresolved architectural choice, stop at that boundary, update the contract, then continue; normal implementation details do not require another planning phase.
+Status: **Architecture-alignment phase active.** The repository already contains substantial authority/economy implementation; do not discard proven work. First reconcile the architecture contracts with the current canonical V1 scope and master roadmap, then continue implementation in dependency order.
 
-## Phase A — architecture freeze — COMPLETE
+See [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) for the complete milestone map.
 
-The canonical documents under `docs/architecture` now cover:
+## 0 — Planning consistency gate
 
-1. system overview and module boundaries
-2. world/zone/instance/backend model
-3. authority model and persistent data families
-4. player session/transfer protocol
-5. item/inventory/value model
-6. transaction, escrow, idempotency, and anti-dupe rules
-7. skill/gathering/modifier pipeline
-8. economy and market lifecycle
-9. enchanting/brewing boundary
-10. clans/PvP/war isolation
-11. community projects/history
-12. permissions, failure/recovery, configuration, analytics, and extension points
+Before more feature code:
 
-Architecture is sufficiently frozen when implementation teams can answer "who owns this state?", "what transaction protects this operation?", and "what survives an instance crash?" without inventing new rules.
+1. `V1_SCOPE.md`, `MASTER_ROADMAP.md`, `OPEN_DECISIONS.md`, design laws, and acceptance criteria must agree;
+2. previously locked V1 systems must not disappear merely because a newer roadmap omitted them;
+3. newly settled systems must not remain marked Deferred/Open in older documents;
+4. balance examples must not become architectural requirements;
+5. legacy `docs/v1` content remains non-canonical compatibility material.
 
-## Phase B — infrastructure/correctness foundation — ACTIVE
+## 1 — Architecture completion gate
 
-1. preserve the existing local Windows bootstrap and Gradle/Paper/Velocity skeleton
-2. establish PostgreSQL schema/migrations for identity, session ownership, versioning, and critical ledgers
-3. implement backend/instance registration and health in the simplest useful form
-4. implement logical zone routing without exposing backend IDs to gameplay
-5. implement single-writer player session ownership
-6. prove safe checkpoint, logout, reconnect, and cross-backend transfer
-7. prove crash recovery and stale-write rejection
+**Do this before implementing the remaining gameplay milestones.**
 
-No valuable economy should exist before this foundation is reliable.
+The cross-cutting architecture must define stable contracts for:
 
-## Phase C — item/value correctness
+1. identity and ownership;
+2. PostgreSQL persistence/migrations;
+3. single-writer player state and cross-backend transfer;
+4. atomic/idempotent value movement, operation locking, escrow, pending delivery, provenance, and ledgers;
+5. commodity quantities versus unique-item identities;
+6. configuration/catalog validation and balance-version handling;
+7. zone/instance/backend topology and lifecycle;
+8. wallet + protected-bank semantics;
+9. generic skills with staged 50 -> 75 -> 100 active caps;
+10. crafting and persistent normalized rolled-item quality;
+11. Portal/Map run lifecycle and historical clear records;
+12. bounty-family/tier/contract/summon/material/pouch contracts;
+13. clan authority, treasury/storage permissions, ranked PvP and clan-war isolation;
+14. world expansion voting, feature-access state, world eras, and Chronicle/history;
+15. verification, backup/recovery, concurrency, crash-injection, and adversarial-test boundaries.
 
-1. item definition catalog and validation
-2. commodity quantity representation
-3. unique item instance identity/provenance
-4. authoritative inventory/equipment boundary
-5. escrow/pending-delivery primitives
-6. idempotent operation IDs and economic ledger
-7. duplication/conflict quarantine path
+Existing architecture that already proves these contracts is retained. Missing contracts are added before corresponding feature code proceeds.
 
-## Phase D — compact starter gameplay
+**Architecture completion criterion:** implementation can answer, for every V1 persistent system, who owns the state, what operation/transaction mutates it, what survives a crash, what is configurable, and what historical evidence remains.
 
-1. persistent City/starter-region shell
-2. one small Woodcutting zone
-3. one small Mining zone
-4. one small Farming zone
-5. one simple PvE zone
-6. authorized gathering/mob sources and reset/respawn behavior
-7. dynamic per-zone instance routing only as needed
+## 2 — Existing foundation checkpoint
 
-Start with minimal zone templates. Scale by replication, not by making maps larger.
+Already implemented/proven work on `main` includes substantial portions of:
 
-## Phase E — progression and production
+- PostgreSQL migrations and persistent player identity;
+- backend/zone registry and routed cross-backend transfer;
+- exclusive session leases/version fencing;
+- authoritative carried inventory persistence;
+- strict item definitions;
+- unique-item identity/provenance and live ItemStack validation;
+- fixed-point Coin wallets and append-only economic evidence;
+- pending unique-item delivery;
+- fixed-price Auction House authority.
 
-1. skill framework/XP
-2. stat/modifier pipeline
-3. tool/use requirements
-4. gathering pouches when needed
-5. refining
-6. crafting
-7. Enchanting XP amplifier and Minecraft XP interaction
-8. brewing/Witch bootstrap supply
+Do not rebuild these merely to match milestone lettering. Extend them only where the architecture-alignment pass identifies a real missing contract.
 
-## Phase F — economy
+## 3 — Value/economy completion
 
-1. wallet/fixed-point currency
-2. NPC salvage
-3. Bazaar escrow/order/fill/cancel lifecycle
-4. Auction House fixed-price lifecycle
-5. secure direct trade
-6. compression where actual quantity justifies it
-7. labor/commission flow when base crafting/refining is stable
+1. commodity quantity authority where not already complete;
+2. protected Bank Manager storage and explicit interest/death-loss transaction semantics;
+3. Bazaar order book/escrow/matching/fills/cancellation;
+4. direct trade;
+5. salvage/value sinks;
+6. invariant/economy verification tools.
 
-## Phase G — social and competition
+## 4 — Crafting, rolls, and skills
 
-1. clans, roles, roster, clan chat
-2. global skill and clan leaderboards
-3. standardized ranked 1v1 PvP
-4. clan-war challenge/roster/loadout custody/match/settlement
+1. generic recipe transaction authority;
+2. persistent normalized roll quality for individualized gear;
+3. roughly 10–30% configured low-to-high relevant value spread per item family;
+4. upgrade-state separation from intrinsic roll quality;
+5. generic skill/XP framework;
+6. active cap 50 with tested future transitions to 75 and 100;
+7. Mining/Crafting first vertical slice, then other launch skills.
 
-## Phase H — community persistence
+## 5 — Starter gameplay/world bridge
 
-1. generic project definition/instance lifecycle
-2. contribution transactions and contributor history
-3. controlled build regions
-4. archival/schematic workflow
-5. immutable historical reward entitlement
-6. generic feature-completion actions
-7. Nether Entry project as the first major feature-unlock example
+1. persistent starter City shell;
+2. compact Wood/Mining/Farming/ordinary-PvE spaces;
+3. authorized renewable gathering/mob sources;
+4. live gameplay -> persistent commodity/XP transaction bridge;
+5. dynamic per-zone replication only where concurrent demand requires it.
 
-## Phase I — public-alpha readiness
+## 6 — Portal/Map PvE
 
-1. run complete acceptance criteria
-2. restore from backup in a test environment
-3. deliberate backend/transfer/transaction interruption tests
-4. exploit/dupe boundary tests
-5. performance/instance-capacity tests with synthetic and real players
-6. verify local-PC deployment remains understandable and recoverable
-7. rent hosting only after real player demand justifies recurring cost
+1. generic disposable PvE instance lifecycle;
+2. unique tradable Map object;
+3. map-open consumption and one-run creation;
+4. configurable numeric difficulty independent of player level;
+5. local map-chain progression;
+6. environments/enemy families/objectives/modifiers/elites;
+7. Map materials/rewards;
+8. authoritative solo/group historical clear records and leaderboards.
 
-## Rule for future milestones
+## 7 — Bounties
 
-A milestone may tune numbers or implement a documented mechanism. It must not silently create a new authority model, item identity rule, transaction rule, progression route, or infrastructure dependency.
+1. generic bounty family/tier framework;
+2. contract-fee transaction;
+3. category mob-kill progress;
+4. summon authorization/consumption;
+5. boss encounter/reward once;
+6. tiered family materials;
+7. Bazaar integration for all bounty materials;
+8. category pouches;
+9. specialized family gear.
+
+Start with one family/tier end-to-end, then add Spider/Zombie/Golem content through data/config where possible.
+
+## 8 — Clans and opt-in competition
+
+1. clan identity/membership/roles/chat;
+2. treasury and shared storage with strict permissions/auditability;
+3. standardized ranked 1v1 PvP;
+4. clan-war challenge/roster/custody/match/settlement;
+5. global ranking/history read models.
+
+## 9 — Player-directed world progression
+
+1. authoritative expansion candidate/vote lifecycle;
+2. deterministic one-player/one-valid-vote rules as configured;
+3. feature-access/world-era transitions;
+4. ordinary districts have no developer-authored physical blueprint or minimum build size;
+5. Chronicle/history records vote results, unlocks, and major achievements;
+6. Nether/End remain later major power milestones chosen/unlocked through the player-directed world flow.
+
+Generic project/contribution/archive infrastructure may be used for explicitly defined major projects but must not become a hidden mandatory progress bar for ordinary districts.
+
+## 10 — V1 content pass
+
+Only after the systems above are structurally proven:
+
+1. roughly 25–30 meaningful launch items/equipment;
+2. initial recipes/resources/consumables;
+3. initial Map combination pool;
+4. first bounty families/tiers/materials;
+5. first expansion candidate pool;
+6. skill rewards/unlocks;
+7. approximate balance values.
+
+Numbers need to be plausible, not perfect.
+
+## 11 — Simulation, scale, and destruction testing
+
+1. economy/faucet/sink simulation;
+2. concurrent Bazaar/AH/crafting/storage tests;
+3. zone/instance churn and entity-load tests;
+4. transfer/restart/database-failure tests;
+5. duplicate/replay/race/crash injection;
+6. integrity-verifier runs after adversarial scenarios;
+7. backup + disposable restore proof.
+
+## 12 — Private alpha
+
+Friends/family/trusted testers. Disposable worlds. Validate ordinary usability, progression comprehension, gross balance, and operational recovery.
+
+## 13 — Adversarial closed beta
+
+Normal testers plus a deliberately selected breaker/red-team cohort. Their job is to find structural exploits, not merely play normally. Creator footage may be embargoed. Beta progress never becomes canonical launch progress.
+
+## 14 — Release candidate
+
+Structural feature freeze. Correctness, exploit, performance, packaging, and tuning work only. Do not add another large subsystem because it sounds interesting.
+
+## 15 — Pre-launch and Day 0
+
+Announce the canonical opening well in advance; exact duration is a launch decision (~30 days is an example, not a rule). Discord/clans/alliances may organize before launch.
+
+The public countdown ends at Day 0. From that point, the canonical world and its player-created history matter.
+
+## Rule for every milestone
+
+A milestone may implement a documented mechanism or tune configuration. It must not silently introduce a new authority model, asset-identity rule, transaction semantic, forced progression route, physical district blueprint, or developer-steered world outcome.
