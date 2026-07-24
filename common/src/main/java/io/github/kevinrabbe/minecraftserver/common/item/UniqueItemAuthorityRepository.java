@@ -1,12 +1,13 @@
 package io.github.kevinrabbe.minecraftserver.common.item;
 
+import io.github.kevinrabbe.minecraftserver.common.persistence.PostgresOperationLock;
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,7 +17,7 @@ import java.util.regex.Pattern;
  * PostgreSQL authority for individual item identity and custody.
  *
  * <p>Every mutation is one database transaction, version-fenced, provenance-appended, ledgered where player
- * ownership changes, and protected by the shared processed_operations idempotency table.</p>
+ * ownership changes, and protected by processed_operations idempotency plus a transaction-scoped operation lock.</p>
  */
 public final class UniqueItemAuthorityRepository {
     private static final String CREATE_OPERATION = "ITEM_INSTANCE_CREATE";
@@ -47,16 +48,19 @@ public final class UniqueItemAuthorityRepository {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                Optional<UniqueItemAuthorityResult> processed = findProcessedResult(
-                        connection,
-                        operationId,
-                        CREATE_OPERATION
-                );
+                PostgresOperationLock.lock(connection, operationId);
+                Optional<ProcessedCreate> processed = findProcessedCreate(connection, operationId);
                 if (processed.isPresent()) {
-                    UniqueItemAuthorityResult previous = processed.orElseThrow();
-                    requireSameCreateRequest(previous, definition.definitionId(), target);
+                    ProcessedCreate previous = processed.orElseThrow();
+                    previous.requireSameRequest(
+                            definition.definitionId(),
+                            target,
+                            normalizedReason,
+                            actorPlayerId,
+                            operationId
+                    );
                     connection.commit();
-                    return previous;
+                    return previous.result();
                 }
 
                 requirePlayer(connection, ownerPlayerId);
@@ -99,7 +103,13 @@ public final class UniqueItemAuthorityRepository {
                         0,
                         target
                 );
-                insertProcessedResult(connection, operationId, CREATE_OPERATION, result);
+                insertProcessedCreate(
+                        connection,
+                        operationId,
+                        result,
+                        normalizedReason,
+                        actorPlayerId
+                );
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -130,21 +140,21 @@ public final class UniqueItemAuthorityRepository {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                Optional<UniqueItemAuthorityResult> processed = findProcessedResult(
-                        connection,
-                        operationId,
-                        MOVE_OPERATION
-                );
+                PostgresOperationLock.lock(connection, operationId);
+                Optional<ProcessedMove> processed = findProcessedMove(connection, operationId);
                 if (processed.isPresent()) {
-                    UniqueItemAuthorityResult previous = processed.orElseThrow();
-                    if (!previous.itemInstanceId().equals(itemInstanceId)
-                            || !previous.location().equals(targetLocation)) {
-                        throw new UniqueItemAuthorityException(
-                                "operation_id was already used for a different unique-item move: " + operationId
-                        );
-                    }
+                    ProcessedMove previous = processed.orElseThrow();
+                    previous.requireSameRequest(
+                            itemInstanceId,
+                            expectedStateVersion,
+                            expectedLocation,
+                            targetLocation,
+                            normalizedReason,
+                            actorPlayerId,
+                            operationId
+                    );
                     connection.commit();
-                    return previous;
+                    return previous.result();
                 }
 
                 UniqueItemInstance current = lockItem(connection, itemInstanceId);
@@ -211,7 +221,15 @@ public final class UniqueItemAuthorityRepository {
                         nextVersion,
                         targetLocation
                 );
-                insertProcessedResult(connection, operationId, MOVE_OPERATION, result);
+                insertProcessedMove(
+                        connection,
+                        operationId,
+                        result,
+                        expectedStateVersion,
+                        expectedLocation,
+                        normalizedReason,
+                        actorPlayerId
+                );
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -236,18 +254,6 @@ public final class UniqueItemAuthorityRepository {
             );
         }
         return definition;
-    }
-
-    private static void requireSameCreateRequest(
-            UniqueItemAuthorityResult previous,
-            String definitionId,
-            ItemLocation target
-    ) {
-        if (!previous.definitionId().equals(definitionId) || !previous.location().equals(target)) {
-            throw new UniqueItemAuthorityException(
-                    "operation_id was already used for a different unique-item creation request"
-            );
-        }
     }
 
     private static String requireReason(String reason) {
@@ -455,11 +461,12 @@ public final class UniqueItemAuthorityRepository {
         }
     }
 
-    private static void insertProcessedResult(
+    private static void insertProcessedCreate(
             Connection connection,
             UUID operationId,
-            String operationType,
-            UniqueItemAuthorityResult result
+            UniqueItemAuthorityResult result,
+            String reason,
+            UUID actorPlayerId
     ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO processed_operations(operation_id, operation_type, result)
@@ -471,28 +478,76 @@ public final class UniqueItemAuthorityRepository {
                         'definition_id', ?,
                         'state_version', ?,
                         'location_kind', ?,
-                        'location_id', ?
+                        'location_id', ?,
+                        'reason', ?,
+                        'actor_player_id', ?
                     )
                 )
                 """)) {
             statement.setObject(1, operationId);
-            statement.setString(2, operationType);
-            statement.setString(3, result.itemInstanceId().toString());
-            statement.setString(4, result.definitionId());
-            statement.setLong(5, result.stateVersion());
-            statement.setString(6, result.location().kind().name());
-            statement.setString(
-                    7,
-                    result.location().locationId() == null ? null : result.location().locationId().toString()
-            );
+            statement.setString(2, CREATE_OPERATION);
+            bindResult(statement, 3, result);
+            statement.setString(8, reason);
+            statement.setString(9, nullableUuid(actorPlayerId));
             statement.executeUpdate();
         }
     }
 
-    private static Optional<UniqueItemAuthorityResult> findProcessedResult(
+    private static void insertProcessedMove(
             Connection connection,
             UUID operationId,
-            String expectedOperationType
+            UniqueItemAuthorityResult result,
+            long expectedStateVersion,
+            ItemLocation expectedLocation,
+            String reason,
+            UUID actorPlayerId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO processed_operations(operation_id, operation_type, result)
+                VALUES (
+                    ?,
+                    ?,
+                    jsonb_build_object(
+                        'item_instance_id', ?,
+                        'definition_id', ?,
+                        'state_version', ?,
+                        'location_kind', ?,
+                        'location_id', ?,
+                        'expected_state_version', ?,
+                        'expected_location_kind', ?,
+                        'expected_location_id', ?,
+                        'reason', ?,
+                        'actor_player_id', ?
+                    )
+                )
+                """)) {
+            statement.setObject(1, operationId);
+            statement.setString(2, MOVE_OPERATION);
+            bindResult(statement, 3, result);
+            statement.setLong(8, expectedStateVersion);
+            statement.setString(9, expectedLocation.kind().name());
+            statement.setString(10, nullableUuid(expectedLocation.locationId()));
+            statement.setString(11, reason);
+            statement.setString(12, nullableUuid(actorPlayerId));
+            statement.executeUpdate();
+        }
+    }
+
+    private static void bindResult(
+            PreparedStatement statement,
+            int startIndex,
+            UniqueItemAuthorityResult result
+    ) throws SQLException {
+        statement.setString(startIndex, result.itemInstanceId().toString());
+        statement.setString(startIndex + 1, result.definitionId());
+        statement.setLong(startIndex + 2, result.stateVersion());
+        statement.setString(startIndex + 3, result.location().kind().name());
+        statement.setString(startIndex + 4, nullableUuid(result.location().locationId()));
+    }
+
+    private static Optional<ProcessedCreate> findProcessedCreate(
+            Connection connection,
+            UUID operationId
     ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT operation_type,
@@ -500,7 +555,9 @@ public final class UniqueItemAuthorityRepository {
                        result ->> 'definition_id' AS definition_id,
                        result ->> 'state_version' AS state_version,
                        result ->> 'location_kind' AS location_kind,
-                       result ->> 'location_id' AS location_id
+                       result ->> 'location_id' AS location_id,
+                       result ->> 'reason' AS reason,
+                       result ->> 'actor_player_id' AS actor_player_id
                 FROM processed_operations
                 WHERE operation_id = ?
                 """)) {
@@ -509,36 +566,95 @@ public final class UniqueItemAuthorityRepository {
                 if (!results.next()) {
                     return Optional.empty();
                 }
+                requireOperationType(results.getString("operation_type"), CREATE_OPERATION, operationId);
+                return Optional.of(new ProcessedCreate(
+                        readResult(results, operationId),
+                        requireResultField(results, "reason"),
+                        parseNullableUuid(results.getString("actor_player_id"), operationId, "actor_player_id")
+                ));
+            }
+        }
+    }
 
-                String operationType = results.getString("operation_type");
-                if (!expectedOperationType.equals(operationType)) {
-                    throw new UniqueItemAuthorityException(
-                            "operation_id already belongs to " + operationType + ": " + operationId
-                    );
+    private static Optional<ProcessedMove> findProcessedMove(
+            Connection connection,
+            UUID operationId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT operation_type,
+                       result ->> 'item_instance_id' AS item_instance_id,
+                       result ->> 'definition_id' AS definition_id,
+                       result ->> 'state_version' AS state_version,
+                       result ->> 'location_kind' AS location_kind,
+                       result ->> 'location_id' AS location_id,
+                       result ->> 'expected_state_version' AS expected_state_version,
+                       result ->> 'expected_location_kind' AS expected_location_kind,
+                       result ->> 'expected_location_id' AS expected_location_id,
+                       result ->> 'reason' AS reason,
+                       result ->> 'actor_player_id' AS actor_player_id
+                FROM processed_operations
+                WHERE operation_id = ?
+                """)) {
+            statement.setObject(1, operationId);
+            try (ResultSet results = statement.executeQuery()) {
+                if (!results.next()) {
+                    return Optional.empty();
                 }
-
+                requireOperationType(results.getString("operation_type"), MOVE_OPERATION, operationId);
                 try {
-                    UUID itemInstanceId = UUID.fromString(requireResultField(results, "item_instance_id"));
-                    String definitionId = requireResultField(results, "definition_id");
-                    long stateVersion = Long.parseLong(requireResultField(results, "state_version"));
-                    ItemLocationKind locationKind = ItemLocationKind.valueOf(
-                            requireResultField(results, "location_kind")
-                    );
-                    String rawLocationId = results.getString("location_id");
-                    UUID locationId = rawLocationId == null ? null : UUID.fromString(rawLocationId);
-                    return Optional.of(new UniqueItemAuthorityResult(
-                            itemInstanceId,
-                            definitionId,
-                            stateVersion,
-                            new ItemLocation(locationKind, locationId)
+                    return Optional.of(new ProcessedMove(
+                            readResult(results, operationId),
+                            Long.parseLong(requireResultField(results, "expected_state_version")),
+                            new ItemLocation(
+                                    ItemLocationKind.valueOf(requireResultField(results, "expected_location_kind")),
+                                    parseNullableUuid(
+                                            results.getString("expected_location_id"),
+                                            operationId,
+                                            "expected_location_id"
+                                    )
+                            ),
+                            requireResultField(results, "reason"),
+                            parseNullableUuid(results.getString("actor_player_id"), operationId, "actor_player_id")
                     ));
                 } catch (IllegalArgumentException exception) {
-                    throw new UniqueItemAuthorityException(
-                            "Malformed persisted idempotency result for operation_id " + operationId,
-                            exception
-                    );
+                    throw malformedProcessedOperation(operationId, exception);
                 }
             }
+        }
+    }
+
+    private static UniqueItemAuthorityResult readResult(
+            ResultSet results,
+            UUID operationId
+    ) throws SQLException {
+        try {
+            UUID itemInstanceId = UUID.fromString(requireResultField(results, "item_instance_id"));
+            String definitionId = requireResultField(results, "definition_id");
+            long stateVersion = Long.parseLong(requireResultField(results, "state_version"));
+            ItemLocationKind locationKind = ItemLocationKind.valueOf(
+                    requireResultField(results, "location_kind")
+            );
+            UUID locationId = parseNullableUuid(
+                    results.getString("location_id"),
+                    operationId,
+                    "location_id"
+            );
+            return new UniqueItemAuthorityResult(
+                    itemInstanceId,
+                    definitionId,
+                    stateVersion,
+                    new ItemLocation(locationKind, locationId)
+            );
+        } catch (IllegalArgumentException exception) {
+            throw malformedProcessedOperation(operationId, exception);
+        }
+    }
+
+    private static void requireOperationType(String actual, String expected, UUID operationId) {
+        if (!expected.equals(actual)) {
+            throw new UniqueItemAuthorityException(
+                    "operation_id already belongs to " + actual + ": " + operationId
+            );
         }
     }
 
@@ -548,6 +664,34 @@ public final class UniqueItemAuthorityRepository {
             throw new UniqueItemAuthorityException("Processed operation result is missing " + column);
         }
         return value;
+    }
+
+    private static UUID parseNullableUuid(String value, UUID operationId, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            throw new UniqueItemAuthorityException(
+                    "Malformed " + fieldName + " in processed operation " + operationId,
+                    exception
+            );
+        }
+    }
+
+    private static String nullableUuid(UUID value) {
+        return value == null ? null : value.toString();
+    }
+
+    private static UniqueItemAuthorityException malformedProcessedOperation(
+            UUID operationId,
+            IllegalArgumentException cause
+    ) {
+        return new UniqueItemAuthorityException(
+                "Malformed persisted idempotency result for operation_id " + operationId,
+                cause
+        );
     }
 
     private UniqueItemInstance lockItem(Connection connection, UUID itemInstanceId) throws SQLException {
@@ -619,6 +763,59 @@ public final class UniqueItemAuthorityRepository {
             connection.rollback();
         } catch (SQLException rollbackFailure) {
             original.addSuppressed(rollbackFailure);
+        }
+    }
+
+    private record ProcessedCreate(
+            UniqueItemAuthorityResult result,
+            String reason,
+            UUID actorPlayerId
+    ) {
+        void requireSameRequest(
+                String definitionId,
+                ItemLocation target,
+                String requestedReason,
+                UUID requestedActorPlayerId,
+                UUID operationId
+        ) {
+            if (!result.definitionId().equals(definitionId)
+                    || !result.location().equals(target)
+                    || !reason.equals(requestedReason)
+                    || !Objects.equals(actorPlayerId, requestedActorPlayerId)) {
+                throw new UniqueItemAuthorityException(
+                        "operation_id was already used for a different unique-item creation request: " + operationId
+                );
+            }
+        }
+    }
+
+    private record ProcessedMove(
+            UniqueItemAuthorityResult result,
+            long expectedStateVersion,
+            ItemLocation expectedLocation,
+            String reason,
+            UUID actorPlayerId
+    ) {
+        void requireSameRequest(
+                UUID itemInstanceId,
+                long requestedExpectedStateVersion,
+                ItemLocation requestedExpectedLocation,
+                ItemLocation requestedTargetLocation,
+                String requestedReason,
+                UUID requestedActorPlayerId,
+                UUID operationId
+        ) {
+            if (!result.itemInstanceId().equals(itemInstanceId)
+                    || result.stateVersion() != requestedExpectedStateVersion + 1
+                    || expectedStateVersion != requestedExpectedStateVersion
+                    || !expectedLocation.equals(requestedExpectedLocation)
+                    || !result.location().equals(requestedTargetLocation)
+                    || !reason.equals(requestedReason)
+                    || !Objects.equals(actorPlayerId, requestedActorPlayerId)) {
+                throw new UniqueItemAuthorityException(
+                        "operation_id was already used for a different unique-item move request: " + operationId
+                );
+            }
         }
     }
 }
