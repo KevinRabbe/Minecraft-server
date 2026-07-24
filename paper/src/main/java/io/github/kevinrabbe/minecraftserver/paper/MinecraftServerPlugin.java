@@ -32,6 +32,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private Database database;
     private BackendRegistry backendRegistry;
     private PaperSessionController sessionController;
+    private PaperPlayerItemRepresentationValidator itemRepresentationValidator;
     private BootstrapZoneInstance bootstrapZoneInstance;
     private BukkitTask heartbeatTask;
     private BukkitTask checkpointTask;
@@ -67,16 +68,26 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     currentZoneId,
                     database.dataSource()
             );
+            itemRepresentationValidator = new PaperPlayerItemRepresentationValidator(
+                    this,
+                    database.dataSource(),
+                    itemCatalog
+            );
         } catch (RuntimeException | SQLException exception) {
             stopBootstrapZoneQuietly();
             markBackendOfflineQuietly();
             closeDatabase();
+            itemRepresentationValidator = null;
             itemCatalog = null;
             throw new IllegalStateException("Failed to initialize persistent network foundation/content", exception);
         }
 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(sessionController, this);
+        getServer().getPluginManager().registerEvents(
+                new PaperItemRepresentationGate(this, itemRepresentationValidator),
+                this
+        );
         getServer().getPluginManager().registerEvents(new FrozenPlayerMutationGuard(sessionController), this);
         getServer().getMessenger().registerOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
 
@@ -124,6 +135,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         getServer().getMessenger().unregisterOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
         markBackendOfflineQuietly();
         closeDatabase();
+        itemRepresentationValidator = null;
         itemCatalog = null;
     }
 
