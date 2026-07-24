@@ -54,20 +54,25 @@ public final class BackendSessionLeaseRepository {
                 RETURNING network_session_id
                 """;
 
-        try (Connection connection = dataSource.getConnection();
-             Array sessionArray = connection.createArrayOf("uuid", requested.toArray());
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, leaseMillis);
-            statement.setString(2, normalizedBackendId);
-            statement.setArray(3, sessionArray);
+        try (Connection connection = dataSource.getConnection()) {
+            Array sessionArray = connection.createArrayOf("uuid", requested.toArray());
+            try {
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setLong(1, leaseMillis);
+                    statement.setString(2, normalizedBackendId);
+                    statement.setArray(3, sessionArray);
 
-            Set<UUID> renewed = new HashSet<>();
-            try (ResultSet results = statement.executeQuery()) {
-                while (results.next()) {
-                    renewed.add(results.getObject("network_session_id", UUID.class));
+                    Set<UUID> renewed = new HashSet<>();
+                    try (ResultSet results = statement.executeQuery()) {
+                        while (results.next()) {
+                            renewed.add(results.getObject("network_session_id", UUID.class));
+                        }
+                    }
+                    return Set.copyOf(renewed);
                 }
+            } finally {
+                sessionArray.free();
             }
-            return Set.copyOf(renewed);
         }
     }
 
@@ -126,19 +131,24 @@ public final class BackendSessionLeaseRepository {
                 RETURNING network_session_id
                 """;
 
-        try (Connection connection = dataSource.getConnection();
-             Array sessionArray = connection.createArrayOf("uuid", requested.toArray());
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, normalizedBackendId);
-            statement.setArray(2, sessionArray);
+        try (Connection connection = dataSource.getConnection()) {
+            Array sessionArray = connection.createArrayOf("uuid", requested.toArray());
+            try {
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setString(1, normalizedBackendId);
+                    statement.setArray(2, sessionArray);
 
-            Set<UUID> disconnected = new HashSet<>();
-            try (ResultSet results = statement.executeQuery()) {
-                while (results.next()) {
-                    disconnected.add(results.getObject("network_session_id", UUID.class));
+                    Set<UUID> disconnected = new HashSet<>();
+                    try (ResultSet results = statement.executeQuery()) {
+                        while (results.next()) {
+                            disconnected.add(results.getObject("network_session_id", UUID.class));
+                        }
+                    }
+                    return Set.copyOf(disconnected);
                 }
+            } finally {
+                sessionArray.free();
             }
-            return Set.copyOf(disconnected);
         }
     }
 
