@@ -6,7 +6,7 @@ Minecraft-first persistent multiplayer game/server framework.
 
 The project is optimized for **repeatable retained player-hours generated per developer-hour and recurring maintenance cost**.
 
-Minecraft supplies useful primitives such as movement, building, inventory UI, combat, enchanting, brewing, and multiplayer. Custom code supplies the persistent game layer: progression, economy, controlled resource generation, social systems, provenance/history, community projects, cross-instance player state, and network routing.
+Minecraft supplies useful primitives such as movement, building, inventory UI, combat, enchanting, brewing, and multiplayer. Custom code supplies the persistent game layer: progression, economy, controlled resource generation, scalable PvE, social systems, provenance/history, player-directed world expansion, cross-instance player state, and network routing.
 
 ## Current architecture direction
 
@@ -17,9 +17,12 @@ Minecraft supplies useful primitives such as movement, building, inventory UI, c
 - PostgreSQL = durable persistent authority; Velocity = routing; Paper = live gameplay while it holds player-state ownership
 - single-writer player state and versioned transfers
 - atomic/idempotent value movement with escrow/pending delivery for important transactions
+- Coin pocket + protected Bank Manager
 - player-driven Bazaar/Auction economy
-- compact persistent City/starter region with first gathering/PvE activities
-- Nether supported architecturally but locked at launch and later opened through a community-built project
+- bounded individualized gear rolls; perfect rolls are optional luxury optimization
+- Portal/Map scalable PvE plus mob-family Bounties as launch PvE pillars
+- player-directed expansion voting; ordinary district form/scale is player-created rather than blueprint-driven
+- Nether/End are later major power milestones rather than Map-difficulty permission gates
 
 ## Repository
 
@@ -34,18 +37,30 @@ Minecraft supplies useful primitives such as movement, building, inventory UI, c
 
 Start at [`docs/README.md`](docs/README.md).
 
-Key documents:
+Planning/reference entrypoints:
 
-1. [`docs/reference/DESIGN_LAWS.md`](docs/reference/DESIGN_LAWS.md)
-2. [`docs/planning/V1_SCOPE.md`](docs/planning/V1_SCOPE.md)
-3. [`docs/architecture/SYSTEM_OVERVIEW.md`](docs/architecture/SYSTEM_OVERVIEW.md)
-4. [`docs/architecture/WORLD_ZONES_INSTANCES.md`](docs/architecture/WORLD_ZONES_INSTANCES.md)
-5. [`docs/architecture/AUTHORITY_MODEL.md`](docs/architecture/AUTHORITY_MODEL.md)
-6. [`docs/architecture/TRANSACTIONS_AND_ANTI_DUPE.md`](docs/architecture/TRANSACTIONS_AND_ANTI_DUPE.md)
-7. [`docs/planning/IMPLEMENTATION_ORDER.md`](docs/planning/IMPLEMENTATION_ORDER.md)
+1. [`docs/planning/PLANNING_HIERARCHY.md`](docs/planning/PLANNING_HIERARCHY.md)
+2. [`docs/reference/DESIGN_LAWS.md`](docs/reference/DESIGN_LAWS.md)
+3. [`docs/planning/V1_SCOPE.md`](docs/planning/V1_SCOPE.md)
+4. [`docs/planning/MASTER_ROADMAP.md`](docs/planning/MASTER_ROADMAP.md)
+5. [`docs/planning/IMPLEMENTATION_ORDER.md`](docs/planning/IMPLEMENTATION_ORDER.md)
+6. [`docs/reference/ACCEPTANCE_CRITERIA.md`](docs/reference/ACCEPTANCE_CRITERIA.md)
+7. [`docs/planning/OPEN_DECISIONS.md`](docs/planning/OPEN_DECISIONS.md)
+
+Core architecture entrypoints:
+
+- [`docs/architecture/SYSTEM_OVERVIEW.md`](docs/architecture/SYSTEM_OVERVIEW.md)
+- [`docs/architecture/WORLD_ZONES_INSTANCES.md`](docs/architecture/WORLD_ZONES_INSTANCES.md)
+- [`docs/architecture/AUTHORITY_MODEL.md`](docs/architecture/AUTHORITY_MODEL.md)
+- [`docs/architecture/TRANSACTIONS_AND_ANTI_DUPE.md`](docs/architecture/TRANSACTIONS_AND_ANTI_DUPE.md)
 
 ## Development strategy
 
-Finish/freeze the V1 architecture contract first, then implement against it.
+1. Keep canonical planning internally consistent.
+2. Complete/update the **cross-cutting architecture for all settled V1 systems** before continuing feature implementation.
+3. Preserve existing proven authority/economy code rather than rebuilding it to match new milestone names.
+4. Implement in dependency order using small end-to-end proof slices.
+5. Spend serious effort on structure/correctness; keep exact balance values configurable and cheap to change.
+6. Development and initial playtests remain local-PC-first. Hosting/process count grows only from measured player demand and operational need.
 
-Development and initial playtests remain local-PC-first. Hosting/process count grows only from measured player demand and operational need; gameplay identities and persistent-state semantics must not change when capacity scales out.
+The canonical public world begins at Day 0. Private/closed beta state is disposable and must not leak into canonical history.
