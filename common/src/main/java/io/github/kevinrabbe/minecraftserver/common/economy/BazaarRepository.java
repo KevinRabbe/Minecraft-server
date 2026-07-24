@@ -8,14 +8,18 @@ import io.github.kevinrabbe.minecraftserver.common.session.PlayerStateRepository
 
 import javax.sql.DataSource;
 import java.math.BigInteger;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -26,16 +30,16 @@ import java.util.regex.Pattern;
 /**
  * PostgreSQL authority for fungible commodity orders.
  *
- * <p>Order placement and matching are deliberately separated: placement establishes escrow exactly once; the matcher
- * serializes one commodity book and settles crossed orders in bounded batches. This keeps player-state escrow and
- * market settlement independently retryable without weakening price-time priority.</p>
+ * <p>Each commodity book is serialized by a transaction advisory lock for create/match/cancel. Different commodities
+ * remain independent. Buy orders escrow their maximum notional Coin amount. Sell orders commit a validated player-state
+ * mutation that removes the exact commodity quantity before the order becomes authoritative.</p>
  */
 public final class BazaarRepository {
     private static final String BUY_CREATE_OPERATION = "BAZAAR_BUY_ORDER_CREATE";
     private static final String SELL_CREATE_OPERATION = "BAZAAR_SELL_ORDER_CREATE";
     private static final String MATCH_OPERATION = "BAZAAR_MATCH";
     private static final String CANCEL_OPERATION = "BAZAAR_ORDER_CANCEL";
-    private static final int BOOK_LOCK_NAMESPACE = 0x425A5252; // "BZRR"
+    private static final int BOOK_LOCK_NAMESPACE = 0x425A5252; // BZRR
     private static final BigInteger BASIS_POINTS = BigInteger.valueOf(10_000L);
     private static final Pattern REASON_ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,95}");
 
@@ -78,26 +82,36 @@ public final class BazaarRepository {
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(request, "request");
         requireSide(request, BazaarOrderSide.BUY);
-        requireCommodity(request.commodityDefinitionId());
+        ItemDefinition commodityDefinition = requireCommodity(request.commodityDefinitionId());
+        String commodity = commodityDefinition.definitionId();
+        BazaarOrderRequest normalizedRequest = new BazaarOrderRequest(
+                commodity,
+                request.side(),
+                request.quantity(),
+                request.limitPriceMinor()
+        );
         String normalizedReason = requireReason(reason);
-        long reservedMinor = request.maximumNotionalMinor();
+        long reservedMinor = normalizedRequest.maximumNotionalMinor();
 
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<BazaarBuyOrderCreateResult> processed = findProcessedBuyCreate(connection, operationId);
+                Optional<ProcessedBuyCreate> processed = findProcessedBuyCreate(connection, operationId);
                 if (processed.isPresent()) {
-                    BazaarBuyOrderCreateResult previous = processed.orElseThrow();
-                    requireSameBuyRequest(previous, playerId, request, normalizedReason, operationId);
+                    ProcessedBuyCreate previous = processed.orElseThrow();
+                    previous.requireSameRequest(playerId, normalizedRequest, normalizedReason, operationId);
                     connection.commit();
-                    return previous;
+                    return previous.result();
                 }
 
+                lockCommodityBook(connection, commodity);
+                requireNoSelfCrossingOrder(connection, playerId, normalizedRequest);
                 CoinWalletSnapshot wallet = readWallet(connection, playerId, true);
                 if (wallet.balanceMinor() < reservedMinor) {
                     throw new BazaarException("Insufficient Coin balance to reserve Bazaar buy order");
                 }
+
                 long nextWalletBalance = wallet.balanceMinor() - reservedMinor;
                 long nextWalletVersion = incrementVersion(wallet.stateVersion(), "wallet", playerId);
                 updateWallet(
@@ -113,7 +127,7 @@ public final class BazaarRepository {
                         connection,
                         orderId,
                         playerId,
-                        request,
+                        normalizedRequest,
                         reservedMinor,
                         operationId
                 );
@@ -143,7 +157,7 @@ public final class BazaarRepository {
     }
 
     /**
-     * Creates commodity sell escrow only after a Paper-side validator proves the serialized state removed the exact
+     * Creates commodity sell escrow only after the adapter proves the serialized player state removed the exact
      * requested fungible quantity inside the same fenced transaction.
      */
     public BazaarSellOrderCreateResult createSellOrder(
@@ -161,30 +175,57 @@ public final class BazaarRepository {
         Objects.requireNonNull(sessionId, "sessionId");
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(nextPlayerStatePayload, "nextPlayerStatePayload");
+        if (expectedPlayerStateVersion < 0) {
+            throw new IllegalArgumentException("expectedPlayerStateVersion must be >= 0");
+        }
         requireSide(request, BazaarOrderSide.SELL);
-        requireCommodity(request.commodityDefinitionId());
+        ItemDefinition commodityDefinition = requireCommodity(request.commodityDefinitionId());
+        String commodity = commodityDefinition.definitionId();
+        BazaarOrderRequest normalizedRequest = new BazaarOrderRequest(
+                commodity,
+                request.side(),
+                request.quantity(),
+                request.limitPriceMinor()
+        );
+        String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        String normalizedZoneId = normalizeOptional(logicalZoneId);
+        String normalizedEntryPoint = normalizeOptional(entryPoint);
         String normalizedReason = requireReason(reason);
+        String payloadSha256 = sha256(nextPlayerStatePayload);
 
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<BazaarSellOrderCreateResult> processed = findProcessedSellCreate(connection, operationId);
+                Optional<ProcessedSellCreate> processed = findProcessedSellCreate(connection, operationId);
                 if (processed.isPresent()) {
-                    BazaarSellOrderCreateResult previous = processed.orElseThrow();
-                    requireSameSellRequest(previous, request, normalizedReason, operationId);
+                    ProcessedSellCreate previous = processed.orElseThrow();
+                    previous.requireSameRequest(
+                            sessionId,
+                            normalizedBackendId,
+                            expectedPlayerStateVersion,
+                            normalizedRequest,
+                            normalizedZoneId,
+                            normalizedEntryPoint,
+                            payloadSha256,
+                            normalizedReason,
+                            operationId
+                    );
                     connection.commit();
-                    return previous;
+                    return previous.result();
                 }
 
                 UUID playerId = playerIdForSession(connection, sessionId);
+                lockCommodityBook(connection, commodity);
+                requireNoSelfCrossingOrder(connection, playerId, normalizedRequest);
+
                 long nextStateVersion = playerStates.commitWithinTransaction(
                         connection,
                         sessionId,
-                        backendId,
+                        normalizedBackendId,
                         expectedPlayerStateVersion,
-                        logicalZoneId,
-                        entryPoint,
+                        normalizedZoneId,
+                        normalizedEntryPoint,
                         nextPlayerStatePayload,
                         (lockedPlayerId, currentPayload, nextPayload) -> {
                             if (!lockedPlayerId.equals(playerId)) {
@@ -192,8 +233,8 @@ public final class BazaarRepository {
                             }
                             commodityEscrowValidator.verifyRemoval(
                                     lockedPlayerId,
-                                    request.commodityDefinitionId(),
-                                    request.quantity(),
+                                    commodity,
+                                    normalizedRequest.quantity(),
                                     currentPayload,
                                     nextPayload
                             );
@@ -205,12 +246,23 @@ public final class BazaarRepository {
                         connection,
                         orderId,
                         playerId,
-                        request,
+                        normalizedRequest,
                         0L,
                         operationId
                 );
                 BazaarSellOrderCreateResult result = new BazaarSellOrderCreateResult(order, nextStateVersion);
-                insertProcessedSellCreate(connection, operationId, result, normalizedReason);
+                insertProcessedSellCreate(
+                        connection,
+                        operationId,
+                        result,
+                        sessionId,
+                        normalizedBackendId,
+                        expectedPlayerStateVersion,
+                        normalizedZoneId,
+                        normalizedEntryPoint,
+                        payloadSha256,
+                        normalizedReason
+                );
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -238,21 +290,20 @@ public final class BazaarRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<BazaarMatchResult> processed = findProcessedMatch(connection, operationId);
+                Optional<ProcessedMatch> processed = findProcessedMatch(connection, operationId);
                 if (processed.isPresent()) {
-                    BazaarMatchResult previous = processed.orElseThrow();
-                    if (!previous.commodityDefinitionId().equals(commodity)) {
-                        throw new BazaarException("operation_id reused for a different Bazaar commodity: " + operationId);
-                    }
+                    ProcessedMatch previous = processed.orElseThrow();
+                    previous.requireSameRequest(commodity, maxFills, normalizedReason, operationId);
                     connection.commit();
-                    return previous;
+                    return previous.result();
                 }
 
                 lockCommodityBook(connection, commodity);
                 int fills = 0;
-                long quantityFilled = 0;
-                long grossTradeValue = 0;
-                long feesDestroyed = 0;
+                int ledgerLine = 0;
+                long quantityFilled = 0L;
+                long grossTradeValue = 0L;
+                long feesDestroyed = 0L;
 
                 while (fills < maxFills) {
                     Optional<BazaarOrderSnapshot> buyOptional = lockBestOpenOrder(
@@ -268,10 +319,16 @@ public final class BazaarRepository {
                     if (buyOptional.isEmpty() || sellOptional.isEmpty()) {
                         break;
                     }
+
                     BazaarOrderSnapshot buy = buyOptional.orElseThrow();
                     BazaarOrderSnapshot sell = sellOptional.orElseThrow();
                     if (buy.limitPriceMinor() < sell.limitPriceMinor()) {
                         break;
+                    }
+                    if (buy.playerId().equals(sell.playerId())) {
+                        throw new BazaarException(
+                                "Invalid self-crossing Bazaar orders reached matcher for player " + buy.playerId()
+                        );
                     }
 
                     long quantity = Math.min(buy.remainingQuantity(), sell.remainingQuantity());
@@ -296,13 +353,20 @@ public final class BazaarRepository {
                     );
                     Map<UUID, Long> walletCredits = new HashMap<>();
                     if (priceImprovementRefund > 0) {
-                        walletCredits.merge(buy.playerId(), priceImprovementRefund, BazaarRepository::addExactUnchecked);
+                        walletCredits.merge(
+                                buy.playerId(),
+                                priceImprovementRefund,
+                                BazaarRepository::addExactUnchecked
+                        );
                     }
                     if (sellerProceeds > 0) {
-                        walletCredits.merge(sell.playerId(), sellerProceeds, BazaarRepository::addExactUnchecked);
+                        walletCredits.merge(
+                                sell.playerId(),
+                                sellerProceeds,
+                                BazaarRepository::addExactUnchecked
+                        );
                     }
 
-                    int ledgerLine = 0;
                     for (Map.Entry<UUID, Long> credit : walletCredits.entrySet().stream()
                             .sorted(Map.Entry.comparingByKey(Comparator.comparing(UUID::toString)))
                             .toList()) {
@@ -352,19 +416,8 @@ public final class BazaarRepository {
                             executionPrice,
                             fee
                     );
-
-                    updateOrderAfterFill(
-                            connection,
-                            buy,
-                            quantity,
-                            reservedConsumed
-                    );
-                    updateOrderAfterFill(
-                            connection,
-                            sell,
-                            quantity,
-                            0L
-                    );
+                    updateOrderAfterFill(connection, buy, quantity, reservedConsumed);
+                    updateOrderAfterFill(connection, sell, quantity, 0L);
 
                     fills++;
                     quantityFilled = addExact(quantityFilled, quantity, "Bazaar matched quantity overflow");
@@ -379,7 +432,7 @@ public final class BazaarRepository {
                         grossTradeValue,
                         feesDestroyed
                 );
-                insertProcessedMatch(connection, operationId, result, normalizedReason);
+                insertProcessedMatch(connection, operationId, result, maxFills, normalizedReason);
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -404,14 +457,12 @@ public final class BazaarRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<BazaarCancelResult> processed = findProcessedCancel(connection, operationId);
+                Optional<ProcessedCancel> processed = findProcessedCancel(connection, operationId);
                 if (processed.isPresent()) {
-                    BazaarCancelResult previous = processed.orElseThrow();
-                    if (!previous.orderId().equals(orderId) || !previous.playerId().equals(playerId)) {
-                        throw new BazaarException("operation_id reused for different Bazaar cancellation: " + operationId);
-                    }
+                    ProcessedCancel previous = processed.orElseThrow();
+                    previous.requireSameRequest(orderId, playerId, normalizedReason, operationId);
                     connection.commit();
-                    return previous;
+                    return previous.result();
                 }
 
                 String commodity = readOrderCommodity(connection, orderId);
@@ -427,25 +478,21 @@ public final class BazaarRepository {
                 long returnedMoney = 0L;
                 long returnedCommodity = 0L;
                 UUID deliveryId = null;
-                CoinWalletSnapshot wallet = readWallet(connection, playerId, false);
-                long walletBalance = wallet.balanceMinor();
-                long walletVersion = wallet.stateVersion();
-
                 if (order.side() == BazaarOrderSide.BUY) {
                     returnedMoney = order.reservedMoneyMinor();
-                    CoinWalletSnapshot lockedWallet = readWallet(connection, playerId, true);
-                    walletBalance = addExact(
-                            lockedWallet.balanceMinor(),
+                    CoinWalletSnapshot wallet = readWallet(connection, playerId, true);
+                    long nextBalance = addExact(
+                            wallet.balanceMinor(),
                             returnedMoney,
                             "Bazaar cancellation wallet overflow"
                     );
-                    walletVersion = incrementVersion(lockedWallet.stateVersion(), "wallet", playerId);
+                    long nextVersion = incrementVersion(wallet.stateVersion(), "wallet", playerId);
                     updateWallet(
                             connection,
                             playerId,
-                            lockedWallet.stateVersion(),
-                            walletBalance,
-                            walletVersion
+                            wallet.stateVersion(),
+                            nextBalance,
+                            nextVersion
                     );
                     insertCoinLedger(
                             connection,
@@ -476,9 +523,7 @@ public final class BazaarRepository {
                         order.side(),
                         returnedMoney,
                         returnedCommodity,
-                        deliveryId,
-                        walletBalance,
-                        walletVersion
+                        deliveryId
                 );
                 insertProcessedCancel(connection, operationId, result, normalizedReason);
                 connection.commit();
@@ -501,6 +546,38 @@ public final class BazaarRepository {
     private static void requireSide(BazaarOrderRequest request, BazaarOrderSide expected) {
         if (request.side() != expected) {
             throw new IllegalArgumentException("Expected Bazaar order side " + expected + " but got " + request.side());
+        }
+    }
+
+    private static void requireNoSelfCrossingOrder(
+            Connection connection,
+            UUID playerId,
+            BazaarOrderRequest request
+    ) throws SQLException {
+        String oppositeSide = request.side() == BazaarOrderSide.BUY ? "SELL" : "BUY";
+        String pricePredicate = request.side() == BazaarOrderSide.BUY
+                ? "limit_price_minor <= ?"
+                : "limit_price_minor >= ?";
+        String sql = """
+                SELECT 1
+                FROM bazaar_orders
+                WHERE player_id = ?
+                  AND commodity_definition_id = ?
+                  AND side = ?
+                  AND status = 'OPEN'
+                  AND %s
+                LIMIT 1
+                """.formatted(pricePredicate);
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, playerId);
+            statement.setString(2, request.commodityDefinitionId());
+            statement.setString(3, oppositeSide);
+            statement.setLong(4, request.limitPriceMinor());
+            try (ResultSet result = statement.executeQuery()) {
+                if (result.next()) {
+                    throw new BazaarException("Bazaar order would cross the player's own open order");
+                }
+            }
         }
     }
 
@@ -947,26 +1024,6 @@ public final class BazaarRepository {
         }
     }
 
-    private static String requireReason(String reason) {
-        if (reason == null || reason.isBlank()) {
-            throw new IllegalArgumentException("reason must not be blank");
-        }
-        String normalized = reason.trim();
-        if (!REASON_ID.matcher(normalized).matches()) {
-            throw new IllegalArgumentException("reason must be a stable lowercase identifier: " + normalized);
-        }
-        return normalized;
-    }
-
-    private static void rollbackQuietly(Connection connection, Throwable cause) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            cause.addSuppressed(rollbackFailure);
-        }
-    }
-
-    // Processed-operation serialization intentionally mirrors existing Coin/AH repositories so retries remain exact.
     private static void insertProcessedBuyCreate(
             Connection connection,
             UUID operationId,
@@ -977,18 +1034,27 @@ public final class BazaarRepository {
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO processed_operations(operation_id, operation_type, result)
                 VALUES (?, ?, jsonb_build_object(
-                    'order_id', ?, 'player_id', ?, 'commodity_definition_id', ?, 'side', ?,
-                    'limit_price_minor', ?, 'original_quantity', ?, 'remaining_quantity', ?,
-                    'reserved_money_minor', ?, 'status', ?, 'created_at', ?,
-                    'wallet_balance_minor', ?, 'wallet_state_version', ?, 'reason', ?
+                    'order_id', ?,
+                    'player_id', ?,
+                    'commodity_definition_id', ?,
+                    'side', ?,
+                    'limit_price_minor', ?,
+                    'original_quantity', ?,
+                    'remaining_quantity', ?,
+                    'reserved_money_minor', ?,
+                    'status', ?,
+                    'created_at', ?,
+                    'wallet_balance_minor', ?,
+                    'wallet_state_version', ?,
+                    'reason', ?
                 ))
                 """)) {
             statement.setObject(1, operationId);
             statement.setString(2, BUY_CREATE_OPERATION);
             bindOrderResult(statement, 3, order);
-            statement.setLong(14, result.walletBalanceMinor());
-            statement.setLong(15, result.walletStateVersion());
-            statement.setString(16, reason);
+            statement.setLong(13, result.walletBalanceMinor());
+            statement.setLong(14, result.walletStateVersion());
+            statement.setString(15, reason);
             statement.executeUpdate();
         }
     }
@@ -997,23 +1063,49 @@ public final class BazaarRepository {
             Connection connection,
             UUID operationId,
             BazaarSellOrderCreateResult result,
+            UUID sessionId,
+            String backendId,
+            long expectedPlayerStateVersion,
+            String logicalZoneId,
+            String entryPoint,
+            String payloadSha256,
             String reason
     ) throws SQLException {
         BazaarOrderSnapshot order = result.order();
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO processed_operations(operation_id, operation_type, result)
                 VALUES (?, ?, jsonb_build_object(
-                    'order_id', ?, 'player_id', ?, 'commodity_definition_id', ?, 'side', ?,
-                    'limit_price_minor', ?, 'original_quantity', ?, 'remaining_quantity', ?,
-                    'reserved_money_minor', ?, 'status', ?, 'created_at', ?,
-                    'player_state_version', ?, 'reason', ?
+                    'order_id', ?,
+                    'player_id', ?,
+                    'commodity_definition_id', ?,
+                    'side', ?,
+                    'limit_price_minor', ?,
+                    'original_quantity', ?,
+                    'remaining_quantity', ?,
+                    'reserved_money_minor', ?,
+                    'status', ?,
+                    'created_at', ?,
+                    'player_state_version', ?,
+                    'session_id', ?,
+                    'backend_id', ?,
+                    'expected_player_state_version', ?,
+                    'logical_zone_id', ?,
+                    'entry_point', ?,
+                    'state_payload_sha256', ?,
+                    'reason', ?
                 ))
                 """)) {
             statement.setObject(1, operationId);
             statement.setString(2, SELL_CREATE_OPERATION);
             bindOrderResult(statement, 3, order);
-            statement.setLong(14, result.playerStateVersion());
-            statement.setString(15, reason);
+            statement.setLong(13, result.playerStateVersion());
+            statement.setString(14, sessionId.toString());
+            statement.setString(15, backendId);
+            statement.setLong(16, expectedPlayerStateVersion);
+            setNullableString(statement, 17, logicalZoneId);
+            setNullableString(statement, 18, entryPoint);
+            statement.setString(19, payloadSha256);
+            statement.setString(20, reason);
             statement.executeUpdate();
         }
     }
@@ -1036,13 +1128,19 @@ public final class BazaarRepository {
             Connection connection,
             UUID operationId,
             BazaarMatchResult result,
+            int maxFills,
             String reason
     ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO processed_operations(operation_id, operation_type, result)
                 VALUES (?, ?, jsonb_build_object(
-                    'commodity_definition_id', ?, 'fills', ?, 'quantity_filled', ?,
-                    'gross_trade_value_minor', ?, 'fees_destroyed_minor', ?, 'reason', ?
+                    'commodity_definition_id', ?,
+                    'fills', ?,
+                    'quantity_filled', ?,
+                    'gross_trade_value_minor', ?,
+                    'fees_destroyed_minor', ?,
+                    'max_fills', ?,
+                    'reason', ?
                 ))
                 """)) {
             statement.setObject(1, operationId);
@@ -1052,7 +1150,8 @@ public final class BazaarRepository {
             statement.setLong(5, result.quantityFilled());
             statement.setLong(6, result.grossTradeValueMinor());
             statement.setLong(7, result.feesDestroyedMinor());
-            statement.setString(8, reason);
+            statement.setInt(8, maxFills);
+            statement.setString(9, reason);
             statement.executeUpdate();
         }
     }
@@ -1066,9 +1165,13 @@ public final class BazaarRepository {
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO processed_operations(operation_id, operation_type, result)
                 VALUES (?, ?, jsonb_build_object(
-                    'order_id', ?, 'player_id', ?, 'side', ?, 'returned_money_minor', ?,
-                    'returned_commodity_quantity', ?, 'commodity_delivery_id', ?,
-                    'wallet_balance_minor', ?, 'wallet_state_version', ?, 'reason', ?
+                    'order_id', ?,
+                    'player_id', ?,
+                    'side', ?,
+                    'returned_money_minor', ?,
+                    'returned_commodity_quantity', ?,
+                    'commodity_delivery_id', ?,
+                    'reason', ?
                 ))
                 """)) {
             statement.setObject(1, operationId);
@@ -1078,66 +1181,19 @@ public final class BazaarRepository {
             statement.setString(5, result.side().name());
             statement.setLong(6, result.returnedMoneyMinor());
             statement.setLong(7, result.returnedCommodityQuantity());
-            if (result.commodityDeliveryId() == null) {
-                statement.setNull(8, java.sql.Types.VARCHAR);
-            } else {
-                statement.setString(8, result.commodityDeliveryId().toString());
-            }
-            statement.setLong(9, result.walletBalanceMinor());
-            statement.setLong(10, result.walletStateVersion());
-            statement.setString(11, reason);
+            setNullableString(
+                    statement,
+                    8,
+                    result.commodityDeliveryId() == null ? null : result.commodityDeliveryId().toString()
+            );
+            statement.setString(9, reason);
             statement.executeUpdate();
         }
     }
 
-    private static Optional<BazaarBuyOrderCreateResult> findProcessedBuyCreate(
-            Connection connection,
-            UUID operationId
-    ) throws SQLException {
-        try (PreparedStatement statement = processedOrderStatement(connection, operationId, "wallet_balance_minor, wallet_state_version")) {
-            try (ResultSet result = statement.executeQuery()) {
-                if (!result.next()) {
-                    return Optional.empty();
-                }
-                requireOperationType(result.getString("operation_type"), BUY_CREATE_OPERATION, operationId);
-                BazaarOrderSnapshot order = readProcessedOrder(result);
-                return Optional.of(new BazaarBuyOrderCreateResult(
-                        order,
-                        Long.parseLong(requireField(result, "wallet_balance_minor")),
-                        Long.parseLong(requireField(result, "wallet_state_version"))
-                ));
-            } catch (IllegalArgumentException exception) {
-                throw new BazaarException("Invalid processed Bazaar buy result for " + operationId, exception);
-            }
-        }
-    }
-
-    private static Optional<BazaarSellOrderCreateResult> findProcessedSellCreate(
-            Connection connection,
-            UUID operationId
-    ) throws SQLException {
-        try (PreparedStatement statement = processedOrderStatement(connection, operationId, "player_state_version")) {
-            try (ResultSet result = statement.executeQuery()) {
-                if (!result.next()) {
-                    return Optional.empty();
-                }
-                requireOperationType(result.getString("operation_type"), SELL_CREATE_OPERATION, operationId);
-                return Optional.of(new BazaarSellOrderCreateResult(
-                        readProcessedOrder(result),
-                        Long.parseLong(requireField(result, "player_state_version"))
-                ));
-            } catch (IllegalArgumentException exception) {
-                throw new BazaarException("Invalid processed Bazaar sell result for " + operationId, exception);
-            }
-        }
-    }
-
-    private static PreparedStatement processedOrderStatement(
-            Connection connection,
-            UUID operationId,
-            String extraFields
-    ) throws SQLException {
-        String sql = """
+    private static Optional<ProcessedBuyCreate> findProcessedBuyCreate(Connection connection, UUID operationId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT operation_type,
                        result ->> 'order_id' AS order_id,
                        result ->> 'player_id' AS player_id,
@@ -1149,21 +1205,79 @@ public final class BazaarRepository {
                        result ->> 'reserved_money_minor' AS reserved_money_minor,
                        result ->> 'status' AS status,
                        result ->> 'created_at' AS created_at,
-                       %s
+                       result ->> 'wallet_balance_minor' AS wallet_balance_minor,
+                       result ->> 'wallet_state_version' AS wallet_state_version,
+                       result ->> 'reason' AS reason
                 FROM processed_operations
                 WHERE operation_id = ?
-                """.formatted(processedJsonFields(extraFields));
-        PreparedStatement statement = connection.prepareStatement(sql);
-        statement.setObject(1, operationId);
-        return statement;
+                """)) {
+            statement.setObject(1, operationId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                requireOperationType(result.getString("operation_type"), BUY_CREATE_OPERATION, operationId);
+                BazaarOrderSnapshot order = readProcessedOrder(result);
+                BazaarBuyOrderCreateResult createResult = new BazaarBuyOrderCreateResult(
+                        order,
+                        Long.parseLong(requireField(result, "wallet_balance_minor")),
+                        Long.parseLong(requireField(result, "wallet_state_version"))
+                );
+                return Optional.of(new ProcessedBuyCreate(createResult, requireField(result, "reason")));
+            } catch (IllegalArgumentException exception) {
+                throw new BazaarException("Invalid processed Bazaar buy result for " + operationId, exception);
+            }
+        }
     }
 
-    private static String processedJsonFields(String commaSeparatedFields) {
-        return List.of(commaSeparatedFields.split("," )).stream()
-                .map(String::trim)
-                .map(field -> "result ->> '" + field + "' AS " + field)
-                .reduce((left, right) -> left + ", " + right)
-                .orElseThrow();
+    private static Optional<ProcessedSellCreate> findProcessedSellCreate(Connection connection, UUID operationId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT operation_type,
+                       result ->> 'order_id' AS order_id,
+                       result ->> 'player_id' AS player_id,
+                       result ->> 'commodity_definition_id' AS commodity_definition_id,
+                       result ->> 'side' AS side,
+                       result ->> 'limit_price_minor' AS limit_price_minor,
+                       result ->> 'original_quantity' AS original_quantity,
+                       result ->> 'remaining_quantity' AS remaining_quantity,
+                       result ->> 'reserved_money_minor' AS reserved_money_minor,
+                       result ->> 'status' AS status,
+                       result ->> 'created_at' AS created_at,
+                       result ->> 'player_state_version' AS player_state_version,
+                       result ->> 'session_id' AS session_id,
+                       result ->> 'backend_id' AS backend_id,
+                       result ->> 'expected_player_state_version' AS expected_player_state_version,
+                       result ->> 'logical_zone_id' AS logical_zone_id,
+                       result ->> 'entry_point' AS entry_point,
+                       result ->> 'state_payload_sha256' AS state_payload_sha256,
+                       result ->> 'reason' AS reason
+                FROM processed_operations
+                WHERE operation_id = ?
+                """)) {
+            statement.setObject(1, operationId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                requireOperationType(result.getString("operation_type"), SELL_CREATE_OPERATION, operationId);
+                return Optional.of(new ProcessedSellCreate(
+                        new BazaarSellOrderCreateResult(
+                                readProcessedOrder(result),
+                                Long.parseLong(requireField(result, "player_state_version"))
+                        ),
+                        UUID.fromString(requireField(result, "session_id")),
+                        requireField(result, "backend_id"),
+                        Long.parseLong(requireField(result, "expected_player_state_version")),
+                        result.getString("logical_zone_id"),
+                        result.getString("entry_point"),
+                        requireField(result, "state_payload_sha256"),
+                        requireField(result, "reason")
+                ));
+            } catch (IllegalArgumentException exception) {
+                throw new BazaarException("Invalid processed Bazaar sell result for " + operationId, exception);
+            }
+        }
     }
 
     private static BazaarOrderSnapshot readProcessedOrder(ResultSet result) throws SQLException {
@@ -1177,11 +1291,11 @@ public final class BazaarRepository {
                 Long.parseLong(requireField(result, "remaining_quantity")),
                 Long.parseLong(requireField(result, "reserved_money_minor")),
                 BazaarOrderStatus.valueOf(requireField(result, "status")),
-                java.time.Instant.parse(requireField(result, "created_at"))
+                Instant.parse(requireField(result, "created_at"))
         );
     }
 
-    private static Optional<BazaarMatchResult> findProcessedMatch(Connection connection, UUID operationId)
+    private static Optional<ProcessedMatch> findProcessedMatch(Connection connection, UUID operationId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT operation_type,
@@ -1189,7 +1303,9 @@ public final class BazaarRepository {
                        result ->> 'fills' AS fills,
                        result ->> 'quantity_filled' AS quantity_filled,
                        result ->> 'gross_trade_value_minor' AS gross_trade_value_minor,
-                       result ->> 'fees_destroyed_minor' AS fees_destroyed_minor
+                       result ->> 'fees_destroyed_minor' AS fees_destroyed_minor,
+                       result ->> 'max_fills' AS max_fills,
+                       result ->> 'reason' AS reason
                 FROM processed_operations
                 WHERE operation_id = ?
                 """)) {
@@ -1199,12 +1315,16 @@ public final class BazaarRepository {
                     return Optional.empty();
                 }
                 requireOperationType(result.getString("operation_type"), MATCH_OPERATION, operationId);
-                return Optional.of(new BazaarMatchResult(
-                        requireField(result, "commodity_definition_id"),
-                        Integer.parseInt(requireField(result, "fills")),
-                        Long.parseLong(requireField(result, "quantity_filled")),
-                        Long.parseLong(requireField(result, "gross_trade_value_minor")),
-                        Long.parseLong(requireField(result, "fees_destroyed_minor"))
+                return Optional.of(new ProcessedMatch(
+                        new BazaarMatchResult(
+                                requireField(result, "commodity_definition_id"),
+                                Integer.parseInt(requireField(result, "fills")),
+                                Long.parseLong(requireField(result, "quantity_filled")),
+                                Long.parseLong(requireField(result, "gross_trade_value_minor")),
+                                Long.parseLong(requireField(result, "fees_destroyed_minor"))
+                        ),
+                        Integer.parseInt(requireField(result, "max_fills")),
+                        requireField(result, "reason")
                 ));
             } catch (IllegalArgumentException exception) {
                 throw new BazaarException("Invalid processed Bazaar match result for " + operationId, exception);
@@ -1212,7 +1332,7 @@ public final class BazaarRepository {
         }
     }
 
-    private static Optional<BazaarCancelResult> findProcessedCancel(Connection connection, UUID operationId)
+    private static Optional<ProcessedCancel> findProcessedCancel(Connection connection, UUID operationId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT operation_type,
@@ -1222,8 +1342,7 @@ public final class BazaarRepository {
                        result ->> 'returned_money_minor' AS returned_money_minor,
                        result ->> 'returned_commodity_quantity' AS returned_commodity_quantity,
                        result ->> 'commodity_delivery_id' AS commodity_delivery_id,
-                       result ->> 'wallet_balance_minor' AS wallet_balance_minor,
-                       result ->> 'wallet_state_version' AS wallet_state_version
+                       result ->> 'reason' AS reason
                 FROM processed_operations
                 WHERE operation_id = ?
                 """)) {
@@ -1234,61 +1353,21 @@ public final class BazaarRepository {
                 }
                 requireOperationType(result.getString("operation_type"), CANCEL_OPERATION, operationId);
                 String deliveryId = result.getString("commodity_delivery_id");
-                return Optional.of(new BazaarCancelResult(
-                        UUID.fromString(requireField(result, "order_id")),
-                        UUID.fromString(requireField(result, "player_id")),
-                        BazaarOrderSide.valueOf(requireField(result, "side")),
-                        Long.parseLong(requireField(result, "returned_money_minor")),
-                        Long.parseLong(requireField(result, "returned_commodity_quantity")),
-                        deliveryId == null ? null : UUID.fromString(deliveryId),
-                        Long.parseLong(requireField(result, "wallet_balance_minor")),
-                        Long.parseLong(requireField(result, "wallet_state_version"))
+                return Optional.of(new ProcessedCancel(
+                        new BazaarCancelResult(
+                                UUID.fromString(requireField(result, "order_id")),
+                                UUID.fromString(requireField(result, "player_id")),
+                                BazaarOrderSide.valueOf(requireField(result, "side")),
+                                Long.parseLong(requireField(result, "returned_money_minor")),
+                                Long.parseLong(requireField(result, "returned_commodity_quantity")),
+                                deliveryId == null ? null : UUID.fromString(deliveryId)
+                        ),
+                        requireField(result, "reason")
                 ));
             } catch (IllegalArgumentException exception) {
                 throw new BazaarException("Invalid processed Bazaar cancel result for " + operationId, exception);
             }
         }
-    }
-
-    private static void requireSameBuyRequest(
-            BazaarBuyOrderCreateResult previous,
-            UUID playerId,
-            BazaarOrderRequest request,
-            String reason,
-            UUID operationId
-    ) throws SQLException {
-        BazaarOrderSnapshot order = previous.order();
-        if (!order.playerId().equals(playerId)
-                || !sameOrderRequest(order, request)
-                || !processedReasonMatches(operationId, reason)) {
-            throw new BazaarException("operation_id reused with different Bazaar buy request: " + operationId);
-        }
-    }
-
-    private static void requireSameSellRequest(
-            BazaarSellOrderCreateResult previous,
-            BazaarOrderRequest request,
-            String reason,
-            UUID operationId
-    ) throws SQLException {
-        if (!sameOrderRequest(previous.order(), request) || !processedReasonMatches(operationId, reason)) {
-            throw new BazaarException("operation_id reused with different Bazaar sell request: " + operationId);
-        }
-    }
-
-    // Reason is already part of processed JSON. Exact comparison is performed by querying it only when retry validation needs it.
-    // Kept as a separate helper so future request fields can join the same validation without changing settlement semantics.
-    private static boolean processedReasonMatches(UUID operationId, String reason) {
-        // The processed-operation row is immutable and operation type/request fields above are already bound.
-        // Reason does not influence economic math; idempotent operation identity prevents re-execution.
-        return operationId != null && reason != null;
-    }
-
-    private static boolean sameOrderRequest(BazaarOrderSnapshot order, BazaarOrderRequest request) {
-        return order.commodityDefinitionId().equals(request.commodityDefinitionId())
-                && order.side() == request.side()
-                && order.originalQuantity() == request.quantity()
-                && order.limitPriceMinor() == request.limitPriceMinor();
     }
 
     private static String requireField(ResultSet result, String field) throws SQLException {
@@ -1305,5 +1384,138 @@ public final class BazaarRepository {
                     "operation_id " + operationId + " already belongs to operation type " + actual
             );
         }
+    }
+
+    private static String sha256(byte[] payload) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(payload));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private static String requireNonBlank(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+        return value.trim();
+    }
+
+    private static String normalizeOptional(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String requireReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("reason must not be blank");
+        }
+        String normalized = reason.trim();
+        if (!REASON_ID.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("reason must be a stable lowercase identifier: " + normalized);
+        }
+        return normalized;
+    }
+
+    private static void setNullableString(PreparedStatement statement, int index, String value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.VARCHAR);
+        } else {
+            statement.setString(index, value);
+        }
+    }
+
+    private static void rollbackQuietly(Connection connection, Throwable cause) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackFailure) {
+            cause.addSuppressed(rollbackFailure);
+        }
+    }
+
+    private record ProcessedBuyCreate(BazaarBuyOrderCreateResult result, String reason) {
+        private void requireSameRequest(
+                UUID playerId,
+                BazaarOrderRequest request,
+                String expectedReason,
+                UUID operationId
+        ) {
+            BazaarOrderSnapshot order = result.order();
+            if (!order.playerId().equals(playerId)
+                    || !sameOrderRequest(order, request)
+                    || !reason.equals(expectedReason)) {
+                throw new BazaarException("operation_id reused with different Bazaar buy request: " + operationId);
+            }
+        }
+    }
+
+    private record ProcessedSellCreate(
+            BazaarSellOrderCreateResult result,
+            UUID sessionId,
+            String backendId,
+            long expectedPlayerStateVersion,
+            String logicalZoneId,
+            String entryPoint,
+            String payloadSha256,
+            String reason
+    ) {
+        private void requireSameRequest(
+                UUID expectedSessionId,
+                String expectedBackendId,
+                long expectedVersion,
+                BazaarOrderRequest request,
+                String expectedZoneId,
+                String expectedEntryPoint,
+                String expectedPayloadSha256,
+                String expectedReason,
+                UUID operationId
+        ) {
+            if (!sessionId.equals(expectedSessionId)
+                    || !backendId.equals(expectedBackendId)
+                    || expectedPlayerStateVersion != expectedVersion
+                    || !sameOrderRequest(result.order(), request)
+                    || !Objects.equals(logicalZoneId, expectedZoneId)
+                    || !Objects.equals(entryPoint, expectedEntryPoint)
+                    || !payloadSha256.equals(expectedPayloadSha256)
+                    || !reason.equals(expectedReason)) {
+                throw new BazaarException("operation_id reused with different Bazaar sell request: " + operationId);
+            }
+        }
+    }
+
+    private record ProcessedMatch(BazaarMatchResult result, int maxFills, String reason) {
+        private void requireSameRequest(
+                String commodityDefinitionId,
+                int expectedMaxFills,
+                String expectedReason,
+                UUID operationId
+        ) {
+            if (!result.commodityDefinitionId().equals(commodityDefinitionId)
+                    || maxFills != expectedMaxFills
+                    || !reason.equals(expectedReason)) {
+                throw new BazaarException("operation_id reused with different Bazaar match request: " + operationId);
+            }
+        }
+    }
+
+    private record ProcessedCancel(BazaarCancelResult result, String reason) {
+        private void requireSameRequest(
+                UUID orderId,
+                UUID playerId,
+                String expectedReason,
+                UUID operationId
+        ) {
+            if (!result.orderId().equals(orderId)
+                    || !result.playerId().equals(playerId)
+                    || !reason.equals(expectedReason)) {
+                throw new BazaarException("operation_id reused with different Bazaar cancel request: " + operationId);
+            }
+        }
+    }
+
+    private static boolean sameOrderRequest(BazaarOrderSnapshot order, BazaarOrderRequest request) {
+        return order.commodityDefinitionId().equals(request.commodityDefinitionId())
+                && order.side() == request.side()
+                && order.originalQuantity() == request.quantity()
+                && order.limitPriceMinor() == request.limitPriceMinor();
     }
 }
