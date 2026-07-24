@@ -123,12 +123,18 @@ class V1ArchitectureSchemaInvariantTest {
     }
 
     @Test
-    void expansionBallotMustReferenceCandidateFromExactCandidateSet() throws SQLException {
-        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "Voter");
+    void voteCannotOpenBeforeItHasTwoCandidates() throws SQLException {
         UUID voteId = UUID.randomUUID();
-        createVote(voteId);
+        createScheduledVote(voteId);
         insertCandidate(voteId, "fishing", 0);
-        insertCandidate(voteId, "logistics", 1);
+
+        assertThrows(SQLException.class, () -> openVote(voteId));
+    }
+
+    @Test
+    void expansionBallotMustReferenceCandidateFromExactOpenCandidateSet() throws SQLException {
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "Voter");
+        UUID voteId = createOpenVote();
 
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
@@ -143,11 +149,15 @@ class V1ArchitectureSchemaInvariantTest {
     }
 
     @Test
+    void candidateSetBecomesImmutableAfterVoteOpens() throws SQLException {
+        UUID voteId = createOpenVote();
+
+        assertThrows(SQLException.class, () -> insertCandidate(voteId, "late_candidate", 2));
+    }
+
+    @Test
     void resolvedExpansionWinnerMustBeARealCandidate() throws SQLException {
-        UUID voteId = UUID.randomUUID();
-        createVote(voteId);
-        insertCandidate(voteId, "fishing", 0);
-        insertCandidate(voteId, "logistics", 1);
+        UUID voteId = createOpenVote();
 
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
@@ -211,12 +221,33 @@ class V1ArchitectureSchemaInvariantTest {
         }
     }
 
-    private void createVote(UUID voteId) throws SQLException {
+    private UUID createOpenVote() throws SQLException {
+        UUID voteId = UUID.randomUUID();
+        createScheduledVote(voteId);
+        insertCandidate(voteId, "fishing", 0);
+        insertCandidate(voteId, "logistics", 1);
+        openVote(voteId);
+        return voteId;
+    }
+
+    private void createScheduledVote(UUID voteId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
                      INSERT INTO expansion_votes(
                          vote_id, candidate_set_version, status, opens_at, closes_at
-                     ) VALUES (?, 1, 'OPEN', NOW() - INTERVAL '1 hour', NOW() + INTERVAL '1 day')
+                     ) VALUES (?, 1, 'SCHEDULED', NOW() - INTERVAL '1 hour', NOW() + INTERVAL '1 day')
+                     """)) {
+            statement.setObject(1, voteId);
+            statement.executeUpdate();
+        }
+    }
+
+    private void openVote(UUID voteId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE expansion_votes
+                     SET status = 'OPEN'
+                     WHERE vote_id = ?
                      """)) {
             statement.setObject(1, voteId);
             statement.executeUpdate();
