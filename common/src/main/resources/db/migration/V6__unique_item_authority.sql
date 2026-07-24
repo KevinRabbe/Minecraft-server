@@ -133,3 +133,32 @@ BEFORE UPDATE OR DELETE
 ON item_provenance
 FOR EACH ROW
 EXECUTE FUNCTION reject_item_provenance_mutation();
+
+CREATE OR REPLACE FUNCTION validate_item_instance_provenance_head()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM item_provenance p
+        WHERE p.item_instance_id = NEW.item_instance_id
+          AND p.sequence_no = NEW.state_version
+          AND p.to_location_kind = NEW.location_kind
+          AND p.to_location_id IS NOT DISTINCT FROM NEW.location_id
+    ) THEN
+        RAISE EXCEPTION 'item authority head % version % has no matching provenance row',
+            NEW.item_instance_id,
+            NEW.state_version
+            USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER item_instances_require_provenance_head
+AFTER INSERT OR UPDATE
+ON item_instances
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION validate_item_instance_provenance_head();
