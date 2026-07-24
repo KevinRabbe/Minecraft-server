@@ -7,7 +7,9 @@ import java.util.UUID;
 public record ItemLocation(ItemLocationKind kind, UUID locationId) {
     public ItemLocation {
         kind = Objects.requireNonNull(kind, "kind");
-        if ((kind == ItemLocationKind.PLAYER_INVENTORY || kind == ItemLocationKind.PENDING_DELIVERY)
+        if ((kind == ItemLocationKind.PLAYER_INVENTORY
+                || kind == ItemLocationKind.PENDING_DELIVERY
+                || kind == ItemLocationKind.AUCTION_ESCROW)
                 && locationId == null) {
             throw new IllegalArgumentException(kind + " requires a locationId");
         }
@@ -25,6 +27,13 @@ public record ItemLocation(ItemLocationKind kind, UUID locationId) {
         return new ItemLocation(
                 ItemLocationKind.PENDING_DELIVERY,
                 Objects.requireNonNull(deliveryId, "deliveryId")
+        );
+    }
+
+    public static ItemLocation auctionEscrow(UUID listingId) {
+        return new ItemLocation(
+                ItemLocationKind.AUCTION_ESCROW,
+                Objects.requireNonNull(listingId, "listingId")
         );
     }
 
