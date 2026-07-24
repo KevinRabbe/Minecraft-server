@@ -72,11 +72,7 @@ public final class PlayerStateRepository {
     }
 
     /**
-     * Applies the same fenced player-state commit inside a transaction owned by the caller.
-     *
-     * <p>This method never commits or rolls back. It exists for value-moving workflows that must atomically change
-     * the serialized live inventory and another authoritative table such as item custody. The caller must supply a
-     * connection with auto-commit disabled and must roll back the whole transaction on any failure.</p>
+     * Applies the fenced player-state commit inside a caller-owned transaction without extra payload validation.
      */
     public long commitWithinTransaction(
             Connection connection,
@@ -86,6 +82,38 @@ public final class PlayerStateRepository {
             String logicalZoneId,
             String entryPoint,
             byte[] statePayload
+    ) throws SQLException {
+        return commitWithinTransaction(
+                connection,
+                sessionId,
+                backendId,
+                expectedStateVersion,
+                logicalZoneId,
+                entryPoint,
+                statePayload,
+                null
+        );
+    }
+
+    /**
+     * Applies a fenced player-state commit and validates a sensitive payload transition while the session and current
+     * state are transactionally locked.
+     *
+     * <p>This is intended for operations such as Bazaar sell escrow where correctness depends on proving that the new
+     * serialized Minecraft state removed exactly the value being moved into another authoritative subsystem.</p>
+     *
+     * <p>The validator receives defensive copies. It runs before the state update and may reject by throwing a runtime
+     * exception. The caller owns commit/rollback for the entire transaction.</p>
+     */
+    public long commitWithinTransaction(
+            Connection connection,
+            UUID sessionId,
+            String backendId,
+            long expectedStateVersion,
+            String logicalZoneId,
+            String entryPoint,
+            byte[] statePayload,
+            PlayerStateMutationValidator validator
     ) throws SQLException {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(sessionId, "sessionId");
@@ -109,6 +137,11 @@ public final class PlayerStateRepository {
             throw new SessionConflictException(
                     "Stale, frozen, or non-owning player state commit rejected for session " + sessionId
             );
+        }
+
+        if (validator != null) {
+            byte[] currentPayload = lockCurrentStatePayload(connection, owner.playerId(), expectedStateVersion);
+            validator.validate(owner.playerId(), copy(currentPayload), copy(statePayload));
         }
 
         long newVersion;
@@ -158,6 +191,26 @@ public final class PlayerStateRepository {
         return newVersion;
     }
 
+    private static byte[] lockCurrentStatePayload(Connection connection, UUID playerId, long expectedStateVersion)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT state_payload
+                FROM player_state
+                WHERE player_id = ?
+                  AND state_version = ?
+                FOR UPDATE
+                """)) {
+            statement.setObject(1, playerId);
+            statement.setLong(2, expectedStateVersion);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new SessionConflictException("Player state version changed before sensitive mutation validation");
+                }
+                return result.getBytes("state_payload");
+            }
+        }
+    }
+
     private static SessionOwner lockSessionOwner(Connection connection, UUID sessionId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT player_id,
@@ -183,6 +236,10 @@ public final class PlayerStateRepository {
                 );
             }
         }
+    }
+
+    private static byte[] copy(byte[] value) {
+        return value == null ? null : value.clone();
     }
 
     private static void setNullableText(PreparedStatement statement, int index, String value) throws SQLException {
