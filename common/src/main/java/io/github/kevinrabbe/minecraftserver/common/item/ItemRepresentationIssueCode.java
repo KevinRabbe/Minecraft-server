@@ -1,0 +1,13 @@
+package io.github.kevinrabbe.minecraftserver.common.item;
+
+public enum ItemRepresentationIssueCode {
+    UNKNOWN_DEFINITION,
+    MATERIAL_MISMATCH,
+    INVALID_STACK_SIZE,
+    IDENTITY_SHAPE_MISMATCH,
+    DUPLICATE_INSTANCE_ID,
+    UNKNOWN_INSTANCE_ID,
+    INSTANCE_DEFINITION_MISMATCH,
+    AUTHORITY_VERSION_MISMATCH,
+    AUTHORITY_LOCATION_MISMATCH
+}
