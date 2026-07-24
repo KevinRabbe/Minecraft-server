@@ -4,7 +4,7 @@ Failure behavior is part of architecture, not an implementation afterthought.
 
 ## General rule
 
-Prefer losing a small bounded amount of ordinary uncheckpointed progress over duplicating or double-settling valuable persistent state.
+Prefer losing a small bounded amount of ordinary uncheckpointed runtime progress over duplicating, double-settling, or ambiguously rewriting valuable persistent state.
 
 Persistent correctness wins over pretending every last runtime event survived.
 
@@ -12,13 +12,13 @@ Persistent correctness wins over pretending every last runtime event survived.
 
 If a Paper backend dies:
 
-- its hosted zone instances become unavailable/failed;
-- its player ownership leases are not valid forever;
-- persistent recovery uses the latest committed player-state version;
+- its hosted zone/encounter instances become unavailable/failed;
+- player ownership leases are not valid forever;
+- persistent recovery uses the latest committed player-state/version evidence;
 - reconnect/reroute claims ownership only after fencing/lease rules permit it;
 - stale backend writes remain rejected;
-- resettable instance runtime (mobs, resource timers, temporary drops) may be lost;
-- critical already-committed transactions remain valid.
+- resettable instance runtime (mobs, timers, temporary drops, active encounter entities) may be lost;
+- critical already-committed transactions/results remain valid.
 
 ## Zone-instance failure
 
@@ -28,7 +28,7 @@ For resettable/temporary zones:
 - stop routing new players;
 - replace/recreate from canonical template when needed;
 - route affected/reconnecting players to another instance or safe fallback;
-- never restore persistent player/economic state from the disposable world copy.
+- never restore persistent player/economic/history state from the disposable world copy.
 
 ## Velocity/proxy failure
 
@@ -39,19 +39,25 @@ After restart:
 - backend/player persistent state remains authoritative in PostgreSQL;
 - new connections rebuild routing decisions;
 - transfer tickets expire/single-use rules prevent replay;
-- ambiguous interrupted transfers resolve to the last committed authoritative state/ownership rule.
+- ambiguous interrupted transfers resolve to committed authoritative state/ownership evidence.
 
 ## PostgreSQL unavailable
 
 Critical persistent mutations cannot safely continue without durable authority.
 
-Behavior should fail closed for operations that would move/commit valuable state:
+Fail closed for operations that would move/commit valuable state, including:
 
-- Bazaar/AH/trade/commission settlement
-- historical reward issuance
-- war settlement
-- project contributions
-- irreversible progression/value operations
+- Bazaar/AH/direct-trade/commission settlement;
+- pocket/bank transfers or interest credit;
+- crafting/upgrade/salvage of persistent value;
+- historical reward issuance;
+- Map opening/completion/reward settlement;
+- bounty contract payment/progress transitions/summon/reward settlement;
+- clan treasury/storage mutations;
+- ranked/war settlement;
+- expansion ballot mutation/resolution/feature transition;
+- explicit project contributions/completion;
+- irreversible progression/value operations.
 
 Read-only or non-persistent local gameplay may degrade differently, but the server must not invent local shadow authority that later conflicts with PostgreSQL.
 
@@ -63,14 +69,16 @@ Clean disconnect attempts to commit dirty player state and release ownership.
 
 Unclean disconnect follows lease/recovery semantics. A disconnect must not make two simultaneous owners valid.
 
+Disconnect does not by itself reverse already-committed market, bank, Map-open, bounty-fee, summon, vote, or settlement operations.
+
 ## Transfer interruption
 
 Possible points:
 
-- before source commit
-- after source commit/before route
-- during target connection
-- after target claim/before visible resume
+- before source commit;
+- after source commit/before route;
+- during target connection;
+- after target claim/before visible resume.
 
 Recovery uses transaction/ticket/state-version evidence. Retrying a transfer must not duplicate inventory/state.
 
@@ -79,6 +87,74 @@ Recovery uses transaction/ticket/state-version evidence. Retrying a transfer mus
 All critical settlement is atomic/idempotent.
 
 If the application loses the response after the database commits, retrying the same operation ID returns/reconstructs the committed result rather than executing again.
+
+Cancel/fill and cancel/purchase races must have one valid database winner.
+
+## Bank interruption
+
+### Deposit/withdraw
+Either the transfer commits fully or neither side changes.
+
+### Death-loss race
+Pocket death loss competes through authoritative wallet/state versions/transaction locking with simultaneous spend/deposit operations. The same Coin cannot be both deposited safely and destroyed/spent.
+
+### Interest
+Interest credit uses one stable period/eligibility key. Lost responses/retries/multiple backends cannot credit the same eligible period twice.
+
+## Craft interruption
+
+A craft either:
+
+- consumes all configured authoritative inputs and creates the exact committed output(s), or
+- consumes/creates nothing.
+
+If randomized rolled gear was already committed before the response was lost, a retry returns/references the same unique output and roll quality rather than rolling again.
+
+## Map opening/run failure
+
+### Open transition
+One Map item may create at most one valid persistent Map run.
+
+If failure occurs around Map opening:
+
+- before commit: Map remains owned/unopened;
+- after commit: persistent run/open evidence exists and the Map cannot be reused.
+
+The system must never lose the Map with no explanatory run/open record or keep the Map while also creating multiple valid runs.
+
+### Active run backend crash
+
+V1 may abort an unfinished disposable run rather than implement resumable encounter state.
+
+Regardless of policy:
+
+- persistent source Map/open state stays consistent;
+- a completed run cannot settle twice;
+- stale encounter events cannot settle after a terminal persistent state;
+- player returns/routes to a safe persistent location;
+- exact refund/no-refund policy is explicit rather than inferred from entity survival.
+
+## Bounty interruption
+
+### Contract fee
+A committed contract-fee operation cannot charge twice on retry or create multiple contracts accidentally.
+
+### Kill progress
+Duplicate/replayed eligible-kill events cannot increment twice.
+
+### Summon
+One configured summon authorization cannot create more valid boss attempts than allowed.
+
+### Boss crash/completion
+Persistent contract/attempt state decides whether the attempt is failed/consumed/recoverable. Surviving/despawned entities are not authority.
+
+Boss completion/reward settles at most once.
+
+## Clan storage/treasury interruption
+
+Clan shared-value mutations use the same custody/transaction invariants as personal value.
+
+Concurrent withdrawals, role changes, kick/leave operations, or backend crashes cannot duplicate assets or leave ambiguous personal-versus-clan ownership.
 
 ## Clan-war crash
 
@@ -89,42 +165,83 @@ On match failure:
 - never let the match instance become the only copy of real gear state;
 - use persisted custody/snapshot to determine valid recovery;
 - settle/return according to explicit failure policy exactly once;
-- rating/reward updates require a valid finalized match outcome or explicit administrative recovery path.
+- rating/reward updates require a valid finalized outcome or explicit audited recovery path.
 
-Exact match-abort policy is configuration/design detail, but duplication is never a valid recovery strategy.
+Exact match-abort policy is configuration/design detail; duplication is never a valid recovery strategy.
+
+## Expansion vote/resolution failure
+
+### Ballot mutation
+A lost response/retry cannot produce two effective ballots for one uniqueness key.
+
+### Resolution
+One vote resolves at most once against its immutable/versioned candidate set.
+
+If failure occurs after resolution commit but before caller response, retry reconstructs/returns the committed winner/result rather than resolving again.
+
+### Feature/world-era action
+Feature enable/era transition actions are idempotent and causally reference the resolution/project/action that authorized them.
+
+A backend crash cannot revert a committed global vote or feature state merely because the UI/physical district representation did not update yet.
+
+## Community-project failure
+
+For an explicitly defined Community Project:
+
+- contributions are exactly-once value transactions;
+- project progress/history survives zone/backend failure;
+- completion/feature actions are idempotent;
+- build archives use versioned metadata/checksums;
+- ordinary districts that are not explicit projects do not inherit this progress/review lifecycle.
 
 ## Controlled restart
 
 Before planned backend shutdown:
 
 1. mark/drain backend/instances where appropriate;
-2. stop new transfers/admissions;
+2. stop new transfers/admissions to risky runtime contexts;
 3. commit dirty player state;
-4. complete or safely pause/abort critical workflows;
-5. release session ownership cleanly;
-6. shut down.
+4. complete or safely pause/abort critical workflows according to their contracts;
+5. ensure active Map/Bounty/war instances have a deterministic restart outcome;
+6. release session ownership cleanly;
+7. shut down.
+
+Global PostgreSQL-authoritative markets/votes/features/history do not depend on one Paper process staying alive.
 
 ## Backups
 
 Back up at minimum:
 
-- PostgreSQL
-- persistent City/world state
-- project build archives/schematics
-- content/config/resource-pack versions needed to interpret state
-- schema migrations/deployment configuration
+- PostgreSQL;
+- persistent City/district world state;
+- explicit project/build archives/schematics;
+- content/config/resource-pack versions needed to interpret state;
+- Map/Bounty/item definition versions where needed for historical interpretation;
+- schema migrations/deployment configuration.
 
-Resettable activity worlds are less valuable because they can be recreated from templates.
+Resettable activity/encounter worlds are less valuable because they can be recreated from templates.
 
 ## Coherent restore
 
 Do not restore an old database together with newer persistent world/economic representations without analyzing the consistency boundary.
 
-A restore procedure must define which database/world snapshot pair is authoritative and how post-snapshot transactions/builds are handled.
+A restore procedure must define which database/world snapshot pair is authoritative and how post-snapshot transactions/builds/votes/history are handled.
 
 ## Restore testing
 
-Before public alpha, perform an actual restore rehearsal. A backup that has never been restored is not a proven recovery system.
+Before public launch, perform an actual restore rehearsal. A backup that has never been restored is not a proven recovery system.
+
+After restore, verify representative:
+
+- player/session ownership;
+- wallet/bank accounting;
+- item/commodity custody;
+- markets;
+- crafting/provenance;
+- skills/caps;
+- Map/Bounty persistent state;
+- clan custody;
+- votes/features/world era/history.
 
 ## Safe fallback
 
@@ -132,4 +249,4 @@ If a player's saved zone cannot be loaded/unlocked/routed, use a known safe dest
 
 ## Recovery audit
 
-Manual recovery actions that alter persistent value/history require explicit audit records and dedicated capability; avoid raw invisible database/item edits where possible.
+Manual recovery actions that alter persistent value, vote/feature state, Map/Bounty outcomes, world era, or historical authenticity require explicit audit records and dedicated capability. Avoid raw invisible database/item edits where possible.
