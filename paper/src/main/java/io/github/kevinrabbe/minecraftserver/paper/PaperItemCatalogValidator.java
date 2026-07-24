@@ -25,6 +25,13 @@ final class PaperItemCatalogValidator {
                                 + "' cannot exist as an ItemStack for item " + definition.definitionId()
                 );
             }
+            if (definition.maxStackSize() > material.getMaxStackSize()) {
+                throw new ItemCatalogException(
+                        "Configured max_stack_size " + definition.maxStackSize()
+                                + " exceeds Minecraft material limit " + material.getMaxStackSize()
+                                + " for item " + definition.definitionId()
+                );
+            }
         }
     }
 }
