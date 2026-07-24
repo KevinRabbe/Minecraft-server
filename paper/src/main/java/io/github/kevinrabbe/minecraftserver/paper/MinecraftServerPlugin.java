@@ -22,6 +22,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private String backendId;
     private Database database;
     private BackendRegistry backendRegistry;
+    private PaperSessionController sessionController;
     private BukkitTask heartbeatTask;
 
     @Override
@@ -33,6 +34,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             database.migrate();
 
             backendRegistry = new BackendRegistry(database.dataSource());
+            sessionController = new PaperSessionController(this, backendId, database.dataSource());
             onlinePlayers.set(getServer().getOnlinePlayers().size());
             backendRegistry.registerOnline(backendId, onlinePlayers.get());
         } catch (RuntimeException | SQLException exception) {
@@ -41,6 +43,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         }
 
         getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(sessionController, this);
         heartbeatTask = getServer().getScheduler().runTaskTimerAsynchronously(
                 this,
                 this::sendHeartbeat,
@@ -48,7 +51,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 HEARTBEAT_PERIOD_TICKS
         );
 
-        getLogger().info(() -> "Started backend " + backendId + " with PostgreSQL registration");
+        getLogger().info(() -> "Started backend " + backendId + " with exclusive persistent player sessions");
     }
 
     @Override
@@ -56,6 +59,11 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         if (heartbeatTask != null) {
             heartbeatTask.cancel();
             heartbeatTask = null;
+        }
+
+        if (sessionController != null) {
+            sessionController.shutdown();
+            sessionController = null;
         }
 
         if (backendRegistry != null && backendId != null) {
@@ -93,6 +101,11 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             backendRegistry.heartbeat(backendId, onlinePlayers.get());
         } catch (SQLException exception) {
             getLogger().log(Level.WARNING, "Backend heartbeat failed", exception);
+        }
+
+        PaperSessionController controller = sessionController;
+        if (controller != null) {
+            controller.heartbeat();
         }
     }
 
