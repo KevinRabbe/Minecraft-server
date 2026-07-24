@@ -48,12 +48,7 @@ final class PaperItemRepresentationGate implements Listener {
             plugin.getLogger().severe(() -> formatIncident(player, issues));
             player.kick(QUARANTINED_MESSAGE);
         } catch (PaperItemRepresentationException exception) {
-            plugin.getLogger().log(
-                    Level.SEVERE,
-                    "Malformed custom item identity metadata for player " + player.getUniqueId(),
-                    exception
-            );
-            player.kick(QUARANTINED_MESSAGE);
+            quarantineMalformed(player, exception);
         } catch (SQLException exception) {
             plugin.getLogger().log(
                     Level.WARNING,
@@ -61,7 +56,18 @@ final class PaperItemRepresentationGate implements Listener {
                     exception
             );
             player.kick(VALIDATION_UNAVAILABLE_MESSAGE);
+        } catch (RuntimeException exception) {
+            quarantineMalformed(player, exception);
         }
+    }
+
+    private void quarantineMalformed(Player player, RuntimeException exception) {
+        plugin.getLogger().log(
+                Level.SEVERE,
+                "Malformed or unreadable custom item identity metadata for player " + player.getUniqueId(),
+                exception
+        );
+        player.kick(QUARANTINED_MESSAGE);
     }
 
     private static String formatIncident(Player player, List<ItemRepresentationIssue> issues) {
