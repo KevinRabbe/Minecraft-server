@@ -7,6 +7,7 @@ $LocalNetwork = @{
     Servers = @(
         @{
             Id = "paper-01"
+            Role = "BOOTSTRAP"
             Zone = "city"
             ZoneTemplate = "city-dev-v1"
             ZoneSoftCapacity = 100
@@ -16,6 +17,7 @@ $LocalNetwork = @{
         },
         @{
             Id = "paper-02"
+            Role = "BOOTSTRAP"
             Zone = "starter-woods"
             ZoneTemplate = "starter-woods-dev-v1"
             ZoneSoftCapacity = 20
