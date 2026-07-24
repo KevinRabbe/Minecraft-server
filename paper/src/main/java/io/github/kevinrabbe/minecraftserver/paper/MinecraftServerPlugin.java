@@ -3,6 +3,8 @@ package io.github.kevinrabbe.minecraftserver.paper;
 import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
+import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -11,6 +13,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.sql.SQLException;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
@@ -23,6 +27,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private Database database;
     private BackendRegistry backendRegistry;
     private PaperSessionController sessionController;
+    private BootstrapZoneInstance bootstrapZoneInstance;
     private BukkitTask heartbeatTask;
 
     @Override
@@ -34,16 +39,32 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             database.migrate();
 
             backendRegistry = new BackendRegistry(database.dataSource());
-            sessionController = new PaperSessionController(this, backendId, database.dataSource());
             onlinePlayers.set(getServer().getOnlinePlayers().size());
             backendRegistry.registerOnline(backendId, onlinePlayers.get());
+
+            Optional<BootstrapZoneInstance> configuredZone = BootstrapZoneInstance.fromEnvironment(
+                    backendId,
+                    database.dataSource()
+            );
+            if (configuredZone.isPresent()) {
+                bootstrapZoneInstance = configuredZone.orElseThrow();
+                bootstrapZoneInstance.start();
+            }
+
+            sessionController = new PaperSessionController(this, backendId, database.dataSource());
         } catch (RuntimeException | SQLException exception) {
+            markBackendOfflineQuietly();
             closeDatabase();
             throw new IllegalStateException("Failed to initialize persistent network foundation", exception);
         }
 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(sessionController, this);
+        getServer().getMessenger().registerOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
+
+        PluginCommand devZone = Objects.requireNonNull(getCommand("devzone"), "devzone command missing from plugin.yml");
+        devZone.setExecutor(new DevZoneCommand(sessionController));
+
         heartbeatTask = getServer().getScheduler().runTaskTimerAsynchronously(
                 this,
                 this::sendHeartbeat,
@@ -51,7 +72,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 HEARTBEAT_PERIOD_TICKS
         );
 
-        getLogger().info(() -> "Started backend " + backendId + " with exclusive persistent player sessions");
+        String zoneDescription = bootstrapZoneInstance == null
+                ? "no bootstrap zone"
+                : "bootstrap zone " + bootstrapZoneInstance.zoneId();
+        getLogger().info(() -> "Started backend " + backendId + " with " + zoneDescription);
     }
 
     @Override
@@ -66,14 +90,17 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             sessionController = null;
         }
 
-        if (backendRegistry != null && backendId != null) {
+        if (bootstrapZoneInstance != null) {
             try {
-                backendRegistry.markOffline(backendId);
+                bootstrapZoneInstance.stop();
             } catch (SQLException exception) {
-                getLogger().log(Level.WARNING, "Could not mark backend offline during shutdown", exception);
+                getLogger().log(Level.WARNING, "Could not mark bootstrap zone instance stopped", exception);
             }
+            bootstrapZoneInstance = null;
         }
 
+        getServer().getMessenger().unregisterOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
+        markBackendOfflineQuietly();
         closeDatabase();
     }
 
@@ -97,15 +124,31 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     }
 
     private void sendHeartbeat() {
+        int playerCount = onlinePlayers.get();
         try {
-            backendRegistry.heartbeat(backendId, onlinePlayers.get());
+            backendRegistry.heartbeat(backendId, playerCount);
+            BootstrapZoneInstance zone = bootstrapZoneInstance;
+            if (zone != null) {
+                zone.heartbeat(playerCount);
+            }
         } catch (SQLException exception) {
-            getLogger().log(Level.WARNING, "Backend heartbeat failed", exception);
+            getLogger().log(Level.WARNING, "Backend/zone heartbeat failed", exception);
         }
 
         PaperSessionController controller = sessionController;
         if (controller != null) {
             controller.heartbeat();
+        }
+    }
+
+    private void markBackendOfflineQuietly() {
+        if (backendRegistry == null || backendId == null) {
+            return;
+        }
+        try {
+            backendRegistry.markOffline(backendId);
+        } catch (SQLException exception) {
+            getLogger().log(Level.WARNING, "Could not mark backend offline", exception);
         }
     }
 

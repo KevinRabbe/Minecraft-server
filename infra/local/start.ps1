@@ -14,6 +14,14 @@ $VelocityRoot = Join-Path $RuntimeRoot "velocity"
 $ServersRoot = Join-Path $RuntimeRoot "servers"
 $managed = New-Object System.Collections.ArrayList
 
+# setup.ps1 still carries the original M0 initial-server literal. Keep that legacy bootstrap detail
+# contained here until the local harness itself is replaced by the real instance manager.
+$velocityConfig = Join-Path $VelocityRoot "velocity.toml"
+$initialBackendId = [string]$LocalNetwork.Servers[0].Id
+$velocityText = Get-Content -Raw $velocityConfig
+$velocityText = $velocityText -replace 'try = \["city-01"\]', "try = [`"$initialBackendId`"]"
+Set-Content -Encoding UTF8 $velocityConfig $velocityText
+
 function Start-JavaProcess(
     [string]$Name,
     [string]$Directory,
@@ -112,7 +120,10 @@ try {
         Start-JavaProcess $server.Id $directory $arguments @{
             BACKEND_ID = $server.Id
             SERVER_ID = $server.Id
-            SERVER_ROLE = $server.Role
+            BOOTSTRAP_ZONE_ID = $server.Zone
+            BOOTSTRAP_ZONE_TEMPLATE = $server.ZoneTemplate
+            BOOTSTRAP_ZONE_SOFT_CAPACITY = $server.ZoneSoftCapacity
+            BOOTSTRAP_ZONE_HARD_CAPACITY = $server.ZoneHardCapacity
         } | Out-Null
     }
 
@@ -124,7 +135,8 @@ try {
     Write-Host ""
     Write-Host "Local network is running." -ForegroundColor Green
     Write-Host "Connect Minecraft to localhost:$($LocalNetwork.ProxyPort)"
-    Write-Host "Use /server to switch between configured backends during M0 testing."
+    Write-Host "Development transfer proof: /devzone starter-woods"
+    Write-Host "Do not use direct /server switching for persistent-state tests; it intentionally lacks a transfer ticket."
     Write-Host "Press Ctrl+C in this window to stop every Minecraft process cleanly."
 
     while ($true) {

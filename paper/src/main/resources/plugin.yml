@@ -4,3 +4,12 @@ main: io.github.kevinrabbe.minecraftserver.paper.MinecraftServerPlugin
 description: Shared Paper gameplay backend for the Minecraft server network
 author: KevinRabbe
 api-version: '26.1.2'
+commands:
+  devzone:
+    description: Development-only logical zone transfer acceptance command
+    usage: /devzone <logical-zone-id>
+    permission: minecraftserver.dev.route
+permissions:
+  minecraftserver.dev.route:
+    description: Allows the development logical-zone transfer command
+    default: op
