@@ -4,6 +4,7 @@ package io.github.kevinrabbe.minecraftserver.common.item;
 public enum ItemLocationKind {
     PLAYER_INVENTORY,
     PENDING_DELIVERY,
+    AUCTION_ESCROW,
     QUARANTINE,
     DESTROYED
 }
