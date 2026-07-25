@@ -12,6 +12,7 @@ import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGatheringService;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceHarvestFulfillmentRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalog;
@@ -38,6 +39,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
     private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String RESOURCE_PLACEMENT_CATALOG_RESOURCE = "/content/resource-source-placements.json";
+    private static final String RESOURCE_ENTITY_PLACEMENT_CATALOG_RESOURCE = "/content/resource-entity-placements.json";
     private static final String ATTUNEMENT_PROFILE_CATALOG_RESOURCE = "/content/attunement-profiles.json";
     private static final String ARTIFACT_PLACEMENT_CATALOG_RESOURCE = "/content/artifacts.json";
 
@@ -54,6 +56,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private PaperCommodityDeliveryController commodityDeliveryController;
     private BootstrapZoneInstance bootstrapZoneInstance;
     private PaperResourceGatheringListener resourceGatheringListener;
+    private PaperResourceEntityController resourceEntityController;
     private PaperArtifactDiscoveryListener artifactDiscoveryListener;
     private BukkitTask heartbeatTask;
     private BukkitTask checkpointTask;
@@ -136,10 +139,6 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             );
 
             if (bootstrapZoneInstance != null) {
-                PaperResourceSourcePlacementCatalog placements = PaperResourceSourcePlacementCatalog.loadResource(
-                        RESOURCE_PLACEMENT_CATALOG_RESOURCE,
-                        resourceSourceCatalog
-                );
                 ResourceSourceRepository sourceRepository = new ResourceSourceRepository(
                         database.dataSource(),
                         resourceSourceCatalog
@@ -148,19 +147,49 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                         database.dataSource(),
                         skillCatalog
                 );
+                ResourceGatheringService gatheringService = new ResourceGatheringService(
+                        sourceRepository,
+                        fulfillmentRepository
+                );
+                PaperResourceSessionResolver resourceSessions = new PaperResourceSessionResolver(
+                        database.dataSource(),
+                        backendId
+                );
+
+                PaperResourceSourcePlacementCatalog blockPlacements = PaperResourceSourcePlacementCatalog.loadResource(
+                        RESOURCE_PLACEMENT_CATALOG_RESOURCE,
+                        resourceSourceCatalog
+                );
                 resourceGatheringListener = new PaperResourceGatheringListener(
                         this,
                         backendId,
                         sessionController,
                         bootstrapZoneInstance,
-                        placements,
+                        blockPlacements,
                         sourceRepository,
-                        new ResourceGatheringService(sourceRepository, fulfillmentRepository),
-                        new PaperResourceSessionResolver(database.dataSource(), backendId),
+                        gatheringService,
+                        resourceSessions,
+                        commodityDeliveryController
+                );
+
+                PaperResourceEntityPlacementCatalog entityPlacements = PaperResourceEntityPlacementCatalog.loadResource(
+                        RESOURCE_ENTITY_PLACEMENT_CATALOG_RESOURCE,
+                        resourceSourceCatalog
+                );
+                resourceEntityController = new PaperResourceEntityController(
+                        this,
+                        backendId,
+                        bootstrapZoneInstance,
+                        entityPlacements,
+                        sourceRepository,
+                        new ResourceEntitySpawnRepository(database.dataSource(), resourceSourceCatalog),
+                        gatheringService,
+                        resourceSessions,
                         commodityDeliveryController
                 );
             }
         } catch (RuntimeException | SQLException exception) {
+            stopResourceEntityController();
             stopBootstrapZoneQuietly();
             markBackendOfflineQuietly();
             closeDatabase();
@@ -185,6 +214,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         getServer().getPluginManager().registerEvents(new FrozenPlayerMutationGuard(sessionController), this);
         if (resourceGatheringListener != null) {
             getServer().getPluginManager().registerEvents(resourceGatheringListener, this);
+        }
+        if (resourceEntityController != null && resourceEntityController.managedSourceCount() > 0) {
+            getServer().getPluginManager().registerEvents(resourceEntityController, this);
+            resourceEntityController.start();
         }
         getServer().getMessenger().registerOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
 
@@ -212,10 +245,12 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 : "bootstrap zone " + bootstrapZoneInstance.zoneId();
         int itemDefinitionCount = itemCatalog.size();
         int resourceCount = resourceGatheringListener == null ? 0 : resourceGatheringListener.registeredSourceCount();
+        int entitySourceCount = resourceEntityController == null ? 0 : resourceEntityController.managedSourceCount();
         int artifactCount = artifactDiscoveryListener.registeredArtifactCount();
         getLogger().info(() -> "Started backend " + backendId + " with " + zoneDescription
                 + ", " + itemDefinitionCount + " validated item definitions, "
-                + resourceCount + " authored renewable resource sources and "
+                + resourceCount + " authored renewable block sources, "
+                + entitySourceCount + " authorized ordinary-PvE entity sources and "
                 + artifactCount + " hidden Artifacts");
     }
 
@@ -229,6 +264,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             heartbeatTask.cancel();
             heartbeatTask = null;
         }
+
+        stopResourceEntityController();
 
         if (sessionController != null) {
             sessionController.shutdown();
@@ -289,6 +326,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperSessionController controller = sessionController;
         if (controller != null) {
             controller.heartbeat();
+        }
+    }
+
+    private void stopResourceEntityController() {
+        if (resourceEntityController != null) {
+            resourceEntityController.stop();
+            resourceEntityController = null;
         }
     }
 
