@@ -16,6 +16,7 @@ public record MapRewardGrantSnapshot(
         MapRunDefinition successorMapDefinition,
         MapRewardGrantStatus status,
         UUID fulfillmentOperationId,
+        UUID fulfillmentReferenceId,
         Instant createdAt,
         Instant fulfilledAt
 ) {
@@ -38,10 +39,12 @@ public record MapRewardGrantSnapshot(
         }
         status = Objects.requireNonNull(status, "status");
         createdAt = Objects.requireNonNull(createdAt, "createdAt");
-        if (status == MapRewardGrantStatus.PENDING && (fulfillmentOperationId != null || fulfilledAt != null)) {
+        if (status == MapRewardGrantStatus.PENDING
+                && (fulfillmentOperationId != null || fulfillmentReferenceId != null || fulfilledAt != null)) {
             throw new IllegalArgumentException("PENDING grant cannot carry fulfillment evidence");
         }
-        if (status == MapRewardGrantStatus.FULFILLED && (fulfillmentOperationId == null || fulfilledAt == null)) {
+        if (status == MapRewardGrantStatus.FULFILLED
+                && (fulfillmentOperationId == null || fulfillmentReferenceId == null || fulfilledAt == null)) {
             throw new IllegalArgumentException("FULFILLED grant requires fulfillment evidence");
         }
     }
