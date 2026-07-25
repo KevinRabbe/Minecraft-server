@@ -27,7 +27,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,6 +48,7 @@ class SecureTradeAssetIntegrationTest {
     private PlayerIdentityRepository identities;
     private PlayerSessionRepository sessions;
     private PlayerStateRepository states;
+    private CoinWalletRepository wallets;
     private SecureTradeRepository trades;
     private UniqueItemAuthorityRepository items;
     private ItemCatalog catalog;
@@ -66,6 +66,7 @@ class SecureTradeAssetIntegrationTest {
         identities = new PlayerIdentityRepository(dataSource);
         sessions = new PlayerSessionRepository(dataSource);
         states = new PlayerStateRepository(dataSource);
+        wallets = new CoinWalletRepository(dataSource);
         trades = new SecureTradeRepository(dataSource);
         catalog = new ItemCatalog(List.of(
                 new ItemDefinition(
@@ -179,8 +180,8 @@ class SecureTradeAssetIntegrationTest {
 
     @Test
     void commodityValidatorFailureRollsBackStateEscrowLedgerAndRevision() throws Exception {
-        PlayerContext a = playerWithSession("InvalidCommodityA", new byte[]{10});
-        PlayerContext b = playerWithSession("InvalidCommodityB", new byte[]{20});
+        PlayerContext a = playerWithSession("BadCommodityA", new byte[]{10});
+        PlayerContext b = playerWithSession("BadCommodityB", new byte[]{20});
         SecureTradeSnapshot trade = trades.createTrade(UUID.randomUUID(), a.playerId(), b.playerId());
         SecureTradeAssetRepository assets = new SecureTradeAssetRepository(
                 dataSource,
@@ -308,7 +309,7 @@ class SecureTradeAssetIntegrationTest {
     void nonParticipantSessionCannotMoveCommodityOrUniqueItem() throws Exception {
         PlayerContext a = playerWithSession("ParticipantA", new byte[]{10});
         PlayerContext b = playerWithSession("ParticipantB", new byte[]{20});
-        PlayerContext outsider = playerWithSession("ParticipantOutsider", new byte[]{30});
+        PlayerContext outsider = playerWithSession("TradeOutsider", new byte[]{30});
         SecureTradeSnapshot trade = trades.createTrade(UUID.randomUUID(), a.playerId(), b.playerId());
         UniqueItemAuthorityResult item = items.createForPlayer(
                 UUID.randomUUID(), UNIQUE, outsider.playerId(), "test.item", outsider.playerId()
@@ -355,6 +356,7 @@ class SecureTradeAssetIntegrationTest {
         PlayerContext a = playerWithSession("ConfirmA", new byte[]{10});
         PlayerContext b = playerWithSession("ConfirmB", new byte[]{20});
         SecureTradeSnapshot trade = trades.createTrade(UUID.randomUUID(), a.playerId(), b.playerId());
+        wallets.creditFromSystem(UUID.randomUUID(), a.playerId(), 100, "test.funding");
         trades.setCoinOffer(UUID.randomUUID(), trade.tradeId(), a.playerId(), 100, "trade.coin_offer");
         SecureTradeSnapshot confirmed = trades.confirm(UUID.randomUUID(), trade.tradeId(), a.playerId());
         assertEquals(Long.valueOf(1), confirmed.playerAConfirmedRevision());
