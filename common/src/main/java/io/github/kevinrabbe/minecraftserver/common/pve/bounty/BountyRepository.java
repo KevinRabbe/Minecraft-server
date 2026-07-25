@@ -27,7 +27,10 @@ import java.util.regex.Pattern;
 
 /**
  * PostgreSQL authority for paid mob-family bounty contracts and recoverable boss summons.
- * Runtime bosses are disposable; the persistent summon lease is not.
+ * Runtime bosses are disposable; the persistent contract, summon lease and reward settlement are not.
+ *
+ * <p>Every operation is idempotent through one append-only {@code processed_operations} row containing the exact
+ * original result snapshot. Retries therefore never reconstruct historical results from later mutable state.</p>
  */
 public final class BountyRepository {
     private static final String START_OPERATION = "BOUNTY_CONTRACT_START";
@@ -43,8 +46,8 @@ public final class BountyRepository {
     private final DataSource dataSource;
     private final BountyTierCatalog catalog;
     private final BountyRewardResolver rewards;
-    private final Clock clock;
     private final Duration summonLeaseDuration;
+    private final Clock clock;
 
     public BountyRepository(
             DataSource dataSource,
@@ -67,7 +70,8 @@ public final class BountyRepository {
         this.rewards = Objects.requireNonNull(rewards, "rewards");
         this.summonLeaseDuration = Objects.requireNonNull(summonLeaseDuration, "summonLeaseDuration");
         this.clock = Objects.requireNonNull(clock, "clock");
-        if (summonLeaseDuration.isZero() || summonLeaseDuration.isNegative()
+        if (summonLeaseDuration.isZero()
+                || summonLeaseDuration.isNegative()
                 || summonLeaseDuration.compareTo(Duration.ofMinutes(30)) > 0) {
             throw new IllegalArgumentException("summonLeaseDuration must be > 0 and <= 30 minutes");
         }
@@ -96,19 +100,28 @@ public final class BountyRepository {
     ) throws SQLException {
         Objects.requireNonNull(operationId, "operationId");
         Objects.requireNonNull(playerId, "playerId");
-        BountyTierDefinition definition = catalog.require(Objects.requireNonNull(familyId, "familyId"), tier);
+        familyId = Objects.requireNonNull(familyId, "familyId");
+        BountyTierDefinition definition = catalog.require(familyId, tier);
         String normalizedReason = requireReason(reason);
 
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedStart> processed = findProcessedStart(connection, operationId);
+                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    ProcessedStart previous = processed.orElseThrow();
-                    previous.requireSameRequest(playerId, familyId, tier, normalizedReason, operationId);
+                    Map<String, Object> data = requireType(processed.orElseThrow(), START_OPERATION, operationId);
+                    requireUuid(data, "request_player_id", playerId, operationId);
+                    requireString(data, "request_family_id", familyId.value(), operationId);
+                    requireInt(data, "request_tier", tier, operationId);
+                    requireString(data, "reason", normalizedReason, operationId);
+                    BountyContractStartResult result = new BountyContractStartResult(
+                            contractFrom(data.get("contract")),
+                            longValue(data, "wallet_balance_minor"),
+                            longValue(data, "wallet_state_version")
+                    );
                     connection.commit();
-                    return previous.result();
+                    return result;
                 }
 
                 CoinWalletSnapshot wallet = readWallet(connection, playerId, true);
@@ -116,6 +129,7 @@ public final class BountyRepository {
                 if (wallet.balanceMinor() < feeMinor) {
                     throw new BountyException("Insufficient Coin balance for bounty contract");
                 }
+
                 long nextWalletBalance = wallet.balanceMinor() - feeMinor;
                 long nextWalletVersion = wallet.stateVersion();
                 if (feeMinor > 0) {
@@ -127,16 +141,11 @@ public final class BountyRepository {
                             nextWalletBalance,
                             nextWalletVersion
                     );
-                    insertCoinLedger(
-                            connection,
-                            operationId,
-                            playerId,
-                            feeMinor,
-                            normalizedReason
-                    );
+                    insertCoinLedger(connection, operationId, playerId, feeMinor, normalizedReason);
                 }
 
                 UUID contractId = UUID.randomUUID();
+                Instant now = clock.instant();
                 try (PreparedStatement statement = connection.prepareStatement("""
                         INSERT INTO bounty_contracts(
                             contract_id,
@@ -153,7 +162,6 @@ public final class BountyRepository {
                             updated_at
                         ) VALUES (?, ?, ?, ?, 'ACTIVE_HUNT', 0, ?, 0, ?, 0, ?, ?)
                         """)) {
-                    Instant now = clock.instant();
                     statement.setObject(1, contractId);
                     statement.setObject(2, playerId);
                     statement.setString(3, familyId.value());
@@ -165,13 +173,21 @@ public final class BountyRepository {
                     statement.executeUpdate();
                 }
 
-                BountyContractSnapshot contract = readContract(connection, contractId, false);
                 BountyContractStartResult result = new BountyContractStartResult(
-                        contract,
+                        readContract(connection, contractId, false),
                         nextWalletBalance,
                         nextWalletVersion
                 );
-                insertProcessedStart(connection, operationId, result, feeMinor, normalizedReason);
+                LinkedHashMap<String, Object> resultData = new LinkedHashMap<>();
+                resultData.put("request_player_id", playerId.toString());
+                resultData.put("request_family_id", familyId.value());
+                resultData.put("request_tier", tier);
+                resultData.put("reason", normalizedReason);
+                resultData.put("fee_minor", feeMinor);
+                resultData.put("wallet_balance_minor", result.walletBalanceMinor());
+                resultData.put("wallet_state_version", result.walletStateVersion());
+                resultData.put("contract", contractMap(result.contract()));
+                insertProcessed(connection, operationId, START_OPERATION, resultData);
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -181,7 +197,6 @@ public final class BountyRepository {
         }
     }
 
-    /** Adds one authoritative eligible-kill event batch and transitions to SUMMON_READY exactly at the requirement. */
     public BountyContractSnapshot recordEligibleKills(
             UUID operationId,
             UUID contractId,
@@ -201,12 +216,16 @@ public final class BountyRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedProgress> processed = findProcessedProgress(connection, operationId);
+                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    ProcessedProgress previous = processed.orElseThrow();
-                    previous.requireSameRequest(contractId, playerId, eligibleKills, normalizedReason, operationId);
+                    Map<String, Object> data = requireType(processed.orElseThrow(), PROGRESS_OPERATION, operationId);
+                    requireUuid(data, "request_contract_id", contractId, operationId);
+                    requireUuid(data, "request_player_id", playerId, operationId);
+                    requireInt(data, "eligible_kills", eligibleKills, operationId);
+                    requireString(data, "reason", normalizedReason, operationId);
+                    BountyContractSnapshot result = contractFrom(data.get("contract"));
                     connection.commit();
-                    return previous.result();
+                    return result;
                 }
 
                 BountyContractSnapshot current = readContract(connection, contractId, true);
@@ -214,16 +233,17 @@ public final class BountyRepository {
                 if (current.status() != BountyContractStatus.ACTIVE_HUNT) {
                     throw new BountyException("Eligible kills require ACTIVE_HUNT contract");
                 }
+
                 int nextProgress;
                 try {
                     nextProgress = Math.min(
                             current.requiredEligibleKills(),
                             Math.addExact(current.eligibleKillProgress(), eligibleKills)
                     );
-                } catch (ArithmeticException exception) {
+                } catch (ArithmeticException ignored) {
                     nextProgress = current.requiredEligibleKills();
                 }
-                boolean ready = nextProgress >= current.requiredEligibleKills();
+                boolean ready = nextProgress == current.requiredEligibleKills();
                 BountyContractStatus nextStatus = ready
                         ? BountyContractStatus.SUMMON_READY
                         : BountyContractStatus.ACTIVE_HUNT;
@@ -237,14 +257,15 @@ public final class BountyRepository {
                         summonAuthorizations,
                         nextVersion
                 );
+
                 BountyContractSnapshot result = readContract(connection, contractId, false);
-                insertProcessedProgress(
-                        connection,
-                        operationId,
-                        result,
-                        eligibleKills,
-                        normalizedReason
-                );
+                LinkedHashMap<String, Object> resultData = new LinkedHashMap<>();
+                resultData.put("request_contract_id", contractId.toString());
+                resultData.put("request_player_id", playerId.toString());
+                resultData.put("eligible_kills", eligibleKills);
+                resultData.put("reason", normalizedReason);
+                resultData.put("contract", contractMap(result));
+                insertProcessed(connection, operationId, PROGRESS_OPERATION, resultData);
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -254,7 +275,6 @@ public final class BountyRepository {
         }
     }
 
-    /** Converts the one summon authorization into one durable READY summon before any runtime boss is spawned. */
     public BountySummonPrepareResult prepareSummon(
             UUID operationId,
             UUID contractId,
@@ -270,12 +290,19 @@ public final class BountyRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedPrepare> processed = findProcessedPrepare(connection, operationId);
+                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    ProcessedPrepare previous = processed.orElseThrow();
-                    previous.requireSameRequest(contractId, playerId, normalizedReason, operationId);
+                    Map<String, Object> data = requireType(processed.orElseThrow(), PREPARE_SUMMON_OPERATION, operationId);
+                    requireUuid(data, "request_contract_id", contractId, operationId);
+                    requireUuid(data, "request_player_id", playerId, operationId);
+                    requireString(data, "reason", normalizedReason, operationId);
+                    BountySummonPrepareResult result = new BountySummonPrepareResult(
+                            contractFrom(data.get("contract")),
+                            summonFrom(data.get("summon")),
+                            stringValue(data, "boss_definition_id")
+                    );
                     connection.commit();
-                    return previous.result();
+                    return result;
                 }
 
                 BountyContractSnapshot current = readContract(connection, contractId, true);
@@ -286,6 +313,8 @@ public final class BountyRepository {
                 }
                 BountyTierDefinition definition = catalog.require(current.familyId(), current.tier());
                 long nextVersion = incrementVersion(current.stateVersion(), "bounty contract", contractId);
+                Instant now = clock.instant();
+
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE bounty_contracts
                         SET status = 'SUMMONED',
@@ -298,7 +327,7 @@ public final class BountyRepository {
                           AND summon_authorizations_remaining = 1
                         """)) {
                     statement.setLong(1, nextVersion);
-                    statement.setTimestamp(2, Timestamp.from(clock.instant()));
+                    statement.setTimestamp(2, Timestamp.from(now));
                     statement.setObject(3, contractId);
                     statement.setLong(4, current.stateVersion());
                     if (statement.executeUpdate() != 1) {
@@ -314,7 +343,7 @@ public final class BountyRepository {
                         """)) {
                     statement.setObject(1, summonId);
                     statement.setObject(2, contractId);
-                    statement.setTimestamp(3, Timestamp.from(clock.instant()));
+                    statement.setTimestamp(3, Timestamp.from(now));
                     statement.executeUpdate();
                 }
 
@@ -323,7 +352,14 @@ public final class BountyRepository {
                         readSummon(connection, summonId, false),
                         definition.bossDefinitionId()
                 );
-                insertProcessedPrepare(connection, operationId, result, normalizedReason);
+                LinkedHashMap<String, Object> resultData = new LinkedHashMap<>();
+                resultData.put("request_contract_id", contractId.toString());
+                resultData.put("request_player_id", playerId.toString());
+                resultData.put("reason", normalizedReason);
+                resultData.put("boss_definition_id", result.bossDefinitionId());
+                resultData.put("contract", contractMap(result.contract()));
+                resultData.put("summon", summonMap(result.summon()));
+                insertProcessed(connection, operationId, PREPARE_SUMMON_OPERATION, resultData);
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -333,7 +369,6 @@ public final class BountyRepository {
         }
     }
 
-    /** Claims/reclaims a READY or expired ACTIVE summon for one backend. */
     public BountySummonLeaseResult claimSummon(
             UUID operationId,
             UUID summonId,
@@ -349,22 +384,25 @@ public final class BountyRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedLease> processed = findProcessedLease(
-                        connection,
-                        operationId,
-                        CLAIM_SUMMON_OPERATION
-                );
+                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    ProcessedLease previous = processed.orElseThrow();
-                    previous.requireSameRequest(summonId, normalizedBackendId, normalizedReason, operationId);
+                    Map<String, Object> data = requireType(processed.orElseThrow(), CLAIM_SUMMON_OPERATION, operationId);
+                    requireUuid(data, "request_summon_id", summonId, operationId);
+                    requireString(data, "request_backend_id", normalizedBackendId, operationId);
+                    requireString(data, "reason", normalizedReason, operationId);
+                    BountySummonLeaseResult result = new BountySummonLeaseResult(
+                            summonFrom(data.get("summon")),
+                            stringValue(data, "boss_definition_id")
+                    );
                     connection.commit();
-                    return previous.result();
+                    return result;
                 }
 
                 BountySummonSnapshot current = readSummon(connection, summonId, true);
                 Instant now = clock.instant();
                 boolean claimable = current.status() == BountySummonStatus.READY
                         || (current.status() == BountySummonStatus.ACTIVE
+                        && current.leaseExpiresAt() != null
                         && !current.leaseExpiresAt().isAfter(now));
                 if (!claimable) {
                     throw new BountyException("Bounty summon is not claimable: " + summonId);
@@ -377,6 +415,7 @@ public final class BountyRepository {
                 long nextVersion = incrementVersion(current.stateVersion(), "bounty summon", summonId);
                 Instant leaseExpiresAt = now.plus(summonLeaseDuration);
                 Instant activatedAt = current.activatedAt() == null ? now : current.activatedAt();
+
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE bounty_summons
                         SET status = 'ACTIVE',
@@ -397,16 +436,20 @@ public final class BountyRepository {
                         throw new BountyException("Bounty summon changed concurrently while claiming");
                     }
                 }
+
                 BountySummonLeaseResult result = new BountySummonLeaseResult(
                         readSummon(connection, summonId, false),
                         definition.bossDefinitionId()
                 );
-                insertProcessedLease(
+                insertLeaseProcessed(
                         connection,
                         operationId,
                         CLAIM_SUMMON_OPERATION,
-                        result,
-                        normalizedReason
+                        summonId,
+                        normalizedBackendId,
+                        null,
+                        normalizedReason,
+                        result
                 );
                 connection.commit();
                 return result;
@@ -417,7 +460,6 @@ public final class BountyRepository {
         }
     }
 
-    /** Extends only the currently owned non-expired backend lease. */
     public BountySummonLeaseResult heartbeatSummon(
             UUID operationId,
             UUID summonId,
@@ -437,18 +479,19 @@ public final class BountyRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedHeartbeat> processed = findProcessedHeartbeat(connection, operationId);
+                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    ProcessedHeartbeat previous = processed.orElseThrow();
-                    previous.requireSameRequest(
-                            summonId,
-                            normalizedBackendId,
-                            expectedSummonStateVersion,
-                            normalizedReason,
-                            operationId
+                    Map<String, Object> data = requireType(processed.orElseThrow(), HEARTBEAT_SUMMON_OPERATION, operationId);
+                    requireUuid(data, "request_summon_id", summonId, operationId);
+                    requireString(data, "request_backend_id", normalizedBackendId, operationId);
+                    requireLong(data, "expected_summon_state_version", expectedSummonStateVersion, operationId);
+                    requireString(data, "reason", normalizedReason, operationId);
+                    BountySummonLeaseResult result = new BountySummonLeaseResult(
+                            summonFrom(data.get("summon")),
+                            stringValue(data, "boss_definition_id")
                     );
                     connection.commit();
-                    return previous.result();
+                    return result;
                 }
 
                 BountySummonSnapshot current = readSummon(connection, summonId, true);
@@ -458,6 +501,7 @@ public final class BountyRepository {
                 BountyTierDefinition definition = catalog.require(contract.familyId(), contract.tier());
                 long nextVersion = incrementVersion(current.stateVersion(), "bounty summon", summonId);
                 Instant leaseExpiresAt = now.plus(summonLeaseDuration);
+
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE bounty_summons
                         SET lease_expires_at = ?, state_version = ?
@@ -471,16 +515,20 @@ public final class BountyRepository {
                         throw new BountyException("Bounty summon changed concurrently during heartbeat");
                     }
                 }
+
                 BountySummonLeaseResult result = new BountySummonLeaseResult(
                         readSummon(connection, summonId, false),
                         definition.bossDefinitionId()
                 );
-                insertProcessedHeartbeat(
+                insertLeaseProcessed(
                         connection,
                         operationId,
-                        result,
+                        HEARTBEAT_SUMMON_OPERATION,
+                        summonId,
+                        normalizedBackendId,
                         expectedSummonStateVersion,
-                        normalizedReason
+                        normalizedReason,
+                        result
                 );
                 connection.commit();
                 return result;
@@ -491,7 +539,6 @@ public final class BountyRepository {
         }
     }
 
-    /** Defeats the leased boss exactly once and credits only configured family materials into the family pouch. */
     public BountyCompletionResult completeBoss(
             UUID operationId,
             UUID summonId,
@@ -511,18 +558,19 @@ public final class BountyRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedCompletion> processed = findProcessedCompletion(connection, operationId);
+                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    ProcessedCompletion previous = processed.orElseThrow();
-                    previous.requireSameRequest(
-                            summonId,
-                            normalizedBackendId,
-                            expectedSummonStateVersion,
-                            normalizedReason,
-                            operationId
+                    Map<String, Object> data = requireType(processed.orElseThrow(), COMPLETE_OPERATION, operationId);
+                    requireUuid(data, "request_summon_id", summonId, operationId);
+                    requireString(data, "request_backend_id", normalizedBackendId, operationId);
+                    requireLong(data, "expected_summon_state_version", expectedSummonStateVersion, operationId);
+                    requireString(data, "reason", normalizedReason, operationId);
+                    BountyCompletionResult result = new BountyCompletionResult(
+                            contractFrom(data.get("contract")),
+                            longMap(data.get("pouch_rewards"))
                     );
                     connection.commit();
-                    return previous.result();
+                    return result;
                 }
 
                 BountySummonSnapshot summon = readSummon(connection, summonId, true);
@@ -567,11 +615,7 @@ public final class BountyRepository {
                     }
                 }
 
-                long nextContractVersion = incrementVersion(
-                        contract.stateVersion(),
-                        "bounty contract",
-                        contract.contractId()
-                );
+                long nextContractVersion = incrementVersion(contract.stateVersion(), "bounty contract", contract.contractId());
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE bounty_contracts
                         SET status = 'COMPLETED',
@@ -597,15 +641,15 @@ public final class BountyRepository {
                         readContract(connection, contract.contractId(), false),
                         resolvedRewards
                 );
-                insertProcessedCompletion(
-                        connection,
-                        operationId,
-                        result,
+                LinkedHashMap<String, Object> resultData = requestForLease(
                         summonId,
                         normalizedBackendId,
                         expectedSummonStateVersion,
                         normalizedReason
                 );
+                resultData.put("contract", contractMap(result.contract()));
+                resultData.put("pouch_rewards", result.pouchRewards());
+                insertProcessed(connection, operationId, COMPLETE_OPERATION, resultData);
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -615,7 +659,6 @@ public final class BountyRepository {
         }
     }
 
-    /** Explicit gameplay failure consumes the prepared bounty; backend crashes should instead allow lease expiry/reclaim. */
     public BountyContractSnapshot failBoss(
             UUID operationId,
             UUID summonId,
@@ -635,18 +678,16 @@ public final class BountyRepository {
             connection.setAutoCommit(false);
             try {
                 PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedFailure> processed = findProcessedFailure(connection, operationId);
+                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    ProcessedFailure previous = processed.orElseThrow();
-                    previous.requireSameRequest(
-                            summonId,
-                            normalizedBackendId,
-                            expectedSummonStateVersion,
-                            normalizedReason,
-                            operationId
-                    );
+                    Map<String, Object> data = requireType(processed.orElseThrow(), FAIL_OPERATION, operationId);
+                    requireUuid(data, "request_summon_id", summonId, operationId);
+                    requireString(data, "request_backend_id", normalizedBackendId, operationId);
+                    requireLong(data, "expected_summon_state_version", expectedSummonStateVersion, operationId);
+                    requireString(data, "reason", normalizedReason, operationId);
+                    BountyContractSnapshot result = contractFrom(data.get("contract"));
                     connection.commit();
-                    return previous.result();
+                    return result;
                 }
 
                 BountySummonSnapshot summon = readSummon(connection, summonId, true);
@@ -675,11 +716,7 @@ public final class BountyRepository {
                     }
                 }
 
-                long nextContractVersion = incrementVersion(
-                        contract.stateVersion(),
-                        "bounty contract",
-                        contract.contractId()
-                );
+                long nextContractVersion = incrementVersion(contract.stateVersion(), "bounty contract", contract.contractId());
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE bounty_contracts
                         SET status = 'FAILED',
@@ -700,15 +737,14 @@ public final class BountyRepository {
                 }
 
                 BountyContractSnapshot result = readContract(connection, contract.contractId(), false);
-                insertProcessedFailure(
-                        connection,
-                        operationId,
-                        result,
+                LinkedHashMap<String, Object> resultData = requestForLease(
                         summonId,
                         normalizedBackendId,
                         expectedSummonStateVersion,
                         normalizedReason
                 );
+                resultData.put("contract", contractMap(result));
+                insertProcessed(connection, operationId, FAIL_OPERATION, resultData);
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -716,6 +752,42 @@ public final class BountyRepository {
                 throw exception;
             }
         }
+    }
+
+    private static void insertLeaseProcessed(
+            Connection connection,
+            UUID operationId,
+            String operationType,
+            UUID summonId,
+            String backendId,
+            Long expectedStateVersion,
+            String reason,
+            BountySummonLeaseResult result
+    ) throws SQLException {
+        LinkedHashMap<String, Object> resultData = new LinkedHashMap<>();
+        resultData.put("request_summon_id", summonId.toString());
+        resultData.put("request_backend_id", backendId);
+        if (expectedStateVersion != null) {
+            resultData.put("expected_summon_state_version", expectedStateVersion);
+        }
+        resultData.put("reason", reason);
+        resultData.put("boss_definition_id", result.bossDefinitionId());
+        resultData.put("summon", summonMap(result.summon()));
+        insertProcessed(connection, operationId, operationType, resultData);
+    }
+
+    private static LinkedHashMap<String, Object> requestForLease(
+            UUID summonId,
+            String backendId,
+            long expectedStateVersion,
+            String reason
+    ) {
+        LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+        result.put("request_summon_id", summonId.toString());
+        result.put("request_backend_id", backendId);
+        result.put("expected_summon_state_version", expectedStateVersion);
+        result.put("reason", reason);
+        return result;
     }
 
     private static void requireContractOwner(BountyContractSnapshot contract, UUID playerId) {
@@ -899,7 +971,11 @@ public final class BountyRepository {
                                 "Bounty reward resolver returned material outside tier allowlist: " + normalizedId
                         );
                     }
-                    normalized.put(normalizedId, quantity);
+                    try {
+                        normalized.merge(normalizedId, quantity, Math::addExact);
+                    } catch (ArithmeticException exception) {
+                        throw new BountyException("Bounty reward quantity overflow for " + normalizedId, exception);
+                    }
                 });
         if (normalized.isEmpty()) {
             throw new BountyException("Successful bounty boss must resolve at least one material reward");
@@ -958,6 +1034,9 @@ public final class BountyRepository {
             long amountMinor,
             String reason
     ) throws SQLException {
+        if (amountMinor <= 0) {
+            return;
+        }
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO economic_ledger(
                     operation_id, line_no, player_id, asset_type, asset_id, amount, direction, reason
@@ -970,6 +1049,217 @@ public final class BountyRepository {
             statement.setLong(5, amountMinor);
             statement.setString(6, reason);
             statement.executeUpdate();
+        }
+    }
+
+    private static Optional<ProcessedOperation> findProcessed(Connection connection, UUID operationId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT operation_type, result::text AS result_json
+                FROM processed_operations
+                WHERE operation_id = ?
+                """)) {
+            statement.setObject(1, operationId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new ProcessedOperation(
+                        row.getString("operation_type"),
+                        readJsonMap(row.getString("result_json"))
+                ));
+            }
+        }
+    }
+
+    private static void insertProcessed(
+            Connection connection,
+            UUID operationId,
+            String operationType,
+            Map<String, Object> result
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO processed_operations(operation_id, operation_type, result)
+                VALUES (?, ?, ?::jsonb)
+                """)) {
+            statement.setObject(1, operationId);
+            statement.setString(2, operationType);
+            statement.setString(3, writeJson(result));
+            statement.executeUpdate();
+        }
+    }
+
+    private static Map<String, Object> requireType(
+            ProcessedOperation operation,
+            String expectedType,
+            UUID operationId
+    ) {
+        if (!expectedType.equals(operation.operationType())) {
+            throw new BountyException(
+                    "operation_id " + operationId + " already belongs to operation type " + operation.operationType()
+            );
+        }
+        return operation.result();
+    }
+
+    private static Map<String, Object> contractMap(BountyContractSnapshot contract) {
+        LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+        value.put("contract_id", contract.contractId().toString());
+        value.put("player_id", contract.playerId().toString());
+        value.put("family_id", contract.familyId().value());
+        value.put("tier", contract.tier());
+        value.put("status", contract.status().name());
+        value.put("eligible_kill_progress", contract.eligibleKillProgress());
+        value.put("required_eligible_kills", contract.requiredEligibleKills());
+        value.put("summon_authorizations_remaining", contract.summonAuthorizationsRemaining());
+        value.put("state_version", contract.stateVersion());
+        return value;
+    }
+
+    private static BountyContractSnapshot contractFrom(Object raw) {
+        Map<String, Object> value = objectMap(raw, "contract");
+        return new BountyContractSnapshot(
+                uuidValue(value, "contract_id"),
+                uuidValue(value, "player_id"),
+                new BountyFamilyId(stringValue(value, "family_id")),
+                intValue(value, "tier"),
+                BountyContractStatus.valueOf(stringValue(value, "status")),
+                intValue(value, "eligible_kill_progress"),
+                intValue(value, "required_eligible_kills"),
+                intValue(value, "summon_authorizations_remaining"),
+                longValue(value, "state_version")
+        );
+    }
+
+    private static Map<String, Object> summonMap(BountySummonSnapshot summon) {
+        LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+        value.put("summon_id", summon.summonId().toString());
+        value.put("contract_id", summon.contractId().toString());
+        value.put("status", summon.status().name());
+        value.put("owner_backend_id", summon.ownerBackendId());
+        value.put("lease_expires_at", instantString(summon.leaseExpiresAt()));
+        value.put("state_version", summon.stateVersion());
+        value.put("created_at", summon.createdAt().toString());
+        value.put("activated_at", instantString(summon.activatedAt()));
+        value.put("resolved_at", instantString(summon.resolvedAt()));
+        return value;
+    }
+
+    private static BountySummonSnapshot summonFrom(Object raw) {
+        Map<String, Object> value = objectMap(raw, "summon");
+        return new BountySummonSnapshot(
+                uuidValue(value, "summon_id"),
+                uuidValue(value, "contract_id"),
+                BountySummonStatus.valueOf(stringValue(value, "status")),
+                nullableString(value, "owner_backend_id"),
+                nullableInstant(value, "lease_expires_at"),
+                longValue(value, "state_version"),
+                Instant.parse(stringValue(value, "created_at")),
+                nullableInstant(value, "activated_at"),
+                nullableInstant(value, "resolved_at")
+        );
+    }
+
+    private static Map<String, Long> longMap(Object raw) {
+        Map<String, Object> value = objectMap(raw, "pouch_rewards");
+        LinkedHashMap<String, Long> result = new LinkedHashMap<>();
+        value.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
+            if (!(entry.getValue() instanceof Number number)) {
+                throw new BountyException("Processed bounty reward is not numeric: " + entry.getKey());
+            }
+            result.put(entry.getKey(), number.longValue());
+        });
+        return Map.copyOf(result);
+    }
+
+    private static Map<String, Object> readJsonMap(String json) {
+        try {
+            return JSON.readValue(json, new TypeReference<>() { });
+        } catch (JsonProcessingException exception) {
+            throw new BountyException("Failed to parse processed bounty result", exception);
+        }
+    }
+
+    private static String writeJson(Object value) {
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new BountyException("Failed to serialize processed bounty result", exception);
+        }
+    }
+
+    private static Map<String, Object> objectMap(Object raw, String field) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            throw new BountyException("Processed bounty result field is not an object: " + field);
+        }
+        LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+        map.forEach((key, value) -> result.put(Objects.toString(key), value));
+        return result;
+    }
+
+    private static String stringValue(Map<String, Object> value, String field) {
+        Object raw = value.get(field);
+        if (raw == null) {
+            throw new BountyException("Processed bounty result is missing field: " + field);
+        }
+        return Objects.toString(raw);
+    }
+
+    private static String nullableString(Map<String, Object> value, String field) {
+        Object raw = value.get(field);
+        return raw == null ? null : Objects.toString(raw);
+    }
+
+    private static int intValue(Map<String, Object> value, String field) {
+        Object raw = value.get(field);
+        if (!(raw instanceof Number number)) {
+            throw new BountyException("Processed bounty result field is not numeric: " + field);
+        }
+        return number.intValue();
+    }
+
+    private static long longValue(Map<String, Object> value, String field) {
+        Object raw = value.get(field);
+        if (!(raw instanceof Number number)) {
+            throw new BountyException("Processed bounty result field is not numeric: " + field);
+        }
+        return number.longValue();
+    }
+
+    private static UUID uuidValue(Map<String, Object> value, String field) {
+        return UUID.fromString(stringValue(value, field));
+    }
+
+    private static Instant nullableInstant(Map<String, Object> value, String field) {
+        String raw = nullableString(value, field);
+        return raw == null ? null : Instant.parse(raw);
+    }
+
+    private static String instantString(Instant value) {
+        return value == null ? null : value.toString();
+    }
+
+    private static void requireUuid(Map<String, Object> data, String field, UUID expected, UUID operationId) {
+        if (!uuidValue(data, field).equals(expected)) {
+            throw new BountyException("operation_id reused with different bounty request: " + operationId);
+        }
+    }
+
+    private static void requireString(Map<String, Object> data, String field, String expected, UUID operationId) {
+        if (!stringValue(data, field).equals(expected)) {
+            throw new BountyException("operation_id reused with different bounty request: " + operationId);
+        }
+    }
+
+    private static void requireInt(Map<String, Object> data, String field, int expected, UUID operationId) {
+        if (intValue(data, field) != expected) {
+            throw new BountyException("operation_id reused with different bounty request: " + operationId);
+        }
+    }
+
+    private static void requireLong(Map<String, Object> data, String field, long expected, UUID operationId) {
+        if (longValue(data, field) != expected) {
+            throw new BountyException("operation_id reused with different bounty request: " + operationId);
         }
     }
 
@@ -999,38 +1289,6 @@ public final class BountyRepository {
         return normalized;
     }
 
-    private static String writeJson(Object value) {
-        try {
-            return JSON.writeValueAsString(value);
-        } catch (JsonProcessingException exception) {
-            throw new BountyException("Failed to serialize bounty result", exception);
-        }
-    }
-
-    private static Map<String, Long> readLongMap(String value) {
-        try {
-            return JSON.readValue(value, new TypeReference<>() { });
-        } catch (JsonProcessingException exception) {
-            throw new BountyException("Failed to parse processed bounty rewards", exception);
-        }
-    }
-
-    private static String requireField(ResultSet row, String field) throws SQLException {
-        String value = row.getString(field);
-        if (value == null) {
-            throw new BountyException("Processed bounty result is missing field: " + field);
-        }
-        return value;
-    }
-
-    private static void requireOperationType(String actual, String expected, UUID operationId) {
-        if (!expected.equals(actual)) {
-            throw new BountyException(
-                    "operation_id " + operationId + " already belongs to operation type " + actual
-            );
-        }
-    }
-
     private static void rollbackQuietly(Connection connection, Throwable cause) {
         try {
             connection.rollback();
@@ -1039,551 +1297,10 @@ public final class BountyRepository {
         }
     }
 
-    private static void insertProcessedStart(
-            Connection connection,
-            UUID operationId,
-            BountyContractStartResult result,
-            long feeMinor,
-            String reason
-    ) throws SQLException {
-        BountyContractSnapshot contract = result.contract();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO processed_operations(operation_id, operation_type, result)
-                VALUES (?, ?, jsonb_build_object(
-                    'contract_id', ?, 'player_id', ?, 'family_id', ?, 'tier', ?, 'status', ?,
-                    'eligible_kill_progress', ?, 'required_eligible_kills', ?,
-                    'summon_authorizations_remaining', ?, 'contract_state_version', ?,
-                    'wallet_balance_minor', ?, 'wallet_state_version', ?, 'fee_minor', ?, 'reason', ?
-                ))
-                """)) {
-            statement.setObject(1, operationId);
-            statement.setString(2, START_OPERATION);
-            bindContract(statement, 3, contract);
-            statement.setLong(12, result.walletBalanceMinor());
-            statement.setLong(13, result.walletStateVersion());
-            statement.setLong(14, feeMinor);
-            statement.setString(15, reason);
-            statement.executeUpdate();
-        }
-    }
-
-    private static Optional<ProcessedStart> findProcessedStart(Connection connection, UUID operationId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(contractProcessedSelect("""
-                result ->> 'wallet_balance_minor' AS wallet_balance_minor,
-                result ->> 'wallet_state_version' AS wallet_state_version,
-                result ->> 'fee_minor' AS fee_minor,
-                result ->> 'reason' AS reason
-                """))) {
-            statement.setObject(1, operationId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) return Optional.empty();
-                requireOperationType(row.getString("operation_type"), START_OPERATION, operationId);
-                BountyContractSnapshot contract = readProcessedContract(row);
-                return Optional.of(new ProcessedStart(
-                        new BountyContractStartResult(
-                                contract,
-                                Long.parseLong(requireField(row, "wallet_balance_minor")),
-                                Long.parseLong(requireField(row, "wallet_state_version"))
-                        ),
-                        Long.parseLong(requireField(row, "fee_minor")),
-                        requireField(row, "reason")
-                ));
-            }
-        }
-    }
-
-    private static void insertProcessedProgress(
-            Connection connection,
-            UUID operationId,
-            BountyContractSnapshot result,
-            int eligibleKills,
-            String reason
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO processed_operations(operation_id, operation_type, result)
-                VALUES (?, ?, jsonb_build_object(
-                    'contract_id', ?, 'player_id', ?, 'family_id', ?, 'tier', ?, 'status', ?,
-                    'eligible_kill_progress', ?, 'required_eligible_kills', ?,
-                    'summon_authorizations_remaining', ?, 'contract_state_version', ?,
-                    'eligible_kills', ?, 'reason', ?
-                ))
-                """)) {
-            statement.setObject(1, operationId);
-            statement.setString(2, PROGRESS_OPERATION);
-            bindContract(statement, 3, result);
-            statement.setInt(12, eligibleKills);
-            statement.setString(13, reason);
-            statement.executeUpdate();
-        }
-    }
-
-    private static Optional<ProcessedProgress> findProcessedProgress(Connection connection, UUID operationId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(contractProcessedSelect("""
-                result ->> 'eligible_kills' AS eligible_kills,
-                result ->> 'reason' AS reason
-                """))) {
-            statement.setObject(1, operationId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) return Optional.empty();
-                requireOperationType(row.getString("operation_type"), PROGRESS_OPERATION, operationId);
-                return Optional.of(new ProcessedProgress(
-                        readProcessedContract(row),
-                        Integer.parseInt(requireField(row, "eligible_kills")),
-                        requireField(row, "reason")
-                ));
-            }
-        }
-    }
-
-    private static void insertProcessedPrepare(
-            Connection connection,
-            UUID operationId,
-            BountySummonPrepareResult result,
-            String reason
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO processed_operations(operation_id, operation_type, result)
-                VALUES (?, ?, jsonb_build_object(
-                    'contract_id', ?, 'player_id', ?, 'family_id', ?, 'tier', ?, 'status', ?,
-                    'eligible_kill_progress', ?, 'required_eligible_kills', ?,
-                    'summon_authorizations_remaining', ?, 'contract_state_version', ?,
-                    'summon_id', ?, 'boss_definition_id', ?, 'reason', ?
-                ))
-                """)) {
-            statement.setObject(1, operationId);
-            statement.setString(2, PREPARE_SUMMON_OPERATION);
-            bindContract(statement, 3, result.contract());
-            statement.setString(12, result.summon().summonId().toString());
-            statement.setString(13, result.bossDefinitionId());
-            statement.setString(14, reason);
-            statement.executeUpdate();
-        }
-    }
-
-    private static Optional<ProcessedPrepare> findProcessedPrepare(Connection connection, UUID operationId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(contractProcessedSelect("""
-                result ->> 'summon_id' AS summon_id,
-                result ->> 'boss_definition_id' AS boss_definition_id,
-                result ->> 'reason' AS reason
-                """))) {
-            statement.setObject(1, operationId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) return Optional.empty();
-                requireOperationType(row.getString("operation_type"), PREPARE_SUMMON_OPERATION, operationId);
-                BountyContractSnapshot contract = readProcessedContract(row);
-                UUID summonId = UUID.fromString(requireField(row, "summon_id"));
-                BountySummonSnapshot summon = readSummon(connection, summonId, false);
-                return Optional.of(new ProcessedPrepare(
-                        new BountySummonPrepareResult(
-                                contract,
-                                summon,
-                                requireField(row, "boss_definition_id")
-                        ),
-                        requireField(row, "reason")
-                ));
-            }
-        }
-    }
-
-    private static void insertProcessedLease(
-            Connection connection,
-            UUID operationId,
-            String operationType,
-            BountySummonLeaseResult result,
-            String reason
-    ) throws SQLException {
-        BountySummonSnapshot summon = result.summon();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO processed_operations(operation_id, operation_type, result)
-                VALUES (?, ?, jsonb_build_object(
-                    'summon_id', ?, 'contract_id', ?, 'owner_backend_id', ?,
-                    'lease_expires_at', ?, 'summon_state_version', ?,
-                    'boss_definition_id', ?, 'reason', ?
-                ))
-                """)) {
-            statement.setObject(1, operationId);
-            statement.setString(2, operationType);
-            statement.setString(3, summon.summonId().toString());
-            statement.setString(4, summon.contractId().toString());
-            statement.setString(5, summon.ownerBackendId());
-            statement.setString(6, summon.leaseExpiresAt().toString());
-            statement.setLong(7, summon.stateVersion());
-            statement.setString(8, result.bossDefinitionId());
-            statement.setString(9, reason);
-            statement.executeUpdate();
-        }
-    }
-
-    private static Optional<ProcessedLease> findProcessedLease(
-            Connection connection,
-            UUID operationId,
-            String expectedOperationType
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT operation_type,
-                       result ->> 'summon_id' AS summon_id,
-                       result ->> 'contract_id' AS contract_id,
-                       result ->> 'owner_backend_id' AS owner_backend_id,
-                       result ->> 'lease_expires_at' AS lease_expires_at,
-                       result ->> 'summon_state_version' AS summon_state_version,
-                       result ->> 'boss_definition_id' AS boss_definition_id,
-                       result ->> 'reason' AS reason
-                FROM processed_operations
-                WHERE operation_id = ?
-                """)) {
-            statement.setObject(1, operationId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) return Optional.empty();
-                requireOperationType(row.getString("operation_type"), expectedOperationType, operationId);
-                UUID summonId = UUID.fromString(requireField(row, "summon_id"));
-                BountySummonSnapshot current = readSummon(connection, summonId, false);
-                BountySummonLeaseResult result = new BountySummonLeaseResult(
-                        new BountySummonSnapshot(
-                                summonId,
-                                UUID.fromString(requireField(row, "contract_id")),
-                                BountySummonStatus.ACTIVE,
-                                requireField(row, "owner_backend_id"),
-                                Instant.parse(requireField(row, "lease_expires_at")),
-                                Long.parseLong(requireField(row, "summon_state_version")),
-                                current.createdAt(),
-                                current.activatedAt(),
-                                null
-                        ),
-                        requireField(row, "boss_definition_id")
-                );
-                return Optional.of(new ProcessedLease(result, requireField(row, "reason")));
-            }
-        }
-    }
-
-    private static void insertProcessedHeartbeat(
-            Connection connection,
-            UUID operationId,
-            BountySummonLeaseResult result,
-            long expectedStateVersion,
-            String reason
-    ) throws SQLException {
-        insertProcessedLease(connection, operationId, HEARTBEAT_SUMMON_OPERATION, result, reason);
-        // Bind the original expected version in the immutable result after insertion.
-        try (PreparedStatement statement = connection.prepareStatement("""
-                UPDATE processed_operations
-                SET result = result || jsonb_build_object('expected_summon_state_version', ?)
-                WHERE operation_id = ?
-                """)) {
-            statement.setLong(1, expectedStateVersion);
-            statement.setObject(2, operationId);
-            statement.executeUpdate();
-        }
-    }
-
-    private static Optional<ProcessedHeartbeat> findProcessedHeartbeat(Connection connection, UUID operationId)
-            throws SQLException {
-        Optional<ProcessedLease> base = findProcessedLease(connection, operationId, HEARTBEAT_SUMMON_OPERATION);
-        if (base.isEmpty()) return Optional.empty();
-        try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT result ->> 'expected_summon_state_version' AS expected_summon_state_version
-                FROM processed_operations
-                WHERE operation_id = ?
-                """)) {
-            statement.setObject(1, operationId);
-            try (ResultSet row = statement.executeQuery()) {
-                row.next();
-                return Optional.of(new ProcessedHeartbeat(
-                        base.orElseThrow().result(),
-                        Long.parseLong(requireField(row, "expected_summon_state_version")),
-                        base.orElseThrow().reason()
-                ));
-            }
-        }
-    }
-
-    private static void insertProcessedCompletion(
-            Connection connection,
-            UUID operationId,
-            BountyCompletionResult result,
-            UUID summonId,
-            String backendId,
-            long expectedSummonStateVersion,
-            String reason
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO processed_operations(operation_id, operation_type, result)
-                VALUES (?, ?, jsonb_build_object(
-                    'contract_id', ?, 'player_id', ?, 'family_id', ?, 'tier', ?, 'status', ?,
-                    'eligible_kill_progress', ?, 'required_eligible_kills', ?,
-                    'summon_authorizations_remaining', ?, 'contract_state_version', ?,
-                    'summon_id', ?, 'backend_id', ?, 'expected_summon_state_version', ?,
-                    'pouch_rewards', ?::jsonb, 'reason', ?
-                ))
-                """)) {
-            statement.setObject(1, operationId);
-            statement.setString(2, COMPLETE_OPERATION);
-            bindContract(statement, 3, result.contract());
-            statement.setString(12, summonId.toString());
-            statement.setString(13, backendId);
-            statement.setLong(14, expectedSummonStateVersion);
-            statement.setString(15, writeJson(result.pouchRewards()));
-            statement.setString(16, reason);
-            statement.executeUpdate();
-        }
-    }
-
-    private static Optional<ProcessedCompletion> findProcessedCompletion(Connection connection, UUID operationId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(contractProcessedSelect("""
-                result ->> 'summon_id' AS summon_id,
-                result ->> 'backend_id' AS backend_id,
-                result ->> 'expected_summon_state_version' AS expected_summon_state_version,
-                result -> 'pouch_rewards' AS pouch_rewards,
-                result ->> 'reason' AS reason
-                """))) {
-            statement.setObject(1, operationId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) return Optional.empty();
-                requireOperationType(row.getString("operation_type"), COMPLETE_OPERATION, operationId);
-                return Optional.of(new ProcessedCompletion(
-                        new BountyCompletionResult(
-                                readProcessedContract(row),
-                                readLongMap(requireField(row, "pouch_rewards"))
-                        ),
-                        UUID.fromString(requireField(row, "summon_id")),
-                        requireField(row, "backend_id"),
-                        Long.parseLong(requireField(row, "expected_summon_state_version")),
-                        requireField(row, "reason")
-                ));
-            }
-        }
-    }
-
-    private static void insertProcessedFailure(
-            Connection connection,
-            UUID operationId,
-            BountyContractSnapshot result,
-            UUID summonId,
-            String backendId,
-            long expectedSummonStateVersion,
-            String reason
-    ) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                INSERT INTO processed_operations(operation_id, operation_type, result)
-                VALUES (?, ?, jsonb_build_object(
-                    'contract_id', ?, 'player_id', ?, 'family_id', ?, 'tier', ?, 'status', ?,
-                    'eligible_kill_progress', ?, 'required_eligible_kills', ?,
-                    'summon_authorizations_remaining', ?, 'contract_state_version', ?,
-                    'summon_id', ?, 'backend_id', ?, 'expected_summon_state_version', ?, 'reason', ?
-                ))
-                """)) {
-            statement.setObject(1, operationId);
-            statement.setString(2, FAIL_OPERATION);
-            bindContract(statement, 3, result);
-            statement.setString(12, summonId.toString());
-            statement.setString(13, backendId);
-            statement.setLong(14, expectedSummonStateVersion);
-            statement.setString(15, reason);
-            statement.executeUpdate();
-        }
-    }
-
-    private static Optional<ProcessedFailure> findProcessedFailure(Connection connection, UUID operationId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(contractProcessedSelect("""
-                result ->> 'summon_id' AS summon_id,
-                result ->> 'backend_id' AS backend_id,
-                result ->> 'expected_summon_state_version' AS expected_summon_state_version,
-                result ->> 'reason' AS reason
-                """))) {
-            statement.setObject(1, operationId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) return Optional.empty();
-                requireOperationType(row.getString("operation_type"), FAIL_OPERATION, operationId);
-                return Optional.of(new ProcessedFailure(
-                        readProcessedContract(row),
-                        UUID.fromString(requireField(row, "summon_id")),
-                        requireField(row, "backend_id"),
-                        Long.parseLong(requireField(row, "expected_summon_state_version")),
-                        requireField(row, "reason")
-                ));
-            }
-        }
-    }
-
-    private static String contractProcessedSelect(String extras) {
-        return """
-                SELECT operation_type,
-                       result ->> 'contract_id' AS contract_id,
-                       result ->> 'player_id' AS player_id,
-                       result ->> 'family_id' AS family_id,
-                       result ->> 'tier' AS tier,
-                       result ->> 'status' AS status,
-                       result ->> 'eligible_kill_progress' AS eligible_kill_progress,
-                       result ->> 'required_eligible_kills' AS required_eligible_kills,
-                       result ->> 'summon_authorizations_remaining' AS summon_authorizations_remaining,
-                       result ->> 'contract_state_version' AS contract_state_version,
-                       %s
-                FROM processed_operations
-                WHERE operation_id = ?
-                """.formatted(extras.strip());
-    }
-
-    private static void bindContract(PreparedStatement statement, int start, BountyContractSnapshot contract)
-            throws SQLException {
-        statement.setString(start, contract.contractId().toString());
-        statement.setString(start + 1, contract.playerId().toString());
-        statement.setString(start + 2, contract.familyId().value());
-        statement.setInt(start + 3, contract.tier());
-        statement.setString(start + 4, contract.status().name());
-        statement.setInt(start + 5, contract.eligibleKillProgress());
-        statement.setInt(start + 6, contract.requiredEligibleKills());
-        statement.setInt(start + 7, contract.summonAuthorizationsRemaining());
-        statement.setLong(start + 8, contract.stateVersion());
-    }
-
-    private static BountyContractSnapshot readProcessedContract(ResultSet row) throws SQLException {
-        return new BountyContractSnapshot(
-                UUID.fromString(requireField(row, "contract_id")),
-                UUID.fromString(requireField(row, "player_id")),
-                new BountyFamilyId(requireField(row, "family_id")),
-                Integer.parseInt(requireField(row, "tier")),
-                BountyContractStatus.valueOf(requireField(row, "status")),
-                Integer.parseInt(requireField(row, "eligible_kill_progress")),
-                Integer.parseInt(requireField(row, "required_eligible_kills")),
-                Integer.parseInt(requireField(row, "summon_authorizations_remaining")),
-                Long.parseLong(requireField(row, "contract_state_version"))
-        );
-    }
-
-    private record ProcessedStart(BountyContractStartResult result, long feeMinor, String reason) {
-        private void requireSameRequest(
-                UUID playerId,
-                BountyFamilyId familyId,
-                int tier,
-                String expectedReason,
-                UUID operationId
-        ) {
-            BountyContractSnapshot contract = result.contract();
-            if (!contract.playerId().equals(playerId)
-                    || !contract.familyId().equals(familyId)
-                    || contract.tier() != tier
-                    || !reason.equals(expectedReason)) {
-                throw new BountyException("operation_id reused with different bounty start request: " + operationId);
-            }
-        }
-    }
-
-    private record ProcessedProgress(BountyContractSnapshot result, int eligibleKills, String reason) {
-        private void requireSameRequest(
-                UUID contractId,
-                UUID playerId,
-                int expectedKills,
-                String expectedReason,
-                UUID operationId
-        ) {
-            if (!result.contractId().equals(contractId)
-                    || !result.playerId().equals(playerId)
-                    || eligibleKills != expectedKills
-                    || !reason.equals(expectedReason)) {
-                throw new BountyException("operation_id reused with different bounty progress request: " + operationId);
-            }
-        }
-    }
-
-    private record ProcessedPrepare(BountySummonPrepareResult result, String reason) {
-        private void requireSameRequest(
-                UUID contractId,
-                UUID playerId,
-                String expectedReason,
-                UUID operationId
-        ) {
-            if (!result.contract().contractId().equals(contractId)
-                    || !result.contract().playerId().equals(playerId)
-                    || !reason.equals(expectedReason)) {
-                throw new BountyException("operation_id reused with different bounty summon request: " + operationId);
-            }
-        }
-    }
-
-    private record ProcessedLease(BountySummonLeaseResult result, String reason) {
-        private void requireSameRequest(
-                UUID summonId,
-                String backendId,
-                String expectedReason,
-                UUID operationId
-        ) {
-            if (!result.summon().summonId().equals(summonId)
-                    || !result.summon().ownerBackendId().equals(backendId)
-                    || !reason.equals(expectedReason)) {
-                throw new BountyException("operation_id reused with different bounty summon claim: " + operationId);
-            }
-        }
-    }
-
-    private record ProcessedHeartbeat(
-            BountySummonLeaseResult result,
-            long expectedSummonStateVersion,
-            String reason
-    ) {
-        private void requireSameRequest(
-                UUID summonId,
-                String backendId,
-                long expectedVersion,
-                String expectedReason,
-                UUID operationId
-        ) {
-            if (!result.summon().summonId().equals(summonId)
-                    || !result.summon().ownerBackendId().equals(backendId)
-                    || expectedSummonStateVersion != expectedVersion
-                    || !reason.equals(expectedReason)) {
-                throw new BountyException("operation_id reused with different bounty heartbeat: " + operationId);
-            }
-        }
-    }
-
-    private record ProcessedCompletion(
-            BountyCompletionResult result,
-            UUID summonId,
-            String backendId,
-            long expectedSummonStateVersion,
-            String reason
-    ) {
-        private void requireSameRequest(
-                UUID expectedSummonId,
-                String expectedBackendId,
-                long expectedVersion,
-                String expectedReason,
-                UUID operationId
-        ) {
-            if (!summonId.equals(expectedSummonId)
-                    || !backendId.equals(expectedBackendId)
-                    || expectedSummonStateVersion != expectedVersion
-                    || !reason.equals(expectedReason)) {
-                throw new BountyException("operation_id reused with different bounty completion: " + operationId);
-            }
-        }
-    }
-
-    private record ProcessedFailure(
-            BountyContractSnapshot result,
-            UUID summonId,
-            String backendId,
-            long expectedSummonStateVersion,
-            String reason
-    ) {
-        private void requireSameRequest(
-                UUID expectedSummonId,
-                String expectedBackendId,
-                long expectedVersion,
-                String expectedReason,
-                UUID operationId
-        ) {
-            if (!summonId.equals(expectedSummonId)
-                    || !backendId.equals(expectedBackendId)
-                    || expectedSummonStateVersion != expectedVersion
-                    || !reason.equals(expectedReason)) {
-                throw new BountyException("operation_id reused with different bounty failure: " + operationId);
-            }
+    private record ProcessedOperation(String operationType, Map<String, Object> result) {
+        private ProcessedOperation {
+            operationType = Objects.requireNonNull(operationType, "operationType");
+            result = Map.copyOf(Objects.requireNonNull(result, "result"));
         }
     }
 }
