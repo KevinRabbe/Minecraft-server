@@ -9,6 +9,7 @@ import io.github.kevinrabbe.minecraftserver.common.clan.ClanRoleRepository;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanStorageRepository;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanTreasuryRepository;
 import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
+import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingCommissionCompletionRepository;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalog;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingExperienceFulfillmentRepository;
@@ -23,6 +24,8 @@ import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicy;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicyLoader;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.CraftingCommissionQueryRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.CraftingCommissionRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.SalvageCatalog;
 import io.github.kevinrabbe.minecraftserver.common.economy.SalvageCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.economy.SalvageRepository;
@@ -106,6 +109,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperAuctionHouseCommand auctionHouseCommand;
         PaperTradeCommand tradeCommand;
         PaperClanCommand clanCommand;
+        PaperCraftingCommissionCommand commissionCommand;
         PaperSalvageCommand salvageCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
@@ -269,6 +273,11 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             );
 
             PaperCommodityBatchStateMutator craftingIngredients = new PaperCommodityBatchStateMutator(commodityMutator);
+            CraftingExperienceFulfillmentRepository craftingExperience = new CraftingExperienceFulfillmentRepository(
+                    database.dataSource(),
+                    craftingContent.experience(),
+                    skillCatalog
+            );
             CraftingRepository craftingRepository = new CraftingRepository(
                     database.dataSource(),
                     itemCatalog,
@@ -280,15 +289,36 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     this,
                     sessionController,
                     new CraftingStateExecutionService(craftingRepository),
-                    new CraftingExperienceFulfillmentRepository(
-                            database.dataSource(),
-                            craftingContent.experience(),
-                            skillCatalog
-                    ),
+                    craftingExperience,
                     craftingContent.recipes(),
                     craftingIngredients,
                     commodityDeliveryController,
                     uniqueDeliveryController
+            );
+            commissionCommand = new PaperCraftingCommissionCommand(
+                    this,
+                    sessionController,
+                    playerIdentities,
+                    commodityDeliveryController,
+                    uniqueDeliveryController,
+                    new CraftingCommissionRepository(
+                            database.dataSource(),
+                            itemCatalog,
+                            craftingContent.recipes(),
+                            skillCatalog,
+                            craftingIngredients
+                    ),
+                    new CraftingCommissionCompletionRepository(
+                            database.dataSource(),
+                            itemCatalog,
+                            craftingContent.recipes(),
+                            skillCatalog
+                    ),
+                    new CraftingCommissionQueryRepository(database.dataSource()),
+                    craftingExperience,
+                    craftingContent.recipes(),
+                    itemCatalog,
+                    craftingIngredients
             );
 
             ArtifactRepository artifactRepository = new ArtifactRepository(database.dataSource());
@@ -419,6 +449,12 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand clan = Objects.requireNonNull(getCommand("clan"), "clan command missing from plugin.yml");
         clan.setExecutor(clanCommand);
         clan.setTabCompleter(clanCommand);
+        PluginCommand commission = Objects.requireNonNull(
+                getCommand("commission"),
+                "commission command missing from plugin.yml"
+        );
+        commission.setExecutor(commissionCommand);
+        commission.setTabCompleter(commissionCommand);
         PluginCommand salvage = Objects.requireNonNull(getCommand("salvage"), "salvage command missing from plugin.yml");
         salvage.setExecutor(salvageCommand);
         salvage.setTabCompleter(salvageCommand);
