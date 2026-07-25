@@ -4,44 +4,48 @@ This file tracks the architecture-first requirement before remaining gameplay fe
 
 Status values:
 
-- **PROVEN** — architecture exists and repository implementation/tests already demonstrate the boundary.
-- **CONTRACTED** — detailed architecture contract is now defined; code implementation may still be pending.
-- **PENDING** — architecture contract still missing/contradictory; feature code must not proceed past this boundary.
+- **PROVEN** — architecture exists and repository implementation/tests demonstrate the authority boundary. A PROVEN common authority may still need additional Paper/UI/runtime adapters before a player can exercise every path.
+- **CONTRACTED** — detailed architecture contract is defined; implementation may still be pending at one or more authority boundaries.
+- **PENDING** — architecture contract is missing/contradictory; feature code must not proceed past this boundary.
 
 ## Cross-cutting architecture matrix
 
 | Area | Status | Canonical contract / evidence |
 |---|---|---|
-| Stable player identity | PROVEN | `AUTHORITY_MODEL.md`, existing player identity/session repositories |
-| Single-writer session ownership/version fencing | PROVEN | `PLAYER_STATE_AND_TRANSFERS.md`, existing session/transfer integration tests |
-| Zone/backend routing | PROVEN | `WORLD_ZONES_INSTANCES.md`, existing control/transfer repositories |
-| PostgreSQL migrations/operation locking | PROVEN | `DATA_MODEL.md`, `TRANSACTIONS_AND_ANTI_DUPE.md`, existing migration/operation-lock code |
-| Unique-item identity/custody/provenance | PROVEN | `ITEMS_AND_INVENTORY.md`, existing unique-item authority/provenance tests |
-| Pending unique delivery | PROVEN | existing pending-delivery authority/tests |
-| Coin wallet + append-only economic evidence | PROVEN | `ECONOMY.md`, existing wallet/evidence repositories/tests |
-| Fixed-price Auction House custody/settlement | PROVEN | `ECONOMY.md`, existing AH repository/tests |
-| Protected Bank Manager semantics | CONTRACTED | `ECONOMY.md`, `TRANSACTIONS_AND_ANTI_DUPE.md`, `DATA_MODEL.md` |
-| Bazaar order-book semantics | CONTRACTED | `ECONOMY.md`, `TRANSACTIONS_AND_ANTI_DUPE.md`, `DATA_MODEL.md` |
-| Crafting exactly-once settlement | CONTRACTED | `ITEMS_AND_INVENTORY.md`, `TRANSACTIONS_AND_ANTI_DUPE.md` |
-| Persistent normalized rolled-item quality | CONTRACTED | `ITEMS_AND_INVENTORY.md`, `CONFIGURATION.md` |
-| Upgrade/salvage separation | CONTRACTED | `ITEMS_AND_INVENTORY.md`, `TRANSACTIONS_AND_ANTI_DUPE.md` |
-| Generic skills + staged active caps 50/75/100 | CONTRACTED | `SKILLS_GATHERING_AND_MODIFIERS.md`, `CONFIGURATION.md` |
-| Authorized gathering source boundary | CONTRACTED/partially existing | `SKILLS_GATHERING_AND_MODIFIERS.md` |
-| Portal/Map run lifecycle | CONTRACTED | `PVE_MAPS_AND_BOUNTIES.md` |
-| Map difficulty/version/reward semantics | CONTRACTED | `PVE_MAPS_AND_BOUNTIES.md`, `CONFIGURATION.md` |
-| PvE historical clear/leaderboard source | CONTRACTED | `PVE_MAPS_AND_BOUNTIES.md`, `DATA_MODEL.md` |
-| Bounty family/tier/contract/summon/reward lifecycle | CONTRACTED | `PVE_MAPS_AND_BOUNTIES.md` |
-| Bounty materials/pouches/tradability | CONTRACTED | `PVE_MAPS_AND_BOUNTIES.md`, `ITEMS_AND_INVENTORY.md`, `ECONOMY.md` |
-| Clan treasury/shared storage custody | CONTRACTED | `CLANS_PVP_WAR.md`, `DATA_MODEL.md` |
-| Ranked PvP isolation | CONTRACTED/existing design | `CLANS_PVP_WAR.md` |
-| Clan-war economic custody/settlement | CONTRACTED/existing design | `CLANS_PVP_WAR.md`, `TRANSACTIONS_AND_ANTI_DUPE.md` |
-| Expansion voting/ballot/result authority | CONTRACTED | `WORLD_VOTING_AND_HISTORY.md` |
-| Feature state/world era | CONTRACTED | `WORLD_VOTING_AND_HISTORY.md`, `DATA_MODEL.md` |
+| Stable player identity | PROVEN | `AUTHORITY_MODEL.md`, player identity/session repositories and integration tests |
+| Single-writer session ownership/version fencing | PROVEN | `PLAYER_STATE_AND_TRANSFERS.md`, session/transfer integration tests, Paper authoritative-state mutation lane |
+| Zone/backend routing | PROVEN | `WORLD_ZONES_INSTANCES.md`, control/transfer repositories; single-active-instance bootstrap attachment is implemented while multi-instance scheduling remains explicit future routing work |
+| PostgreSQL migrations/operation locking | PROVEN | `DATA_MODEL.md`, `TRANSACTIONS_AND_ANTI_DUPE.md`, migration/operation-lock code |
+| Unique-item identity/custody/provenance | PROVEN | `ITEMS_AND_INVENTORY.md`, unique-item authority/provenance tests |
+| Pending unique delivery | PROVEN | pending-delivery authority/tests plus generic Paper materialization through fenced serialized player state |
+| Coin wallet + append-only economic evidence | PROVEN | `ECONOMY.md`, wallet/evidence repositories/tests |
+| Fixed-price Auction House custody/settlement | PROVEN | `ECONOMY.md`, AH authority/tests; richer player-facing market UI remains adapter work |
+| Protected Bank Manager semantics | PROVEN | Bank account/tier/transfer/upgrade/interest authority and integration tests |
+| Bazaar order-book semantics | PROVEN | buy/sell reserve, price-time matching, partial fill, cancellation, delivery and concurrency tests |
+| Crafting exactly-once settlement | PROVEN | personal crafting + commissions, exact ingredient-state verification, persistent output issuance, Crafting-XP recovery, first Paper `/craft` bridge |
+| Persistent normalized rolled-item quality | PROVEN | immutable normalized roll state on individualized craft output; derived effective combat-stat application remains a separate modifier/runtime layer |
+| Upgrade/salvage separation | CONTRACTED/partially proven | upgrade-state contract exists; irreversible salvage authority and tests are PROVEN |
+| Generic skills + staged active caps 50/75/100 | PROVEN | skill authority, cap transitions, no hidden above-cap XP, integration tests |
+| Authorized gathering source boundary | PROVEN | renewable source-cycle authority, fulfillment recovery, Paper Mining/Woodcutting/Farming bridge and restart-derived visual state |
+| Authorized ordinary-PvE entity source boundary | PROVEN | source-cycle→spawn-ID→entity-UUID binding, exact kill claim, no-reward death/expiry recovery, managed Zombie Paper bridge |
+| Portal/Map run lifecycle | PROVEN common authority | exact Map item provenance, one Map→one run, participant/start/clear/failure lifecycle; Paper inventory-coupled Map opening is still pending |
+| Map difficulty/version/reward semantics | PROVEN | immutable run definition, reward settlement/grant/fulfillment authorities and retry tests |
+| PvE historical clear/leaderboard source | PROVEN | immutable Map clear records with participants/configuration/world-era context |
+| Bounty family/tier/contract/summon/reward lifecycle | PROVEN | paid start, kill progress, summon preparation/lease/reclaim, completion/failure and reward tests |
+| Bounty materials/pouches/tradability | PROVEN authority | bounty rewards and family-pouch custody/economic path; additional Paper UX/content remains adapter work |
+| Clan membership/roles/leadership | PROVEN | invite/accept/cancel, one-clan membership, committed leader invariant, role changes and atomic leadership transfer |
+| Clan treasury/shared storage custody | PROVEN | Coin treasury plus commodity/individualized storage custody and permission tests |
+| Ranked PvP isolation | PROVEN common authority | standardized match lifecycle, rating policy and concurrency/idempotency tests; combat runtime/version remains under evaluation |
+| Clan-war economic custody/settlement | PROVEN common authority | roster/loadout/custody/snapshot/lifecycle/resolution authority and tests; combat runtime adapter remains pending |
+| Expansion voting/ballot/result authority | PROVEN | immutable candidates, effective ballots, authoritative close/tie/cancel/runoff and capability unlock tests |
+| Feature state/world era | PROVEN | expansion result + serialized world-era authority/history |
 | Ordinary player-built district no-blueprint rule | CONTRACTED | `WORLD_VOTING_AND_HISTORY.md`, `COMMUNITY_PROJECTS.md`, `WORLD_ZONES_INSTANCES.md` |
 | Optional explicit Community Project boundary | CONTRACTED | `COMMUNITY_PROJECTS.md` |
-| Chronicle/historical-event source model | CONTRACTED | `WORLD_VOTING_AND_HISTORY.md`, `DATA_MODEL.md` |
+| Hidden Artifact discovery + Attunement | PROVEN | persistent definitions/location revisions/discoveries/profile authority plus first Paper interaction and `/attune` bridge |
+| Chronicle/historical-event source model | PROVEN | append-only Chronicle authority and source uniqueness tests |
+| Economy integrity diagnostics | PROVEN | bounded read-only verifier for Coin, pending delivery, AH/trade custody and destroyed/salvage evidence |
 | Staff/permission/recovery boundaries | CONTRACTED | `PERMISSIONS.md`, `FAILURE_RECOVERY.md` |
-| Configuration/version validation | CONTRACTED | `CONFIGURATION.md` |
+| Configuration/version validation | PROVEN for current content lanes | strict item/skill/resource/crafting/attunement/placement loaders; broader operational configuration remains contracted |
 | Analytics/observability separation from authority | CONTRACTED | `ANALYTICS.md` |
 | Backup/restore/failure semantics | CONTRACTED | `FAILURE_RECOVERY.md` |
 | Extension/new-content reuse rules | CONTRACTED | `EXTENSION_POINTS.md` |
@@ -59,26 +63,22 @@ The architecture-document layer is complete when every settled V1 system has:
 7. permission/admin boundary;
 8. acceptance/integrity proof target.
 
-As of this architecture pass, the table above contains **no PENDING product-contract rows**.
+The canonical architecture layer currently contains **no PENDING product-contract rows**. Remaining CONTRACTED rows are implementation/adaptation work, not unresolved product-law contradictions.
 
-## Next: code-level architecture scaffold
+## Current implementation frontier
 
-Before implementing full feature behavior, add the missing shared code/data primitives so later repositories/adapters do not invent incompatible shapes independently.
+The repository has moved well beyond the original code-level scaffold. Common authority is already proven for the core economy, progression, Maps/Bounties, clans/competitive state, voting/history, Artifacts, gathering and ordinary-PvE source identity.
 
-Priority scaffolding:
+The first real Paper gameplay verticals now include:
 
-1. Bank account/tier/interest-period value types and persistence migration boundary.
-2. Commodity ownership/balance/escrow primitives sufficient for Bazaar.
-3. Generic skill ID/progression/active-cap value types.
-4. Roll profile + normalized roll-quality + upgrade-state types integrated with item definitions/instances.
-5. Craft recipe/result/operation contracts.
-6. Map definition/item/run/status/objective/modifier/version value types.
-7. Bounty family/tier/contract/status/summon authorization/material-family/pouch value types.
-8. Clan treasury/storage custody permission value types where not already represented generically.
-9. Expansion vote/candidate/ballot/result/feature-state/world-era value types.
-10. Shared integrity-verification result interfaces/diagnostic boundaries.
+- authoritative Mining, Woodcutting and Farming source interactions;
+- durable commodity delivery into fenced persistent inventory;
+- managed ordinary-PvE Zombie spawn/kill/reward flow;
+- hidden Artifact discovery and Attunement selection;
+- personal crafting from exact persistent ingredients into durable commodity/individualized output;
+- generic pending unique-item materialization into fenced persistent inventory.
 
-Only after those cross-cutting primitives compile together should full Bazaar/Bank/Skills/Maps/Bounties/Voting feature repositories be implemented.
+The next high-value adapter boundary is **inventory-coupled Map opening**: the existing Map authority consumes exact item custody atomically with run creation, but Paper must also remove that same ItemStack from serialized player state in the same transaction before the live Portal/Map runtime is exposed.
 
 ## Rule
 
