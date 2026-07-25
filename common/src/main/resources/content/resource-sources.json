@@ -30,6 +30,16 @@
       "skill_id": "farming",
       "requested_experience": 10,
       "respawn_millis": 10000
+    },
+    {
+      "definition_id": "starter_pve.zombie",
+      "zone_id": "starter_pve",
+      "template_version": "v1",
+      "commodity_definition_id": "material.rotten_flesh",
+      "commodity_quantity": 1,
+      "skill_id": "combat",
+      "requested_experience": 10,
+      "respawn_millis": 10000
     }
   ]
 }
