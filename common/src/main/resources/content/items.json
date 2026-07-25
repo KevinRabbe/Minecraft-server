@@ -32,6 +32,14 @@
       "max_stack_size": 64,
       "category": "MATERIALS",
       "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "equipment.starter_sword",
+      "minecraft_material": "IRON_SWORD",
+      "display_name": "Starter Sword",
+      "max_stack_size": 1,
+      "category": "EQUIPMENT",
+      "identity_kind": "INDIVIDUAL"
     }
   ]
 }
