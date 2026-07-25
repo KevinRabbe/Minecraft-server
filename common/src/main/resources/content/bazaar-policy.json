@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "execution_fee_basis_points": 25,
+  "max_fills_per_match": 100
+}
