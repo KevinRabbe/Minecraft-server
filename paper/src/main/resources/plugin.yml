@@ -12,6 +12,9 @@ commands:
   attune:
     description: View or select your active Artifact Attunement profile
     usage: /attune [profile]
+  craft:
+    description: Craft one authoritative personal recipe
+    usage: /craft <recipe>
 permissions:
   minecraftserver.dev.route:
     description: Allows the development logical-zone transfer command
