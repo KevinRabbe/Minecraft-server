@@ -592,7 +592,9 @@ public final class BountyKillProgressRepository {
     private record ProcessedOperation(String operationType, Map<String, Object> result) {
         private ProcessedOperation {
             operationType = Objects.requireNonNull(operationType, "operationType");
-            result = Map.copyOf(Objects.requireNonNull(result, "result"));
+            result = java.util.Collections.unmodifiableMap(
+                    new LinkedHashMap<>(Objects.requireNonNull(result, "result"))
+            );
         }
     }
 }
