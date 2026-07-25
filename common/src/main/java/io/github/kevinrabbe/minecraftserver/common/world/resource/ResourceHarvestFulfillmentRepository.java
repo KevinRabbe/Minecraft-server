@@ -11,7 +11,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -259,23 +258,6 @@ public final class ResourceHarvestFulfillmentRepository {
                 }
             }
         }
-    }
-
-    private static Instant recordFulfillment(
-            ResourceHarvestEntitlement entitlement,
-            UUID commodityDeliveryId,
-            UUID xpOperationId
-    ) throws SQLException {
-        throw new UnsupportedOperationException();
-    }
-
-    private Instant recordFulfillment(
-            ResourceHarvestEntitlement entitlement,
-            UUID commodityDeliveryId,
-            UUID xpOperationId,
-            boolean ignored
-    ) throws SQLException {
-        return Instant.EPOCH;
     }
 
     private Instant recordFulfillment(
