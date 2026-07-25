@@ -103,8 +103,8 @@ class AuctionHouseQueryRepositoryIntegrationTest {
 
     @Test
     void browseReturnsOnlyActiveListingsWithStableProjectionFields() throws SQLException {
-        UUID cancelledSeller = createPlayer("QueryCancelledSeller");
-        UUID activeSeller = createPlayer("QueryActiveSeller");
+        UUID cancelledSeller = createPlayer("QueryCancel");
+        UUID activeSeller = createPlayer("QueryActive");
         AuctionListingCreateResult cancelled = createActiveListing(cancelledSeller, 1_250);
         AuctionListingCreateResult active = createActiveListing(activeSeller, 4_500);
 
