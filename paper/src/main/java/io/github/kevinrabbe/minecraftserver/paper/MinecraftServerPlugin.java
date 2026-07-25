@@ -1,5 +1,9 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.artifact.ArtifactRepository;
+import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalog;
+import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementRepository;
 import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
@@ -34,6 +38,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
     private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String RESOURCE_PLACEMENT_CATALOG_RESOURCE = "/content/resource-source-placements.json";
+    private static final String ATTUNEMENT_PROFILE_CATALOG_RESOURCE = "/content/attunement-profiles.json";
+    private static final String ARTIFACT_PLACEMENT_CATALOG_RESOURCE = "/content/artifacts.json";
 
     private final AtomicInteger onlinePlayers = new AtomicInteger();
 
@@ -48,6 +54,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private PaperCommodityDeliveryController commodityDeliveryController;
     private BootstrapZoneInstance bootstrapZoneInstance;
     private PaperResourceGatheringListener resourceGatheringListener;
+    private PaperArtifactDiscoveryListener artifactDiscoveryListener;
     private BukkitTask heartbeatTask;
     private BukkitTask checkpointTask;
 
@@ -55,6 +62,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     public void onEnable() {
         backendId = requireBackendId();
 
+        PaperAttunementCommand attunementCommand;
         try {
             itemCatalog = new ItemCatalogLoader().loadResource(ITEM_CATALOG_RESOURCE);
             PaperItemCatalogValidator.validate(itemCatalog);
@@ -63,6 +71,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     RESOURCE_SOURCE_CATALOG_RESOURCE,
                     itemCatalog,
                     skillCatalog
+            );
+            AttunementProfileCatalog attunementProfiles = new AttunementProfileCatalogLoader().loadResource(
+                    ATTUNEMENT_PROFILE_CATALOG_RESOURCE
             );
 
             database = Database.open(DatabaseConfig.fromEnvironment());
@@ -88,6 +99,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     currentZoneId,
                     database.dataSource()
             );
+            PaperPlayerIdentityResolver playerIdentities = new PaperPlayerIdentityResolver(database.dataSource());
             itemRepresentationValidator = new PaperPlayerItemRepresentationValidator(
                     this,
                     database.dataSource(),
@@ -99,6 +111,28 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     database.dataSource(),
                     sessionController,
                     commodityMutator
+            );
+
+            ArtifactRepository artifactRepository = new ArtifactRepository(database.dataSource());
+            PaperArtifactPlacementCatalog artifactPlacements = PaperArtifactPlacementCatalog.loadAndBootstrap(
+                    ARTIFACT_PLACEMENT_CATALOG_RESOURCE,
+                    artifactRepository
+            );
+            artifactDiscoveryListener = new PaperArtifactDiscoveryListener(
+                    this,
+                    playerIdentities,
+                    artifactRepository,
+                    artifactPlacements
+            );
+            AttunementRepository attunementRepository = new AttunementRepository(
+                    database.dataSource(),
+                    attunementProfiles
+            );
+            attunementCommand = new PaperAttunementCommand(
+                    this,
+                    playerIdentities,
+                    attunementRepository,
+                    attunementProfiles
             );
 
             if (bootstrapZoneInstance != null) {
@@ -130,6 +164,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             stopBootstrapZoneQuietly();
             markBackendOfflineQuietly();
             closeDatabase();
+            artifactDiscoveryListener = null;
             resourceGatheringListener = null;
             commodityDeliveryController = null;
             itemRepresentationValidator = null;
@@ -142,6 +177,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(sessionController, this);
         getServer().getPluginManager().registerEvents(commodityDeliveryController, this);
+        getServer().getPluginManager().registerEvents(artifactDiscoveryListener, this);
         getServer().getPluginManager().registerEvents(
                 new PaperItemRepresentationGate(this, itemRepresentationValidator),
                 this
@@ -154,6 +190,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
         PluginCommand devZone = Objects.requireNonNull(getCommand("devzone"), "devzone command missing from plugin.yml");
         devZone.setExecutor(new DevZoneCommand(sessionController));
+        PluginCommand attune = Objects.requireNonNull(getCommand("attune"), "attune command missing from plugin.yml");
+        attune.setExecutor(attunementCommand);
+        attune.setTabCompleter(attunementCommand);
 
         heartbeatTask = getServer().getScheduler().runTaskTimerAsynchronously(
                 this,
@@ -173,9 +212,11 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 : "bootstrap zone " + bootstrapZoneInstance.zoneId();
         int itemDefinitionCount = itemCatalog.size();
         int resourceCount = resourceGatheringListener == null ? 0 : resourceGatheringListener.registeredSourceCount();
+        int artifactCount = artifactDiscoveryListener.registeredArtifactCount();
         getLogger().info(() -> "Started backend " + backendId + " with " + zoneDescription
-                + ", " + itemDefinitionCount + " validated item definitions and "
-                + resourceCount + " authored renewable resource sources");
+                + ", " + itemDefinitionCount + " validated item definitions, "
+                + resourceCount + " authored renewable resource sources and "
+                + artifactCount + " hidden Artifacts");
     }
 
     @Override
@@ -194,6 +235,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             sessionController = null;
         }
 
+        artifactDiscoveryListener = null;
         resourceGatheringListener = null;
         commodityDeliveryController = null;
         stopBootstrapZoneQuietly();
