@@ -34,8 +34,8 @@ commands:
     description: Fund, browse, accept, complete, and cancel crafting commissions
     usage: /commission [browse [limit]] | view <id> | create <recipe> <payment-coins> | accept <id> | complete <id> | cancel <id>
   bounty:
-    description: Start and inspect bounty contracts and withdraw bounty-family pouch materials
-    usage: /bounty tiers | start <family> <tier> | status <contract-id> | pouch <family> | withdraw <family> <commodity> <quantity>
+    description: Run bounty contracts, summon authored bosses, and manage bounty-family pouch materials
+    usage: /bounty tiers | start <family> <tier> | status <contract-id> | summon <contract-id> | pouch <family> | withdraw <family> <commodity> <quantity>
   salvage:
     description: Preview or confirm irreversible salvage of the unique item in your main hand
     usage: /salvage [confirm]
