@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarException;
+import io.github.kevinrabbe.minecraftserver.common.economy.CommodityEscrowValidator;
 import io.github.kevinrabbe.minecraftserver.common.economy.CommodityStateMutator;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
@@ -8,6 +9,7 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,7 +20,7 @@ import java.util.UUID;
  * <p>Only PDC-tagged COMMODITY stacks with the exact definition identity count. A vanilla ItemStack that merely uses
  * the same Minecraft material is unrelated value and is never merged, removed, or accepted as authoritative stock.</p>
  */
-final class PaperCommodityStateMutator implements CommodityStateMutator {
+final class PaperCommodityStateMutator implements CommodityStateMutator, CommodityEscrowValidator {
     private final ItemCatalog itemCatalog;
     private final PaperPlayerStateCodec stateCodec;
     private final PaperItemIdentityCodec identityCodec;
@@ -130,6 +132,23 @@ final class PaperCommodityStateMutator implements CommodityStateMutator {
                 current.extra(),
                 current.heldItemSlot()
         ));
+    }
+
+    @Override
+    public void verifyRemoval(
+            UUID playerId,
+            String commodityDefinitionId,
+            long quantity,
+            byte[] currentStatePayload,
+            byte[] nextStatePayload
+    ) {
+        Objects.requireNonNull(nextStatePayload, "nextStatePayload");
+        byte[] expected = remove(playerId, commodityDefinitionId, quantity, currentStatePayload);
+        if (!Arrays.equals(expected, nextStatePayload)) {
+            throw new BazaarException(
+                    "Commodity escrow mutation changed more than the exact requested quantity"
+            );
+        }
     }
 
     private ItemDefinition requireCommodity(String definitionId) {
