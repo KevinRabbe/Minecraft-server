@@ -17,7 +17,6 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -173,6 +172,7 @@ public final class MapRewardSettlementRepository {
                             map_profile::text AS map_profile,
                             status,
                             fulfillment_operation_id,
+                            fulfillment_reference_id,
                             created_at,
                             fulfilled_at
                      FROM map_reward_grants
@@ -212,10 +212,8 @@ public final class MapRewardSettlementRepository {
                 if (definition.identityKind() != ItemIdentityKind.COMMODITY) {
                     throw new MapAuthorityException("COMMODITY Map reward requires commodity item definition");
                 }
-            } else {
-                if (definition.identityKind() != ItemIdentityKind.INDIVIDUAL) {
-                    throw new MapAuthorityException(nonNull.kind() + " Map reward requires individual item definition");
-                }
+            } else if (definition.identityKind() != ItemIdentityKind.INDIVIDUAL) {
+                throw new MapAuthorityException(nonNull.kind() + " Map reward requires individual item definition");
             }
             validated.add(nonNull);
         }
@@ -396,6 +394,7 @@ public final class MapRewardSettlementRepository {
                        map_profile::text AS map_profile,
                        status,
                        fulfillment_operation_id,
+                       fulfillment_reference_id,
                        created_at,
                        fulfilled_at
                 FROM map_reward_grants
@@ -427,6 +426,7 @@ public final class MapRewardSettlementRepository {
                 mapProfile == null ? null : readMapDefinition(mapProfile),
                 MapRewardGrantStatus.valueOf(row.getString("status")),
                 row.getObject("fulfillment_operation_id", UUID.class),
+                row.getObject("fulfillment_reference_id", UUID.class),
                 row.getTimestamp("created_at").toInstant(),
                 fulfilled == null ? null : fulfilled.toInstant()
         );
