@@ -21,6 +21,9 @@ commands:
   bazaar:
     description: Create and cancel fungible commodity Bazaar orders
     usage: /bazaar buy <commodity> <quantity> <coin-per-unit> | sell <commodity> <quantity> <coin-per-unit> | cancel <order-id>
+  ah:
+    description: Browse and trade individualized items through the fixed-price Auction House
+    usage: /ah [browse [limit]] | sell <coins> | buy <listing-id> | cancel <listing-id>
   craft:
     description: Craft one authoritative personal recipe
     usage: /craft <recipe>
