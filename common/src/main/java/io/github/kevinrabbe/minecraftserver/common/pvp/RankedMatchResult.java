@@ -11,7 +11,8 @@ public record RankedMatchResult(
         RankedRatingSnapshot playerAAfter,
         RankedRatingSnapshot playerBBefore,
         RankedRatingSnapshot playerBAfter,
-        int ratingPolicyVersion
+        int ratingPolicyVersion,
+        int ratingKFactor
 ) {
     public RankedMatchResult {
         match = Objects.requireNonNull(match, "match");
@@ -20,8 +21,8 @@ public record RankedMatchResult(
         playerAAfter = Objects.requireNonNull(playerAAfter, "playerAAfter");
         playerBBefore = Objects.requireNonNull(playerBBefore, "playerBBefore");
         playerBAfter = Objects.requireNonNull(playerBAfter, "playerBAfter");
-        if (ratingPolicyVersion < 1) {
-            throw new IllegalArgumentException("ratingPolicyVersion must be >= 1");
+        if (ratingPolicyVersion < 1 || ratingKFactor <= 0) {
+            throw new IllegalArgumentException("invalid rating policy");
         }
     }
 }
