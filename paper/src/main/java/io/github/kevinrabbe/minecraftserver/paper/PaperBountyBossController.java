@@ -7,6 +7,7 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContractSnap
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyException;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonLeaseResult;
+import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonStatus;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyTierDefinition;
@@ -19,14 +20,15 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -48,10 +50,13 @@ import java.util.logging.Level;
 final class PaperBountyBossController implements Listener {
     static final String SUMMON_ID_KEY_NAME = "bounty_summon_id";
 
-    private static final long HEARTBEAT_PERIOD_TICKS = 100L;
+    private static final long MAINTENANCE_PERIOD_TICKS = 100L;
+    private static final Duration RECOVERY_READY_GRACE = Duration.ofSeconds(30);
+    private static final int RECOVERY_LIMIT = 50;
     private static final String PREPARE_REASON = "bounty.paper_boss_prepare";
     private static final String CLAIM_REASON = "bounty.paper_boss_claim";
     private static final String HEARTBEAT_REASON = "bounty.paper_boss_heartbeat";
+    private static final String RECOVERY_CLAIM_REASON = "bounty.paper_boss_recovery_claim";
     private static final String COMPLETE_REASON = "bounty.paper_boss_defeated";
     private static final String FAIL_REASON = "bounty.paper_boss_failed";
 
@@ -63,12 +68,13 @@ final class PaperBountyBossController implements Listener {
     private final PaperBountyBossPlacementCatalog placements;
     private final BountyRepository bounties;
     private final BountyBossMaterializationRepository materializations;
+    private final BountySummonRecoveryRepository recovery;
     private final NamespacedKey summonIdKey;
     private final Map<UUID, LiveBoss> liveBySummon = new ConcurrentHashMap<>();
     private final Map<String, UUID> busyBossDefinitions = new ConcurrentHashMap<>();
     private final Set<UUID> terminalInFlight = ConcurrentHashMap.newKeySet();
 
-    private BukkitTask heartbeatTask;
+    private BukkitTask maintenanceTask;
 
     PaperBountyBossController(
             MinecraftServerPlugin plugin,
@@ -78,7 +84,8 @@ final class PaperBountyBossController implements Listener {
             BountyContentCatalog content,
             PaperBountyBossPlacementCatalog placements,
             BountyRepository bounties,
-            BountyBossMaterializationRepository materializations
+            BountyBossMaterializationRepository materializations,
+            BountySummonRecoveryRepository recovery
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.backendId = requireText(backendId, "backendId");
@@ -88,24 +95,25 @@ final class PaperBountyBossController implements Listener {
         this.placements = Objects.requireNonNull(placements, "placements");
         this.bounties = Objects.requireNonNull(bounties, "bounties");
         this.materializations = Objects.requireNonNull(materializations, "materializations");
+        this.recovery = Objects.requireNonNull(recovery, "recovery");
         this.summonIdKey = new NamespacedKey(plugin, SUMMON_ID_KEY_NAME);
     }
 
     void start() {
-        if (heartbeatTask != null) return;
+        if (maintenanceTask != null) return;
         removeLoadedStaleBosses();
-        heartbeatTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(
+        maintenanceTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(
                 plugin,
-                this::heartbeatLiveBosses,
-                HEARTBEAT_PERIOD_TICKS,
-                HEARTBEAT_PERIOD_TICKS
+                this::maintain,
+                1L,
+                MAINTENANCE_PERIOD_TICKS
         );
     }
 
     void stop() {
-        if (heartbeatTask != null) {
-            heartbeatTask.cancel();
-            heartbeatTask = null;
+        if (maintenanceTask != null) {
+            maintenanceTask.cancel();
+            maintenanceTask = null;
         }
         ArrayList<LiveBoss> active = new ArrayList<>(liveBySummon.values());
         liveBySummon.clear();
@@ -357,6 +365,11 @@ final class PaperBountyBossController implements Listener {
         }
     }
 
+    private void maintain() {
+        heartbeatLiveBosses();
+        recoverAbandonedSummons();
+    }
+
     private void heartbeatLiveBosses() {
         for (LiveBoss live : List.copyOf(liveBySummon.values())) {
             if (terminalInFlight.contains(live.summonId())) continue;
@@ -390,6 +403,46 @@ final class PaperBountyBossController implements Listener {
                 );
             } catch (SQLException | RuntimeException exception) {
                 plugin.getLogger().log(Level.FINE, "Bounty boss lease heartbeat failed; lease expiry remains authoritative", exception);
+            }
+        }
+    }
+
+    private void recoverAbandonedSummons() {
+        final List<UUID> candidates;
+        try {
+            candidates = recovery.listRecoverable(RECOVERY_READY_GRACE, RECOVERY_LIMIT);
+        } catch (SQLException | RuntimeException exception) {
+            plugin.getLogger().log(Level.WARNING, "Could not scan abandoned bounty summons", exception);
+            return;
+        }
+
+        for (UUID summonId : candidates) {
+            if (liveBySummon.containsKey(summonId) || terminalInFlight.contains(summonId)) continue;
+            try {
+                BountySummonSnapshot observed = bounties.loadSummon(summonId);
+                BountyContractSnapshot contract = bounties.loadContract(observed.contractId());
+                BountyTierDefinition tier = content.tiers().require(contract.familyId(), contract.tier());
+                PaperBountyBossPlacement placement = placements.require(tier.bossDefinitionId());
+                if (!placementMatchesBootstrap(placement)) continue;
+
+                bounties.claimSummon(
+                        UUID.randomUUID(),
+                        summonId,
+                        backendId,
+                        RECOVERY_CLAIM_REASON
+                );
+                failWithCurrentVersion(summonId);
+                busyBossDefinitions.remove(tier.bossDefinitionId(), summonId);
+                notifyOwner(
+                        contract.playerId(),
+                        "An abandoned " + contract.familyId().value()
+                                + " bounty boss attempt was recovered as failed. The summon was consumed."
+                );
+            } catch (BountyException exception) {
+                // Another backend or a concurrent player action may have claimed/resolved it after the bounded scan.
+                plugin.getLogger().log(Level.FINE, "Bounty summon recovery candidate changed concurrently: " + summonId, exception);
+            } catch (SQLException | RuntimeException exception) {
+                plugin.getLogger().log(Level.WARNING, "Could not recover abandoned bounty summon " + summonId, exception);
             }
         }
     }
@@ -438,12 +491,16 @@ final class PaperBountyBossController implements Listener {
     }
 
     private void requirePlacementMatchesBootstrap(PaperBountyBossPlacement placement) {
-        if (!placement.zoneId().equals(bootstrapZone.zoneId())
-                || !placement.templateVersion().equals(bootstrapZone.templateVersion())) {
+        if (!placementMatchesBootstrap(placement)) {
             throw new BountyException(
                     "Bounty boss placement does not belong to this active zone/template: " + placement.bossDefinitionId()
             );
         }
+    }
+
+    private boolean placementMatchesBootstrap(PaperBountyBossPlacement placement) {
+        return placement.zoneId().equals(bootstrapZone.zoneId())
+                && placement.templateVersion().equals(bootstrapZone.templateVersion());
     }
 
     private void handleFailure(UUID minecraftUuid, String fallback, Throwable failure) {
