@@ -7,11 +7,15 @@ import io.github.kevinrabbe.minecraftserver.common.persistence.PostgresOperation
 
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,13 +23,15 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * Exactly-once bridge from an already-authorized managed entity kill to the player's current family bounty.
+ * Exactly-once bridge from an already-authorized managed entity harvest to the player's current family bounty.
  *
- * <p>The derived progress operation is consumed even when no ACTIVE_HUNT exists. Therefore a replay of an old entity
- * kill can never migrate into a later contract for the same family.</p>
+ * <p>Every eligible resource kill is classified once into either one ACTIVE_HUNT contract or a permanent no-op.
+ * The bridge verifies the immutable resource harvest before mutation and appends durable classification evidence so
+ * restart recovery can find authoritative entity harvests that were committed immediately before a server crash.</p>
  */
 public final class BountyKillProgressRepository {
     private static final String OPERATION_TYPE = "BOUNTY_MANAGED_KILL_PROGRESS";
+    private static final int MAX_RECOVERY_LIMIT = 1_000;
     private static final Pattern REASON_ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,95}");
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -36,77 +42,63 @@ public final class BountyKillProgressRepository {
     }
 
     public BountyKillProgressResult recordManagedKill(
-            UUID operationId,
+            UUID resourceKillOperationId,
             UUID playerId,
+            String sourceDefinitionId,
             BountyFamilyId familyId,
             int eligibleKills,
             String reason
     ) throws SQLException {
-        Objects.requireNonNull(operationId, "operationId");
+        Objects.requireNonNull(resourceKillOperationId, "resourceKillOperationId");
         Objects.requireNonNull(playerId, "playerId");
+        String sourceDefinition = requireId(sourceDefinitionId, "sourceDefinitionId");
         Objects.requireNonNull(familyId, "familyId");
         if (eligibleKills <= 0) {
             throw new IllegalArgumentException("eligibleKills must be > 0");
         }
         String normalizedReason = requireReason(reason);
+        UUID progressOperationId = progressOperationId(resourceKillOperationId);
 
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                PostgresOperationLock.lock(connection, operationId);
-                Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
+                PostgresOperationLock.lock(connection, progressOperationId);
+                Optional<ProcessedOperation> processed = findProcessed(connection, progressOperationId);
                 if (processed.isPresent()) {
-                    Map<String, Object> data = requireType(processed.orElseThrow(), operationId);
-                    requireUuid(data, "player_id", playerId, operationId);
-                    requireString(data, "family_id", familyId.value(), operationId);
-                    requireInt(data, "eligible_kills", eligibleKills, operationId);
-                    requireString(data, "reason", normalizedReason, operationId);
+                    Map<String, Object> data = requireType(processed.orElseThrow(), progressOperationId);
+                    requireUuid(data, "resource_kill_operation_id", resourceKillOperationId, progressOperationId);
+                    requireUuid(data, "player_id", playerId, progressOperationId);
+                    requireString(data, "source_definition_id", sourceDefinition, progressOperationId);
+                    requireString(data, "family_id", familyId.value(), progressOperationId);
+                    requireInt(data, "eligible_kills", eligibleKills, progressOperationId);
+                    requireString(data, "reason", normalizedReason, progressOperationId);
                     BountyKillProgressResult result = resultFrom(data);
                     connection.commit();
                     return result;
                 }
 
+                HarvestEvidence harvest = requireAuthoritativeEntityHarvest(
+                        connection,
+                        resourceKillOperationId,
+                        playerId,
+                        sourceDefinition
+                );
                 Optional<BountyContractSnapshot> active = lockActiveHunt(connection, playerId, familyId);
-                BountyContractSnapshot updated = null;
-                if (active.isPresent()) {
-                    BountyContractSnapshot current = active.orElseThrow();
-                    int nextProgress;
-                    try {
-                        nextProgress = Math.min(
-                                current.requiredEligibleKills(),
-                                Math.addExact(current.eligibleKillProgress(), eligibleKills)
-                        );
-                    } catch (ArithmeticException ignored) {
-                        nextProgress = current.requiredEligibleKills();
-                    }
-                    boolean ready = nextProgress == current.requiredEligibleKills();
-                    BountyContractStatus nextStatus = ready
-                            ? BountyContractStatus.SUMMON_READY
-                            : BountyContractStatus.ACTIVE_HUNT;
-                    int summonAuthorizations = ready ? 1 : 0;
-                    long nextVersion = incrementVersion(current.stateVersion(), current.contractId());
+                BountyContractSnapshot updated = active.isEmpty()
+                        ? null
+                        : advanceProgress(connection, active.orElseThrow(), eligibleKills);
 
-                    try (PreparedStatement statement = connection.prepareStatement("""
-                            UPDATE bounty_contracts
-                            SET eligible_kill_progress = ?,
-                                status = ?,
-                                summon_authorizations_remaining = ?,
-                                state_version = ?,
-                                updated_at = NOW()
-                            WHERE contract_id = ? AND state_version = ? AND status = 'ACTIVE_HUNT'
-                            """)) {
-                        statement.setInt(1, nextProgress);
-                        statement.setString(2, nextStatus.name());
-                        statement.setInt(3, summonAuthorizations);
-                        statement.setLong(4, nextVersion);
-                        statement.setObject(5, current.contractId());
-                        statement.setLong(6, current.stateVersion());
-                        if (statement.executeUpdate() != 1) {
-                            throw new BountyException("Bounty contract changed concurrently while recording managed kill");
-                        }
-                    }
-                    updated = readContract(connection, current.contractId());
-                }
+                insertBridgeEvidence(
+                        connection,
+                        resourceKillOperationId,
+                        progressOperationId,
+                        playerId,
+                        harvest.sourceId(),
+                        sourceDefinition,
+                        familyId,
+                        updated == null ? null : updated.contractId(),
+                        eligibleKills
+                );
 
                 BountyKillProgressResult result = new BountyKillProgressResult(
                         playerId,
@@ -114,14 +106,17 @@ public final class BountyKillProgressRepository {
                         eligibleKills,
                         updated
                 );
-                LinkedHashMap<String, Object> data = new LinkedHashMap<>();
-                data.put("player_id", playerId.toString());
-                data.put("family_id", familyId.value());
-                data.put("eligible_kills", eligibleKills);
-                data.put("reason", normalizedReason);
+                LinkedHashMap<String, Object> data = requestMap(
+                        resourceKillOperationId,
+                        playerId,
+                        sourceDefinition,
+                        familyId,
+                        eligibleKills,
+                        normalizedReason
+                );
                 data.put("applied", result.applied());
                 data.put("contract", updated == null ? null : contractMap(updated));
-                insertProcessed(connection, operationId, data);
+                insertProcessed(connection, progressOperationId, data);
                 connection.commit();
                 return result;
             } catch (SQLException | RuntimeException exception) {
@@ -131,11 +126,105 @@ public final class BountyKillProgressRepository {
         }
     }
 
+    /** Bounded oldest-first recovery scan restricted to configured bounty-eligible entity source definitions. */
+    public List<BountyManagedKillCandidate> listUnclassifiedManagedKills(
+            Collection<String> eligibleSourceDefinitionIds,
+            int limit
+    ) throws SQLException {
+        Objects.requireNonNull(eligibleSourceDefinitionIds, "eligibleSourceDefinitionIds");
+        if (limit < 1 || limit > MAX_RECOVERY_LIMIT) {
+            throw new IllegalArgumentException("limit must be between 1 and " + MAX_RECOVERY_LIMIT);
+        }
+        List<String> sourceIds = eligibleSourceDefinitionIds.stream()
+                .map(value -> requireId(value, "eligibleSourceDefinitionId"))
+                .distinct()
+                .sorted()
+                .toList();
+        if (sourceIds.isEmpty()) return List.of();
+
+        try (Connection connection = dataSource.getConnection()) {
+            Array sourceArray = connection.createArrayOf("text", sourceIds.toArray());
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT h.operation_id,
+                           h.player_id,
+                           s.definition_id,
+                           h.created_at
+                    FROM resource_harvests h
+                    JOIN resource_entity_kill_claims k
+                      ON k.operation_id = h.operation_id
+                    JOIN resource_sources s
+                      ON s.source_id = h.source_id
+                    LEFT JOIN bounty_managed_kill_progress b
+                      ON b.resource_kill_operation_id = h.operation_id
+                    WHERE b.resource_kill_operation_id IS NULL
+                      AND s.definition_id = ANY (?::text[])
+                    ORDER BY h.created_at ASC, h.operation_id ASC
+                    LIMIT ?
+                    """)) {
+                statement.setArray(1, sourceArray);
+                statement.setInt(2, limit);
+                try (ResultSet rows = statement.executeQuery()) {
+                    ArrayList<BountyManagedKillCandidate> result = new ArrayList<>();
+                    while (rows.next()) {
+                        result.add(new BountyManagedKillCandidate(
+                                rows.getObject("operation_id", UUID.class),
+                                rows.getObject("player_id", UUID.class),
+                                rows.getString("definition_id"),
+                                rows.getTimestamp("created_at").toInstant()
+                        ));
+                    }
+                    return List.copyOf(result);
+                }
+            } finally {
+                sourceArray.free();
+            }
+        }
+    }
+
     public static UUID progressOperationId(UUID resourceKillOperationId) {
         Objects.requireNonNull(resourceKillOperationId, "resourceKillOperationId");
         return UUID.nameUUIDFromBytes(
                 ("bounty-managed-kill:" + resourceKillOperationId).getBytes(StandardCharsets.UTF_8)
         );
+    }
+
+    private static HarvestEvidence requireAuthoritativeEntityHarvest(
+            Connection connection,
+            UUID resourceKillOperationId,
+            UUID expectedPlayerId,
+            String expectedSourceDefinitionId
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT h.player_id,
+                       h.source_id,
+                       s.definition_id
+                FROM resource_harvests h
+                JOIN resource_entity_kill_claims k
+                  ON k.operation_id = h.operation_id
+                JOIN resource_sources s
+                  ON s.source_id = h.source_id
+                WHERE h.operation_id = ?
+                """)) {
+            statement.setObject(1, resourceKillOperationId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    throw new BountyException(
+                            "Managed bounty progress requires an authoritative entity harvest: "
+                                    + resourceKillOperationId
+                    );
+                }
+                UUID playerId = row.getObject("player_id", UUID.class);
+                UUID sourceId = row.getObject("source_id", UUID.class);
+                String sourceDefinitionId = row.getString("definition_id");
+                if (!playerId.equals(expectedPlayerId) || !sourceDefinitionId.equals(expectedSourceDefinitionId)) {
+                    throw new BountyException("Managed bounty kill does not match authoritative harvest identity");
+                }
+                if (row.next()) {
+                    throw new BountyException("Managed bounty resource operation resolved to multiple harvests");
+                }
+                return new HarvestEvidence(sourceId);
+            }
+        }
     }
 
     private static Optional<BountyContractSnapshot> lockActiveHunt(
@@ -180,6 +269,49 @@ public final class BountyKillProgressRepository {
         }
     }
 
+    private static BountyContractSnapshot advanceProgress(
+            Connection connection,
+            BountyContractSnapshot current,
+            int eligibleKills
+    ) throws SQLException {
+        int nextProgress;
+        try {
+            nextProgress = Math.min(
+                    current.requiredEligibleKills(),
+                    Math.addExact(current.eligibleKillProgress(), eligibleKills)
+            );
+        } catch (ArithmeticException ignored) {
+            nextProgress = current.requiredEligibleKills();
+        }
+        boolean ready = nextProgress == current.requiredEligibleKills();
+        BountyContractStatus nextStatus = ready
+                ? BountyContractStatus.SUMMON_READY
+                : BountyContractStatus.ACTIVE_HUNT;
+        int summonAuthorizations = ready ? 1 : 0;
+        long nextVersion = incrementVersion(current.stateVersion(), current.contractId());
+
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE bounty_contracts
+                SET eligible_kill_progress = ?,
+                    status = ?,
+                    summon_authorizations_remaining = ?,
+                    state_version = ?,
+                    updated_at = NOW()
+                WHERE contract_id = ? AND state_version = ? AND status = 'ACTIVE_HUNT'
+                """)) {
+            statement.setInt(1, nextProgress);
+            statement.setString(2, nextStatus.name());
+            statement.setInt(3, summonAuthorizations);
+            statement.setLong(4, nextVersion);
+            statement.setObject(5, current.contractId());
+            statement.setLong(6, current.stateVersion());
+            if (statement.executeUpdate() != 1) {
+                throw new BountyException("Bounty contract changed concurrently while recording managed kill");
+            }
+        }
+        return readContract(connection, current.contractId());
+    }
+
     private static BountyContractSnapshot readContract(Connection connection, UUID contractId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT player_id,
@@ -208,6 +340,41 @@ public final class BountyKillProgressRepository {
                         row.getLong("state_version")
                 );
             }
+        }
+    }
+
+    private static void insertBridgeEvidence(
+            Connection connection,
+            UUID resourceKillOperationId,
+            UUID progressOperationId,
+            UUID playerId,
+            UUID sourceId,
+            String sourceDefinitionId,
+            BountyFamilyId familyId,
+            UUID contractId,
+            int eligibleKills
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO bounty_managed_kill_progress(
+                    resource_kill_operation_id,
+                    progress_operation_id,
+                    player_id,
+                    source_id,
+                    source_definition_id,
+                    family_id,
+                    contract_id,
+                    eligible_kills
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """)) {
+            statement.setObject(1, resourceKillOperationId);
+            statement.setObject(2, progressOperationId);
+            statement.setObject(3, playerId);
+            statement.setObject(4, sourceId);
+            statement.setString(5, sourceDefinitionId);
+            statement.setString(6, familyId.value());
+            if (contractId == null) statement.setNull(7, java.sql.Types.OTHER); else statement.setObject(7, contractId);
+            statement.setInt(8, eligibleKills);
+            statement.executeUpdate();
         }
     }
 
@@ -240,6 +407,24 @@ public final class BountyKillProgressRepository {
             statement.setString(3, writeJson(data));
             statement.executeUpdate();
         }
+    }
+
+    private static LinkedHashMap<String, Object> requestMap(
+            UUID resourceKillOperationId,
+            UUID playerId,
+            String sourceDefinitionId,
+            BountyFamilyId familyId,
+            int eligibleKills,
+            String reason
+    ) {
+        LinkedHashMap<String, Object> value = new LinkedHashMap<>();
+        value.put("resource_kill_operation_id", resourceKillOperationId.toString());
+        value.put("player_id", playerId.toString());
+        value.put("source_definition_id", sourceDefinitionId);
+        value.put("family_id", familyId.value());
+        value.put("eligible_kills", eligibleKills);
+        value.put("reason", reason);
+        return value;
     }
 
     private static Map<String, Object> contractMap(BountyContractSnapshot contract) {
@@ -376,6 +561,15 @@ public final class BountyKillProgressRepository {
         }
     }
 
+    private static String requireId(String value, String field) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " must not be blank");
+        String normalized = value.trim();
+        if (!normalized.matches("[a-z0-9][a-z0-9._-]{0,63}")) {
+            throw new IllegalArgumentException(field + " has invalid format: " + normalized);
+        }
+        return normalized;
+    }
+
     private static String requireReason(String reason) {
         if (reason == null || reason.isBlank()) throw new IllegalArgumentException("reason must not be blank");
         String normalized = reason.trim();
@@ -392,6 +586,8 @@ public final class BountyKillProgressRepository {
             original.addSuppressed(rollbackFailure);
         }
     }
+
+    private record HarvestEvidence(UUID sourceId) { }
 
     private record ProcessedOperation(String operationType, Map<String, Object> result) {
         private ProcessedOperation {
