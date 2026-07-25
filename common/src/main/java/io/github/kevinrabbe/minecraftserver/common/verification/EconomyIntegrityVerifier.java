@@ -59,20 +59,7 @@ public final class EconomyIntegrityVerifier {
                         SELECT player_id, balance_minor AS amount_minor FROM wallets
                         UNION ALL
                         SELECT player_id, balance_minor FROM bank_accounts
-                        UNION ALL
-                        SELECT player_id, reserved_money_minor
-                        FROM bazaar_orders
-                        WHERE side = 'BUY' AND status = 'OPEN' AND reserved_money_minor > 0
-                        UNION ALL
-                        SELECT e.owner_player_id, e.amount_minor
-                        FROM secure_trade_coin_escrow e
-                        JOIN secure_trades t ON t.trade_id = e.trade_id
-                        WHERE t.status IN ('OPEN', 'LOCKED')
-                        UNION ALL
-                        SELECT requester_player_id, payment_minor
-                        FROM crafting_commissions
-                        WHERE status IN ('OPEN', 'ACCEPTED') AND payment_minor > 0
-                    ) authoritative_coin
+                    ) owned_coin
                     GROUP BY player_id
                 )
                 SELECT p.player_id,
@@ -95,7 +82,7 @@ public final class EconomyIntegrityVerifier {
                             IntegritySeverity.CRITICAL,
                             "COIN_HOLDINGS_LEDGER_MISMATCH",
                             playerId.toString(),
-                            "Authoritative Coin holdings " + holdings + " do not match ledger net " + ledger
+                            "Wallet plus protected-bank Coin " + holdings + " does not match ledger net " + ledger
                     ));
                 }
             }
