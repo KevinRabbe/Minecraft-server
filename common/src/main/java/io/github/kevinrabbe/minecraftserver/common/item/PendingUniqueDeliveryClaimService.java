@@ -95,12 +95,6 @@ public final class PendingUniqueDeliveryClaimService {
                 nextPayload,
                 reason
         );
-        if (!claimed.recipientPlayerId().equals(delivery.recipientPlayerId())
-                || !claimed.itemInstanceId().equals(projectedItem.itemInstanceId())
-                || !claimed.definitionId().equals(projectedItem.definitionId())
-                || claimed.itemStateVersion() != projectedVersion) {
-            throw new IllegalStateException("Pending unique delivery claim returned inconsistent authority state");
-        }
         return new PendingUniqueDeliveryMaterializationResult(claimed, nextPayload);
     }
 }
