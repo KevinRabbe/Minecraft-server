@@ -1,8 +1,13 @@
 -- Map consumption must have a concrete disposable encounter slot reserved first. The reservation is persistent state
 -- linking the source Map item and player to one exact live zone instance before the Map is destroyed.
+--
+-- Paper uses the same open_operation_id for reservation and Map opening. A database trigger therefore binds the exact
+-- reservation to the newly created run inside the existing state-coupled Map-open transaction without duplicating the
+-- mature Map item/player-state authority.
 
 CREATE TABLE map_encounter_reservations (
     reservation_id UUID PRIMARY KEY,
+    open_operation_id UUID NOT NULL UNIQUE,
     source_map_item_id UUID NOT NULL REFERENCES item_instances(item_instance_id) ON DELETE RESTRICT,
     player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE RESTRICT,
     target_instance_id UUID NOT NULL REFERENCES zone_instances(instance_id) ON DELETE RESTRICT,
@@ -97,6 +102,7 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     IF NEW.reservation_id IS DISTINCT FROM OLD.reservation_id
+       OR NEW.open_operation_id IS DISTINCT FROM OLD.open_operation_id
        OR NEW.source_map_item_id IS DISTINCT FROM OLD.source_map_item_id
        OR NEW.player_id IS DISTINCT FROM OLD.player_id
        OR NEW.target_instance_id IS DISTINCT FROM OLD.target_instance_id
@@ -131,8 +137,9 @@ BEGIN
             WHERE r.run_id = NEW.run_id
               AND r.source_map_item_id = NEW.source_map_item_id
               AND r.opened_by_player_id = NEW.player_id
+              AND r.open_operation_id = NEW.open_operation_id
         ) THEN
-            RAISE EXCEPTION 'Map encounter reservation run does not match source Map/player'
+            RAISE EXCEPTION 'Map encounter reservation run does not match source Map/player/open operation'
                 USING ERRCODE = 'integrity_constraint_violation';
         END IF;
     END IF;
@@ -167,31 +174,74 @@ ALTER TABLE map_open_player_state_evidence
     ADD COLUMN encounter_reservation_id UUID UNIQUE
         REFERENCES map_encounter_reservations(reservation_id) ON DELETE RESTRICT;
 
-CREATE OR REPLACE FUNCTION validate_map_open_encounter_reservation()
+CREATE OR REPLACE FUNCTION bind_map_open_encounter_reservation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    reservation RECORD;
+    run_source_map_item_id UUID;
+    run_player_id UUID;
 BEGIN
-    IF NEW.encounter_reservation_id IS NULL THEN
-        RETURN NEW;
+    SELECT r.*
+    INTO reservation
+    FROM map_encounter_reservations r
+    WHERE r.open_operation_id = NEW.open_operation_id
+    FOR UPDATE;
+
+    IF FOUND THEN
+        IF reservation.status IS DISTINCT FROM 'RESERVED'
+           OR reservation.lease_expires_at <= NOW() THEN
+            RAISE EXCEPTION 'Map open reservation is no longer valid for operation %', NEW.open_operation_id
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+
+        SELECT source_map_item_id, opened_by_player_id
+        INTO run_source_map_item_id, run_player_id
+        FROM map_runs
+        WHERE run_id = NEW.run_id;
+
+        IF run_source_map_item_id IS DISTINCT FROM reservation.source_map_item_id
+           OR run_player_id IS DISTINCT FROM reservation.player_id THEN
+            RAISE EXCEPTION 'Map open run does not match reserved source Map/player'
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+
+        UPDATE map_encounter_reservations
+        SET status = 'BOUND',
+            run_id = NEW.run_id,
+            state_version = state_version + 1,
+            bound_at = NOW()
+        WHERE reservation_id = reservation.reservation_id
+          AND status = 'RESERVED'
+          AND lease_expires_at > NOW();
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Map encounter reservation changed concurrently during open'
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+
+        NEW.encounter_reservation_id := reservation.reservation_id;
     END IF;
 
-    IF NOT EXISTS (
+    IF NEW.encounter_reservation_id IS NOT NULL AND NOT EXISTS (
         SELECT 1
         FROM map_encounter_reservations r
         WHERE r.reservation_id = NEW.encounter_reservation_id
           AND r.status = 'BOUND'
           AND r.run_id = NEW.run_id
+          AND r.open_operation_id = NEW.open_operation_id
     ) THEN
         RAISE EXCEPTION 'Map open evidence reservation is not bound to run %', NEW.run_id
             USING ERRCODE = 'integrity_constraint_violation';
     END IF;
+
     RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER map_open_player_state_evidence_validate_reservation
+CREATE TRIGGER map_open_player_state_evidence_bind_reservation
 BEFORE INSERT
 ON map_open_player_state_evidence
 FOR EACH ROW
-EXECUTE FUNCTION validate_map_open_encounter_reservation();
+EXECUTE FUNCTION bind_map_open_encounter_reservation();
