@@ -5,6 +5,7 @@ import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCat
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementRepository;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanMembershipRepository;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanQueryRepository;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanRoleRepository;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanStorageRepository;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanTreasuryRepository;
@@ -123,7 +124,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperBazaarCommand bazaarCommand;
         PaperAuctionHouseCommand auctionHouseCommand;
         PaperTradeCommand tradeCommand;
-        PaperClanCommand clanCommand;
+        PaperClanRouterCommand clanCommand;
         PaperCraftingCommissionCommand commissionCommand;
         PaperBountyCommand bountyCommand;
         PaperSalvageCommand salvageCommand;
@@ -274,7 +275,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     uniqueItemRemoval
             );
             ClanMembershipRepository clanMemberships = new ClanMembershipRepository(database.dataSource());
-            clanCommand = new PaperClanCommand(
+            PaperClanCommand baseClanCommand = new PaperClanCommand(
                     this,
                     sessionController,
                     playerIdentities,
@@ -292,6 +293,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     itemCatalog,
                     commodityMutator,
                     uniqueItemRemoval
+            );
+            clanCommand = new PaperClanRouterCommand(
+                    this,
+                    baseClanCommand,
+                    playerIdentities,
+                    clanMemberships,
+                    new ClanQueryRepository(database.dataSource())
             );
             BountyRepository bountyRepository = new BountyRepository(
                     database.dataSource(),
