@@ -10,6 +10,7 @@ public record CraftExecutionResult(
         UUID craftId,
         UUID operationId,
         UUID crafterPlayerId,
+        UUID recipientPlayerId,
         String recipeId,
         int recipeVersion,
         String outputDefinitionId,
@@ -23,6 +24,7 @@ public record CraftExecutionResult(
         craftId = Objects.requireNonNull(craftId, "craftId");
         operationId = Objects.requireNonNull(operationId, "operationId");
         crafterPlayerId = Objects.requireNonNull(crafterPlayerId, "crafterPlayerId");
+        recipientPlayerId = Objects.requireNonNull(recipientPlayerId, "recipientPlayerId");
         if (recipeId == null || recipeId.isBlank() || outputDefinitionId == null || outputDefinitionId.isBlank()) {
             throw new IllegalArgumentException("recipe/output definition ids must not be blank");
         }
