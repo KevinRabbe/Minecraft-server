@@ -10,6 +10,8 @@ import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatal
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingExperienceFulfillmentRepository;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingRepository;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingStateExecutionService;
+import io.github.kevinrabbe.minecraftserver.common.economy.AuctionHouseQueryRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.AuctionHouseRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankManagerRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalogLoader;
@@ -87,6 +89,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperSkillsCommand skillsCommand;
         PaperBankCommand bankCommand;
         PaperBazaarCommand bazaarCommand;
+        PaperAuctionHouseCommand auctionHouseCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
         BazaarPolicy bazaarPolicy;
@@ -181,6 +184,15 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     commodityDeliveryController,
                     bazaarRepository,
                     bazaarPolicy,
+                    itemCatalog
+            );
+            auctionHouseCommand = new PaperAuctionHouseCommand(
+                    this,
+                    sessionController,
+                    playerIdentities,
+                    uniqueDeliveryController,
+                    new AuctionHouseRepository(database.dataSource(), itemCatalog),
+                    new AuctionHouseQueryRepository(database.dataSource()),
                     itemCatalog
             );
 
@@ -326,6 +338,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand bazaar = Objects.requireNonNull(getCommand("bazaar"), "bazaar command missing from plugin.yml");
         bazaar.setExecutor(bazaarCommand);
         bazaar.setTabCompleter(bazaarCommand);
+        PluginCommand auctionHouse = Objects.requireNonNull(getCommand("ah"), "ah command missing from plugin.yml");
+        auctionHouse.setExecutor(auctionHouseCommand);
+        auctionHouse.setTabCompleter(auctionHouseCommand);
         PluginCommand craft = Objects.requireNonNull(getCommand("craft"), "craft command missing from plugin.yml");
         craft.setExecutor(craftingController);
         craft.setTabCompleter(craftingController);
