@@ -57,6 +57,7 @@ final class PaperResourceEntityController implements Listener {
     private final ResourceEntitySpawnRepository entitySpawns;
     private final ResourceGatheringService gathering;
     private final NamespacedKey spawnIdKey;
+    private final NamespacedKey bountySummonIdKey;
     private final Map<UUID, ManagedSource> sourcesById;
     private final AtomicBoolean reconcileInFlight = new AtomicBoolean();
 
@@ -84,6 +85,7 @@ final class PaperResourceEntityController implements Listener {
         this.sessionResolver = Objects.requireNonNull(sessionResolver, "sessionResolver");
         this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
         this.spawnIdKey = new NamespacedKey(plugin, "resource_spawn_id");
+        this.bountySummonIdKey = new NamespacedKey(plugin, PaperBountyBossController.SUMMON_ID_KEY_NAME);
         Objects.requireNonNull(zoneInstance, "zoneInstance");
         Objects.requireNonNull(placements, "placements");
 
@@ -138,6 +140,12 @@ final class PaperResourceEntityController implements Listener {
         if (sourcesById.isEmpty() || !(event.getEntity() instanceof Monster)) {
             return;
         }
+        if (isBountyBoss(event.getEntity())) {
+            if (event.getSpawnReason() != CreatureSpawnEvent.SpawnReason.CUSTOM) {
+                event.setCancelled(true);
+            }
+            return;
+        }
         UUID spawnId = readSpawnId(event.getEntity());
         boolean managedCustom = event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.CUSTOM && spawnId != null;
         if (!managedCustom) {
@@ -148,6 +156,9 @@ final class PaperResourceEntityController implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onEntityAdded(EntityAddToWorldEvent event) {
         if (sourcesById.isEmpty() || !(event.getEntity() instanceof Monster monster)) {
+            return;
+        }
+        if (isBountyBoss(monster)) {
             return;
         }
         UUID spawnId = readSpawnId(monster);
@@ -405,6 +416,15 @@ final class PaperResourceEntityController implements Listener {
                     validateLoadedManagedEntity(spawnId, entity.getUniqueId());
                 }
             }
+        }
+    }
+
+    private boolean isBountyBoss(Entity entity) {
+        try {
+            return entity.getPersistentDataContainer().has(bountySummonIdKey, PersistentDataType.STRING);
+        } catch (IllegalArgumentException exception) {
+            plugin.getLogger().log(Level.WARNING, "Bounty boss summon tag has invalid type", exception);
+            return false;
         }
     }
 
