@@ -81,7 +81,6 @@ class ClanCompetitiveSchemaInvariantTest {
         UUID first = identities.ensurePlayer(UUID.randomUUID(), "FirstLeader");
         UUID second = identities.ensurePlayer(UUID.randomUUID(), "SecondLeader");
         UUID clanId = createClan(first, "OneLeader", "ONE");
-        addMember(clanId, first, "LEADER");
 
         assertThrows(SQLException.class, () -> addMember(clanId, second, "LEADER"));
     }
@@ -93,8 +92,6 @@ class ClanCompetitiveSchemaInvariantTest {
         UUID outsider = identities.ensurePlayer(UUID.randomUUID(), "Outsider");
         UUID challengerClan = createClan(challengerLeader, "Challengers", "CHA");
         UUID defenderClan = createClan(defenderLeader, "Defenders", "DEF");
-        addMember(challengerClan, challengerLeader, "LEADER");
-        addMember(defenderClan, defenderLeader, "LEADER");
         UUID warId = createWar(challengerClan, defenderClan);
 
         assertThrows(SQLException.class, () -> addWarRosterMember(warId, challengerClan, outsider));
@@ -102,16 +99,30 @@ class ClanCompetitiveSchemaInvariantTest {
 
     private UUID createClan(UUID creatorId, String name, String tag) throws SQLException {
         UUID clanId = UUID.randomUUID();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     INSERT INTO clans(clan_id, name, tag, created_by_player_id)
-                     VALUES (?, ?, ?, ?)
-                     """)) {
-            statement.setObject(1, clanId);
-            statement.setString(2, name);
-            statement.setString(3, tag);
-            statement.setObject(4, creatorId);
-            statement.executeUpdate();
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement clan = connection.prepareStatement("""
+                    INSERT INTO clans(clan_id, name, tag, created_by_player_id)
+                    VALUES (?, ?, ?, ?)
+                    """);
+                 PreparedStatement leader = connection.prepareStatement("""
+                    INSERT INTO clan_members(clan_id, player_id, role)
+                    VALUES (?, ?, 'LEADER')
+                    """)) {
+                clan.setObject(1, clanId);
+                clan.setString(2, name);
+                clan.setString(3, tag);
+                clan.setObject(4, creatorId);
+                clan.executeUpdate();
+
+                leader.setObject(1, clanId);
+                leader.setObject(2, creatorId);
+                leader.executeUpdate();
+                connection.commit();
+            } catch (SQLException exception) {
+                connection.rollback();
+                throw exception;
+            }
         }
         return clanId;
     }
