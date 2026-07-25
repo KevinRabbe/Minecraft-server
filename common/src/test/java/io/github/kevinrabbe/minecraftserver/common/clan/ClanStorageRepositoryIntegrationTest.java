@@ -75,30 +75,15 @@ class ClanStorageRepositoryIntegrationTest {
         memberships = new ClanMembershipRepository(dataSource);
         roles = new ClanRoleRepository(dataSource);
         catalog = new ItemCatalog(List.of(
-                new ItemDefinition(
-                        COMMODITY,
-                        "IRON_INGOT",
-                        "Clan Iron",
-                        64,
-                        ItemCategory.MATERIALS,
-                        ItemIdentityKind.COMMODITY
-                ),
-                new ItemDefinition(
-                        UNIQUE,
-                        "IRON_SWORD",
-                        "Clan Sword",
-                        1,
-                        ItemCategory.EQUIPMENT,
-                        ItemIdentityKind.INDIVIDUAL
-                )
+                new ItemDefinition(COMMODITY, "IRON_INGOT", "Clan Iron", 64, ItemCategory.MATERIALS, ItemIdentityKind.COMMODITY),
+                new ItemDefinition(UNIQUE, "IRON_SWORD", "Clan Sword", 1, ItemCategory.EQUIPMENT, ItemIdentityKind.INDIVIDUAL)
         ));
         items = new UniqueItemAuthorityRepository(dataSource, catalog);
     }
 
     @BeforeEach
     void resetDatabase() throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
                         pending_unique_deliveries,
@@ -124,9 +109,7 @@ class ClanStorageRepositoryIntegrationTest {
 
     @AfterAll
     void closeDatabase() {
-        if (database != null) {
-            database.close();
-        }
+        if (database != null) database.close();
     }
 
     @Test
@@ -150,29 +133,13 @@ class ClanStorageRepositoryIntegrationTest {
         UUID operationId = UUID.randomUUID();
 
         ClanCommodityStorageDepositResult first = storage.depositCommodity(
-                operationId,
-                clan.clanId(),
-                leader.session().sessionId(),
-                "paper-a",
-                leader.session().stateVersion(),
-                COMMODITY,
-                3,
-                "city",
-                "spawn",
-                new byte[]{7},
+                operationId, clan.clanId(), leader.session().sessionId(), "paper-a",
+                leader.session().stateVersion(), COMMODITY, 3, "city", "spawn", new byte[]{7},
                 "clan.storage_deposit"
         );
         ClanCommodityStorageDepositResult retry = storage.depositCommodity(
-                operationId,
-                clan.clanId(),
-                leader.session().sessionId(),
-                "paper-a",
-                leader.session().stateVersion(),
-                COMMODITY,
-                3,
-                "city",
-                "spawn",
-                new byte[]{7},
+                operationId, clan.clanId(), leader.session().sessionId(), "paper-a",
+                leader.session().stateVersion(), COMMODITY, 3, "city", "spawn", new byte[]{7},
                 "clan.storage_deposit"
         );
 
@@ -197,22 +164,11 @@ class ClanStorageRepositoryIntegrationTest {
                 (playerId, itemId, currentPayload, nextPayload) -> { }
         );
 
-        assertThrows(
-                ClanAssetException.class,
-                () -> storage.depositCommodity(
-                        UUID.randomUUID(),
-                        clan.clanId(),
-                        leader.session().sessionId(),
-                        "paper-a",
-                        leader.session().stateVersion(),
-                        COMMODITY,
-                        3,
-                        "city",
-                        "spawn",
-                        new byte[]{9},
-                        "clan.storage_deposit"
-                )
-        );
+        assertThrows(ClanAssetException.class, () -> storage.depositCommodity(
+                UUID.randomUUID(), clan.clanId(), leader.session().sessionId(), "paper-a",
+                leader.session().stateVersion(), COMMODITY, 3, "city", "spawn", new byte[]{9},
+                "clan.storage_deposit"
+        ));
 
         assertFalse(storage.loadCommodity(clan.clanId(), COMMODITY).isPresent());
         assertArrayEquals(new byte[]{10}, states.load(leader.playerId()).statePayload());
@@ -232,13 +188,9 @@ class ClanStorageRepositoryIntegrationTest {
                 "clan.storage_deposit"
         );
 
-        assertThrows(
-                ClanAssetException.class,
-                () -> storage.withdrawCommodity(
-                        UUID.randomUUID(), clan.clanId(), member.playerId(), COMMODITY, 3,
-                        "clan.storage_withdraw"
-                )
-        );
+        assertThrows(ClanAssetException.class, () -> storage.withdrawCommodity(
+                UUID.randomUUID(), clan.clanId(), member.playerId(), COMMODITY, 3, "clan.storage_withdraw"
+        ));
 
         roles.setMemberRole(UUID.randomUUID(), clan.clanId(), leader.playerId(), member.playerId(), ClanRole.OFFICER);
         UUID operationId = UUID.randomUUID();
@@ -273,12 +225,10 @@ class ClanStorageRepositoryIntegrationTest {
         int successes = 0;
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             Future<ClanCommodityStorageWithdrawResult> first = executor.submit(() -> storage.withdrawCommodity(
-                    UUID.randomUUID(), clan.clanId(), leader.playerId(), COMMODITY, 8,
-                    "clan.storage_withdraw"
+                    UUID.randomUUID(), clan.clanId(), leader.playerId(), COMMODITY, 8, "clan.storage_withdraw"
             ));
             Future<ClanCommodityStorageWithdrawResult> second = executor.submit(() -> storage.withdrawCommodity(
-                    UUID.randomUUID(), clan.clanId(), officer.playerId(), COMMODITY, 8,
-                    "clan.storage_withdraw"
+                    UUID.randomUUID(), clan.clanId(), officer.playerId(), COMMODITY, 8, "clan.storage_withdraw"
             ));
             for (Future<ClanCommodityStorageWithdrawResult> future : List.of(first, second)) {
                 try {
@@ -318,30 +268,14 @@ class ClanStorageRepositoryIntegrationTest {
         UUID operationId = UUID.randomUUID();
 
         ClanUniqueStorageDepositResult first = storage.depositUniqueItem(
-                operationId,
-                clan.clanId(),
-                leader.session().sessionId(),
-                "paper-a",
-                leader.session().stateVersion(),
-                item.itemInstanceId(),
-                item.stateVersion(),
-                "city",
-                "spawn",
-                new byte[]{1},
-                "clan.storage_unique_deposit"
+                operationId, clan.clanId(), leader.session().sessionId(), "paper-a",
+                leader.session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
+                "city", "spawn", new byte[]{1}, "clan.storage_unique_deposit"
         );
         ClanUniqueStorageDepositResult retry = storage.depositUniqueItem(
-                operationId,
-                clan.clanId(),
-                leader.session().sessionId(),
-                "paper-a",
-                leader.session().stateVersion(),
-                item.itemInstanceId(),
-                item.stateVersion(),
-                "city",
-                "spawn",
-                new byte[]{1},
-                "clan.storage_unique_deposit"
+                operationId, clan.clanId(), leader.session().sessionId(), "paper-a",
+                leader.session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
+                "city", "spawn", new byte[]{1}, "clan.storage_unique_deposit"
         );
 
         assertEquals(first, retry);
@@ -349,7 +283,8 @@ class ClanStorageRepositoryIntegrationTest {
         assertItemCustody(item.itemInstanceId(), "CLAN_STORAGE", clan.clanId(), item.stateVersion() + 1);
         assertArrayEquals(new byte[]{1}, states.load(leader.playerId()).statePayload());
         assertEquals(1, storage.listUniqueItems(clan.clanId(), 10).size());
-        assertEquals(-1L, playerAssetLedgerNet(leader.playerId(), "ITEM_INSTANCE", item.itemInstanceId().toString()));
+        // Creation credited the player once and storage deposit debited the same item once: net personal ownership is 0.
+        assertEquals(0L, playerAssetLedgerNet(leader.playerId(), "ITEM_INSTANCE", item.itemInstanceId().toString()));
         assertEquals(1L, clanAssetLedgerNet(clan.clanId(), "ITEM_INSTANCE", item.itemInstanceId().toString()));
     }
 
@@ -362,14 +297,11 @@ class ClanStorageRepositoryIntegrationTest {
         );
         ClanStorageRepository storage = permissiveStorage();
 
-        assertThrows(
-                ClanAssetException.class,
-                () -> storage.depositUniqueItem(
-                        UUID.randomUUID(), clan.clanId(), leader.session().sessionId(), "paper-a",
-                        leader.session().stateVersion(), item.itemInstanceId(), item.stateVersion() + 1,
-                        "city", "spawn", new byte[]{1}, "clan.storage_unique_deposit"
-                )
-        );
+        assertThrows(ClanAssetException.class, () -> storage.depositUniqueItem(
+                UUID.randomUUID(), clan.clanId(), leader.session().sessionId(), "paper-a",
+                leader.session().stateVersion(), item.itemInstanceId(), item.stateVersion() + 1,
+                "city", "spawn", new byte[]{1}, "clan.storage_unique_deposit"
+        ));
 
         assertItemCustody(item.itemInstanceId(), "PLAYER_INVENTORY", leader.playerId(), item.stateVersion());
         assertArrayEquals(new byte[]{1, 2}, states.load(leader.playerId()).statePayload());
@@ -391,13 +323,10 @@ class ClanStorageRepositoryIntegrationTest {
                 "city", "spawn", new byte[]{1}, "clan.storage_unique_deposit"
         );
 
-        assertThrows(
-                ClanAssetException.class,
-                () -> storage.withdrawUniqueItem(
-                        UUID.randomUUID(), clan.clanId(), member.playerId(), item.itemInstanceId(),
-                        deposited.itemStateVersion(), "clan.storage_unique_withdraw"
-                )
-        );
+        assertThrows(ClanAssetException.class, () -> storage.withdrawUniqueItem(
+                UUID.randomUUID(), clan.clanId(), member.playerId(), item.itemInstanceId(),
+                deposited.itemStateVersion(), "clan.storage_unique_withdraw"
+        ));
 
         roles.setMemberRole(UUID.randomUUID(), clan.clanId(), leader.playerId(), member.playerId(), ClanRole.OFFICER);
         UUID operationId = UUID.randomUUID();
@@ -474,14 +403,11 @@ class ClanStorageRepositoryIntegrationTest {
                 "clan.storage_deposit"
         );
 
-        assertThrows(
-                ClanAssetException.class,
-                () -> storage.depositCommodity(
-                        operationId, clan.clanId(), leader.session().sessionId(), "paper-a",
-                        leader.session().stateVersion(), COMMODITY, 3, "city", "spawn", new byte[]{7},
-                        "clan.storage_deposit"
-                )
-        );
+        assertThrows(ClanAssetException.class, () -> storage.depositCommodity(
+                operationId, clan.clanId(), leader.session().sessionId(), "paper-a",
+                leader.session().stateVersion(), COMMODITY, 3, "city", "spawn", new byte[]{7},
+                "clan.storage_deposit"
+        ));
         assertEquals(2L, storage.loadCommodity(clan.clanId(), COMMODITY).orElseThrow().quantity());
     }
 
@@ -498,12 +424,7 @@ class ClanStorageRepositoryIntegrationTest {
         UUID playerId = identities.ensurePlayer(UUID.randomUUID(), name);
         SessionLease session = sessions.openSession(playerId, "paper-a", null, LEASE);
         long stateVersion = states.commit(
-                session.sessionId(),
-                "paper-a",
-                session.stateVersion(),
-                "city",
-                "spawn",
-                payload
+                session.sessionId(), "paper-a", session.stateVersion(), "city", "spawn", payload
         );
         SessionLease refreshed = sessions.heartbeat(session.sessionId(), "paper-a", LEASE);
         assertEquals(stateVersion, refreshed.stateVersion());
@@ -512,8 +433,7 @@ class ClanStorageRepositoryIntegrationTest {
 
     private void join(ClanSnapshot clan, UUID leader, UUID player) throws SQLException {
         ClanInvitationSnapshot invite = memberships.invite(
-                UUID.randomUUID(), clan.clanId(), leader, player,
-                Instant.now().plus(1, ChronoUnit.DAYS)
+                UUID.randomUUID(), clan.clanId(), leader, player, Instant.now().plus(1, ChronoUnit.DAYS)
         );
         memberships.acceptInvite(UUID.randomUUID(), invite.inviteId(), player);
     }
@@ -540,11 +460,8 @@ class ClanStorageRepositoryIntegrationTest {
              PreparedStatement statement = connection.prepareStatement("""
                      SELECT COUNT(*)
                      FROM pending_commodity_deliveries
-                     WHERE delivery_id = ?
-                       AND player_id = ?
-                       AND commodity_definition_id = ?
-                       AND quantity = ?
-                       AND status = 'PENDING'
+                     WHERE delivery_id = ? AND player_id = ? AND commodity_definition_id = ?
+                       AND quantity = ? AND status = 'PENDING'
                      """)) {
             statement.setObject(1, deliveryId);
             statement.setObject(2, playerId);
@@ -560,8 +477,7 @@ class ClanStorageRepositoryIntegrationTest {
     private long totalPendingCommodityDeliveries(String commodity) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT COUNT(*)
-                     FROM pending_commodity_deliveries
+                     SELECT COUNT(*) FROM pending_commodity_deliveries
                      WHERE commodity_definition_id = ? AND status = 'PENDING'
                      """)) {
             statement.setString(1, commodity);
@@ -575,12 +491,8 @@ class ClanStorageRepositoryIntegrationTest {
     private long pendingUniqueDeliveryCount(UUID deliveryId, UUID playerId, UUID itemId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT COUNT(*)
-                     FROM pending_unique_deliveries
-                     WHERE delivery_id = ?
-                       AND recipient_player_id = ?
-                       AND item_instance_id = ?
-                       AND status = 'PENDING'
+                     SELECT COUNT(*) FROM pending_unique_deliveries
+                     WHERE delivery_id = ? AND recipient_player_id = ? AND item_instance_id = ? AND status = 'PENDING'
                      """)) {
             statement.setObject(1, deliveryId);
             statement.setObject(2, playerId);
@@ -595,8 +507,7 @@ class ClanStorageRepositoryIntegrationTest {
     private long totalPendingUniqueDeliveries(UUID itemId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT COUNT(*)
-                     FROM pending_unique_deliveries
+                     SELECT COUNT(*) FROM pending_unique_deliveries
                      WHERE item_instance_id = ? AND status = 'PENDING'
                      """)) {
             statement.setObject(1, itemId);
@@ -607,22 +518,13 @@ class ClanStorageRepositoryIntegrationTest {
         }
     }
 
-    private long provenanceMoveCount(
-            UUID itemId,
-            String fromKind,
-            UUID fromId,
-            String toKind,
-            UUID toId
-    ) throws SQLException {
+    private long provenanceMoveCount(UUID itemId, String fromKind, UUID fromId, String toKind, UUID toId)
+            throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT COUNT(*)
-                     FROM item_provenance
-                     WHERE item_instance_id = ?
-                       AND from_location_kind = ?
-                       AND from_location_id = ?
-                       AND to_location_kind = ?
-                       AND to_location_id = ?
+                     SELECT COUNT(*) FROM item_provenance
+                     WHERE item_instance_id = ? AND from_location_kind = ? AND from_location_id = ?
+                       AND to_location_kind = ? AND to_location_id = ?
                      """)) {
             statement.setObject(1, itemId);
             statement.setString(2, fromKind);
@@ -658,10 +560,7 @@ class ClanStorageRepositoryIntegrationTest {
              PreparedStatement statement = connection.prepareStatement("""
                      SELECT COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount ELSE -amount END), 0)
                      FROM economic_ledger
-                     WHERE player_id IS NULL
-                       AND asset_type = ?
-                       AND asset_id = ?
-                       AND related_entity_id = ?
+                     WHERE player_id IS NULL AND asset_type = ? AND asset_id = ? AND related_entity_id = ?
                      """)) {
             statement.setString(1, assetType);
             statement.setString(2, assetId);
