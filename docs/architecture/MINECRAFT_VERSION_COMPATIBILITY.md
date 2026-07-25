@@ -1,67 +1,93 @@
 # Minecraft Version and Client Compatibility
 
-Status: **Canonical architecture policy.** This document defines the native Minecraft/Paper version policy and the supported client-protocol policy. Exact supported client versions may move forward over time, but the compatibility principles below remain stable.
+Status: **Architecture policy with launch baseline under active research.** The compatibility/security principles below are locked; the final native Minecraft/Paper launch baseline is not yet selected.
 
-## Decision
+## Current development baseline versus launch baseline
 
-Steward's Minecraft network does **not** intentionally target an old Minecraft server version merely because most vanilla content is replaced or ignored.
+The repository currently compiles against a pinned Paper 26.1.2 stable build so development/CI is reproducible while version research continues. This is a **temporary development baseline**, not a settled launch decision.
 
-The native backend tracks the **latest Paper release that Paper itself marks stable**, after the repository's full build/integration suite passes on that version.
+The launch baseline should be the **oldest sufficiently modern, still-maintainable version that provides every engine/client capability this project materially needs**, unless player-access data or maintenance/security considerations justify a newer baseline.
 
-Current development baseline (July 2026):
+That means a newer Minecraft release must justify its permanent migration/protocol/content surface rather than being adopted merely because it is newer.
 
-- Minecraft/Paper: **26.1.2**
-- Paper build: **74 stable**
-- Java: **25**
-- Paper API dependency is pinned exactly in source; production/release builds must not float on `build.+`.
+## Positive-allowlist vanilla policy
 
-Minecraft 26.2 is already a Mojang release, but Paper's public download channel currently still presents 26.1.2 as the stable build and 26.2 as experimental. Therefore the native backend remains 26.1.2 until Paper promotes a 26.2 build to stable and the migration/compatibility test matrix passes.
+The project replaces most vanilla progression, items, loot, economy and activity loops. Therefore vanilla content must be managed primarily by **allowing legitimate acquisition paths**, not by maintaining an ever-growing blacklist of individual vanilla items.
+
+New Mojang items existing in the registry do not automatically become obtainable.
+
+Authoritative acquisition sources include only explicitly configured systems such as:
+
+- approved crafting/refining recipes;
+- approved gathering/resource sources;
+- approved mob/bounty/Map rewards;
+- approved shops/system rewards where intentionally used;
+- approved world containers/loot tables;
+- approved player-to-player transfers of already legitimate assets.
+
+Unapproved vanilla recipes, loot tables, villager trades, mob drops, fishing outputs, structure loot, natural resource paths and other acquisition mechanisms are disabled/replaced at their source where they conflict with the game.
+
+This is safer and lower-maintenance than adding every new Mojang item to a deny list after each update.
+
+## Version-selection principle
+
+The research candidate range should begin where the modern engine features we actually need already exist.
+
+Important technical cutoffs include:
+
+- **1.20.5**: structured Item Stack Components, `minecraft:custom_data`, Java 21, and server transfer/cookie protocol support;
+- **1.21.4**: substantially expanded `minecraft:custom_model_data` and resource-pack item-model flexibility useful to a mostly-custom item ecosystem;
+- later 1.21 releases: additional item/entity/model capabilities that must be evaluated for actual product value rather than adopted automatically;
+- 26.x: current maintenance line and Java 25, but with additional migration/version surface that must justify itself for this project.
+
+Therefore pre-1.20.5 versions are poor baseline candidates unless later research finds an overwhelming player-access reason. Versions around late 1.21 are currently especially important candidates because they combine modern custom-item/runtime capabilities with a mature ecosystem.
+
+## Player-base research
+
+There is no authoritative public Mojang table giving active Java players by exact client version. Version choice must therefore combine several imperfect but useful signals:
+
+- Paper/bStats server-version adoption;
+- large public server compatibility matrices;
+- ViaVersion ecosystem telemetry where available;
+- mod/plugin ecosystem support;
+- launcher/default-version behavior;
+- direct beta telemetry from this server once public testing exists.
+
+Server-list counts alone must not be treated as exact player share.
 
 ## Why not copy Hypixel's 1.8.9 baseline
 
-Hypixel's long-lived 1.8.9 optimization is useful evidence that a network can decouple its gameplay from Mojang's current vanilla feature set. It is **not** evidence that 1.8.9 is the safer or simpler baseline for a new network.
+Hypixel's long-lived 1.8.9 optimization is useful evidence that a network can decouple its gameplay from Mojang's current vanilla feature set. It is **not** evidence that 1.8.9 is the safest or simplest baseline for a new network.
 
-Hypixel has a historical player/mod ecosystem and gameplay semantics built around that era. This project has no legacy installed base to preserve. Starting on 1.8.x would instead add protocol translation, legacy world/item limitations, older-client behavior, and a much larger compatibility test matrix before those costs provide any product value.
-
-The project can ignore unwanted vanilla mechanics while still using a modern Paper runtime, current protocol hardening, modern item/data APIs, current world formats, current client rendering/resource-pack capabilities, and current Java support.
+Hypixel has a historical player/mod ecosystem and gameplay semantics built around that era. This project has no legacy installed base to preserve. Starting on 1.8.x would add old protocol/world/item limitations and a much larger compatibility burden before those costs provide product value.
 
 ## Security rule
 
 "Older means the exploits are already known" is not sufficient as a security strategy.
 
-Known exploits only become an advantage if somebody continues to patch/backport them. Paper explicitly recommends updating to the latest supported release and states that exploit fixes are not necessarily backported after a newer version has been stable for a while.
+Known exploits are only an advantage while the chosen runtime is still maintained or those fixes are intentionally backported. Paper recommends updating supported installations and does not guarantee indefinite exploit backports to older releases.
 
-Therefore the security posture is:
+Security posture:
 
-1. use a currently supported Paper stable release;
+1. choose a version that remains practically maintainable;
 2. pin the exact Paper build used by CI/release;
-3. move forward intentionally when a newer Paper release becomes stable;
-4. run migration, protocol, inventory, economy, instance, and recovery tests before promotion;
-5. never rely on an unsupported legacy server merely because its historic exploits are well documented;
-6. keep backend servers behind the network/proxy boundary rather than treating client protocol compatibility as a security boundary.
+3. never float production on `build.+`;
+4. run migration, protocol, inventory, economy, instance and recovery tests before any native upgrade;
+5. keep backend servers behind the network/proxy boundary;
+6. treat protocol compatibility as presentation/input compatibility, never as the authority boundary;
+7. reject malformed/unauthorized actions server-side regardless of client version.
 
-A newly released version can still contain unknown bugs. The control is a stable-channel + test-gate policy, not permanent version stagnation.
+A newly released version can contain unknown bugs. A mature version can contain known-but-unpatched bugs. The correct control is explicit maintenance status + test gates, not blindly choosing either newest or oldest.
 
 ## Client-version policy
 
 Native server version and accepted client versions are separate decisions.
 
-### Launch principle
+Support a **small explicitly tested client matrix**, not every release that a protocol translator can technically accept.
 
-Support a **small explicitly tested client matrix**, not every Minecraft release that a protocol translator can technically accept.
+The exact launch matrix remains open until the native baseline and real adoption data are selected.
 
-For the current 26.1.2 backend the intended initial matrix is:
-
-- **26.1.2** — native/reference client;
-- **26.2** — compatibility target through a maintained ViaVersion release after the compatibility suite passes.
-
-Older clients (including 1.8.9 and the broad 1.21.x family) are **not launch requirements**. They may be added later only when player demand justifies the permanent testing cost and the version can represent the network's gameplay correctly.
-
-When the native backend moves to 26.2, support for 26.1.2 may temporarily be retained through ViaBackwards only if the same compatibility tests pass. Compatibility is never assumed solely because ViaBackwards can translate the protocol.
-
-## Why the client matrix stays narrow
-
-Every additional client protocol becomes another representation of persistent gameplay state. For this project that matters especially for:
+Every supported client protocol becomes another representation of persistent gameplay state. Compatibility testing is especially important for:
 
 - individualized/rolled items;
 - inventory transactions and escrow;
@@ -74,19 +100,7 @@ Every additional client protocol becomes another representation of persistent ga
 - anti-dupe validation;
 - future anti-cheat/input validation.
 
-ViaBackwards documents real limitations for older clients, including world-height visibility and some inventory desynchronization on sufficiently old protocols. A protocol being connectable does not mean it is acceptable for an economy-authoritative MMO server.
-
-## Protocol translation
-
-ViaVersion/ViaBackwards may be used as compatibility infrastructure, but they are not part of game authority.
-
-Rules:
-
-- authoritative gameplay remains expressed in the native server model;
-- translated clients never change item/economy identity semantics;
-- protocol support is enabled only after automated/manual compatibility acceptance;
-- the supported-version list is explicit and reject-by-default outside that list;
-- protocol-plugin upgrades are pinned and promoted through the same release process as other infrastructure.
+ViaVersion/ViaBackwards may be used, but a client version is supported only after these paths are proven correct. Technical connectability is not sufficient.
 
 ## Compatibility acceptance suite
 
@@ -107,18 +121,20 @@ Before adding or retaining a client version, test at minimum:
 
 A version that fails an economy/custody invariant is unsupported even if it can technically join.
 
-## Upgrade rule
+## Native-upgrade rule
 
-A native Minecraft/Paper version upgrade is an infrastructure release, not a casual dependency bump.
+A native Minecraft/Paper upgrade is an infrastructure release, not a casual dependency bump.
 
 Promotion requires:
 
-- Paper stable-channel availability;
+- material product/maintenance benefit;
+- supported Paper build;
 - exact dependency pin;
 - world-format backup/migration plan where applicable;
-- clean build and PostgreSQL test suite;
+- clean build and PostgreSQL suite;
 - clean Paper integration/compatibility suite;
 - clean supported-client matrix;
-- rollback/recovery plan for everything that can roll back (while respecting world formats that Paper/Minecraft explicitly cannot downgrade).
+- explicit review of newly introduced vanilla acquisition/mechanic surfaces;
+- rollback/recovery plan for everything that can roll back.
 
 The canonical world is never upgraded first and tested afterward.
