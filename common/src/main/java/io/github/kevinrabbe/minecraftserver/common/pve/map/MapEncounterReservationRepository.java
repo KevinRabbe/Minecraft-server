@@ -29,14 +29,19 @@ public final class MapEncounterReservationRepository {
         }
     }
 
-    /** Idempotently reserves one exact healthy instance for this player's still-owned source Map. */
+    /**
+     * Idempotently reserves one exact healthy instance for this player's still-owned source Map and exact future
+     * Map-open operation. The Map-open evidence trigger binds this reservation to the run in the open transaction.
+     */
     public MapEncounterReservationSnapshot reserve(
+            UUID openOperationId,
             UUID playerId,
             UUID sourceMapItemId,
             String targetZoneId,
             String targetTemplateVersion,
             Duration lease
     ) throws SQLException {
+        Objects.requireNonNull(openOperationId, "openOperationId");
         Objects.requireNonNull(playerId, "playerId");
         Objects.requireNonNull(sourceMapItemId, "sourceMapItemId");
         String zone = requireZoneId(targetZoneId);
@@ -49,27 +54,27 @@ public final class MapEncounterReservationRepository {
                 expireStaleReserved(connection);
                 requireOwnedMap(connection, playerId, sourceMapItemId);
 
+                Optional<MapEncounterReservationSnapshot> byOperation = findByOpenOperation(
+                        connection,
+                        openOperationId,
+                        true
+                );
+                if (byOperation.isPresent()) {
+                    MapEncounterReservationSnapshot reservation = byOperation.orElseThrow();
+                    requireSameRequest(reservation, playerId, sourceMapItemId, zone, template);
+                    connection.commit();
+                    return reservation;
+                }
+
                 Optional<MapEncounterReservationSnapshot> existing = findActiveForMap(
                         connection,
                         sourceMapItemId,
                         true
                 );
                 if (existing.isPresent()) {
-                    MapEncounterReservationSnapshot reservation = existing.orElseThrow();
-                    if (reservation.status() == MapEncounterReservationStatus.BOUND) {
-                        throw new MapAuthorityException(
-                                "Map item already belongs to a bound encounter reservation: " + sourceMapItemId
-                        );
-                    }
-                    if (!reservation.playerId().equals(playerId)
-                            || !reservation.targetZoneId().equals(zone)
-                            || !reservation.targetTemplateVersion().equals(template)) {
-                        throw new MapAuthorityException(
-                                "Map item already has a different active encounter reservation: " + sourceMapItemId
-                        );
-                    }
-                    connection.commit();
-                    return reservation;
+                    throw new MapAuthorityException(
+                            "Map item already has an active encounter reservation: " + sourceMapItemId
+                    );
                 }
 
                 TargetInstance target = chooseHealthyTarget(connection, zone, template);
@@ -77,6 +82,7 @@ public final class MapEncounterReservationRepository {
                 try (PreparedStatement statement = connection.prepareStatement("""
                         INSERT INTO map_encounter_reservations(
                             reservation_id,
+                            open_operation_id,
                             source_map_item_id,
                             player_id,
                             target_instance_id,
@@ -86,17 +92,18 @@ public final class MapEncounterReservationRepository {
                             status,
                             lease_expires_at,
                             state_version
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'RESERVED',
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'RESERVED',
                                   NOW() + (? * INTERVAL '1 millisecond'), 0)
                         """)) {
                     statement.setObject(1, reservationId);
-                    statement.setObject(2, sourceMapItemId);
-                    statement.setObject(3, playerId);
-                    statement.setObject(4, target.instanceId());
-                    statement.setString(5, target.backendId());
-                    statement.setString(6, zone);
-                    statement.setString(7, template);
-                    statement.setLong(8, reservationLease.toMillis());
+                    statement.setObject(2, openOperationId);
+                    statement.setObject(3, sourceMapItemId);
+                    statement.setObject(4, playerId);
+                    statement.setObject(5, target.instanceId());
+                    statement.setString(6, target.backendId());
+                    statement.setString(7, zone);
+                    statement.setString(8, template);
+                    statement.setLong(9, reservationLease.toMillis());
                     statement.executeUpdate();
                 }
 
@@ -114,6 +121,13 @@ public final class MapEncounterReservationRepository {
         Objects.requireNonNull(reservationId, "reservationId");
         try (Connection connection = dataSource.getConnection()) {
             return read(connection, reservationId, false);
+        }
+    }
+
+    public Optional<MapEncounterReservationSnapshot> findByOpenOperation(UUID openOperationId) throws SQLException {
+        Objects.requireNonNull(openOperationId, "openOperationId");
+        try (Connection connection = dataSource.getConnection()) {
+            return findByOpenOperation(connection, openOperationId, false);
         }
     }
 
@@ -159,58 +173,6 @@ public final class MapEncounterReservationRepository {
         }
     }
 
-    /** Called only by the state-coupled Map-open transaction after its persistent run row exists. */
-    MapEncounterReservationSnapshot bindWithinTransaction(
-            Connection connection,
-            UUID reservationId,
-            UUID playerId,
-            UUID sourceMapItemId,
-            UUID runId
-    ) throws SQLException {
-        Objects.requireNonNull(connection, "connection");
-        Objects.requireNonNull(reservationId, "reservationId");
-        Objects.requireNonNull(playerId, "playerId");
-        Objects.requireNonNull(sourceMapItemId, "sourceMapItemId");
-        Objects.requireNonNull(runId, "runId");
-
-        MapEncounterReservationSnapshot current = read(connection, reservationId, true);
-        if (current.status() == MapEncounterReservationStatus.BOUND) {
-            if (!playerId.equals(current.playerId())
-                    || !sourceMapItemId.equals(current.sourceMapItemId())
-                    || !runId.equals(current.runId())) {
-                throw new MapAuthorityException("Encounter reservation is already bound differently: " + reservationId);
-            }
-            return current;
-        }
-        if (current.status() != MapEncounterReservationStatus.RESERVED) {
-            throw new MapAuthorityException("Encounter reservation is not bindable from status " + current.status());
-        }
-        if (!playerId.equals(current.playerId()) || !sourceMapItemId.equals(current.sourceMapItemId())) {
-            throw new MapAuthorityException("Encounter reservation does not match opening Map/player");
-        }
-        if (!current.leaseExpiresAt().isAfter(databaseNow(connection))) {
-            throw new MapAuthorityException("Encounter reservation expired before Map opening");
-        }
-
-        try (PreparedStatement statement = connection.prepareStatement("""
-                UPDATE map_encounter_reservations
-                SET status = 'BOUND',
-                    run_id = ?,
-                    state_version = state_version + 1,
-                    bound_at = NOW()
-                WHERE reservation_id = ?
-                  AND status = 'RESERVED'
-                  AND lease_expires_at > NOW()
-                """)) {
-            statement.setObject(1, runId);
-            statement.setObject(2, reservationId);
-            if (statement.executeUpdate() != 1) {
-                throw new MapAuthorityException("Encounter reservation changed or expired while binding");
-            }
-        }
-        return read(connection, reservationId, false);
-    }
-
     private void expireStaleReserved(Connection connection) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 UPDATE map_encounter_reservations
@@ -245,6 +207,25 @@ public final class MapEncounterReservationRepository {
         }
     }
 
+    private Optional<MapEncounterReservationSnapshot> findByOpenOperation(
+            Connection connection,
+            UUID openOperationId,
+            boolean forUpdate
+    ) throws SQLException {
+        String sql = """
+                SELECT reservation_id
+                FROM map_encounter_reservations
+                WHERE open_operation_id = ?
+                """ + (forUpdate ? " FOR UPDATE" : "");
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, openOperationId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) return Optional.empty();
+                return Optional.of(read(connection, row.getObject("reservation_id", UUID.class), false));
+            }
+        }
+    }
+
     private Optional<MapEncounterReservationSnapshot> findActiveForMap(
             Connection connection,
             UUID sourceMapItemId,
@@ -260,8 +241,7 @@ public final class MapEncounterReservationRepository {
             statement.setObject(1, sourceMapItemId);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
-                UUID reservationId = row.getObject("reservation_id", UUID.class);
-                return Optional.of(read(connection, reservationId, false));
+                return Optional.of(read(connection, row.getObject("reservation_id", UUID.class), false));
             }
         }
     }
@@ -312,7 +292,8 @@ public final class MapEncounterReservationRepository {
             boolean forUpdate
     ) throws SQLException {
         String sql = """
-                SELECT source_map_item_id,
+                SELECT open_operation_id,
+                       source_map_item_id,
                        player_id,
                        target_instance_id,
                        target_backend_id,
@@ -336,6 +317,7 @@ public final class MapEncounterReservationRepository {
                 }
                 return new MapEncounterReservationSnapshot(
                         reservationId,
+                        row.getObject("open_operation_id", UUID.class),
                         row.getObject("source_map_item_id", UUID.class),
                         row.getObject("player_id", UUID.class),
                         row.getObject("target_instance_id", UUID.class),
@@ -354,11 +336,21 @@ public final class MapEncounterReservationRepository {
         }
     }
 
-    private static Instant databaseNow(Connection connection) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("SELECT NOW() AS database_now");
-             ResultSet row = statement.executeQuery()) {
-            row.next();
-            return row.getTimestamp("database_now").toInstant();
+    private static void requireSameRequest(
+            MapEncounterReservationSnapshot reservation,
+            UUID playerId,
+            UUID sourceMapItemId,
+            String targetZoneId,
+            String targetTemplateVersion
+    ) {
+        if (!reservation.playerId().equals(playerId)
+                || !reservation.sourceMapItemId().equals(sourceMapItemId)
+                || !reservation.targetZoneId().equals(targetZoneId)
+                || !reservation.targetTemplateVersion().equals(targetTemplateVersion)) {
+            throw new MapAuthorityException(
+                    "Map encounter open_operation_id was reused with a different reservation request: "
+                            + reservation.openOperationId()
+            );
         }
     }
 
