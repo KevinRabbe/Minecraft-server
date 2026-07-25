@@ -15,6 +15,9 @@ commands:
   skills:
     description: View authoritative skill levels and experience
     usage: /skills
+  leaderboard:
+    description: View bounded authoritative MMO skill rankings
+    usage: /leaderboard <skill> [limit]
   bank:
     description: View and manage protected Bank Manager Coin
     usage: /bank [deposit <coins>|withdraw <coins>|upgrade]
