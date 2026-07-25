@@ -24,6 +24,9 @@ commands:
   ah:
     description: Browse and trade individualized items through the fixed-price Auction House
     usage: /ah [browse [limit]] | sell <coins> | buy <listing-id> | cancel <listing-id>
+  trade:
+    description: Create and settle exact-revision secure direct trades
+    usage: /trade start <player> | view <id> | coin <id> <coins> | commodity <id> <commodity> <qty> | item <id> | confirm <id> <revision> | cancel <id>
   salvage:
     description: Preview or confirm irreversible salvage of the unique item in your main hand
     usage: /salvage [confirm]
