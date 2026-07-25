@@ -34,6 +34,14 @@
       "identity_kind": "COMMODITY"
     },
     {
+      "definition_id": "material.zombie_essence",
+      "minecraft_material": "FERMENTED_SPIDER_EYE",
+      "display_name": "Zombie Essence",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    },
+    {
       "definition_id": "equipment.starter_sword",
       "minecraft_material": "IRON_SWORD",
       "display_name": "Starter Sword",
