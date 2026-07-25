@@ -4,9 +4,10 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Persistent reservation linking one source Map/player to one exact disposable encounter instance. */
+/** Persistent reservation linking one source Map/player/open operation to one exact disposable encounter instance. */
 public record MapEncounterReservationSnapshot(
         UUID reservationId,
+        UUID openOperationId,
         UUID sourceMapItemId,
         UUID playerId,
         UUID targetInstanceId,
@@ -23,6 +24,7 @@ public record MapEncounterReservationSnapshot(
 ) {
     public MapEncounterReservationSnapshot {
         reservationId = Objects.requireNonNull(reservationId, "reservationId");
+        openOperationId = Objects.requireNonNull(openOperationId, "openOperationId");
         sourceMapItemId = Objects.requireNonNull(sourceMapItemId, "sourceMapItemId");
         playerId = Objects.requireNonNull(playerId, "playerId");
         targetInstanceId = Objects.requireNonNull(targetInstanceId, "targetInstanceId");
