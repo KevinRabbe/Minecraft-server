@@ -4,6 +4,10 @@ import io.github.kevinrabbe.minecraftserver.common.artifact.ArtifactRepository;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalog;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementRepository;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanMembershipRepository;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanRoleRepository;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanStorageRepository;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanTreasuryRepository;
 import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalog;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalogLoader;
@@ -101,6 +105,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperBazaarCommand bazaarCommand;
         PaperAuctionHouseCommand auctionHouseCommand;
         PaperTradeCommand tradeCommand;
+        PaperClanCommand clanCommand;
         PaperSalvageCommand salvageCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
@@ -230,6 +235,26 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     new SecureTradeConfirmationRepository(database.dataSource()),
                     new SecureTradeResolutionRepository(database.dataSource()),
                     new SecureTradeQueryRepository(database.dataSource()),
+                    itemCatalog,
+                    commodityMutator,
+                    uniqueItemRemoval
+            );
+            ClanMembershipRepository clanMemberships = new ClanMembershipRepository(database.dataSource());
+            clanCommand = new PaperClanCommand(
+                    this,
+                    sessionController,
+                    playerIdentities,
+                    commodityDeliveryController,
+                    uniqueDeliveryController,
+                    clanMemberships,
+                    new ClanRoleRepository(database.dataSource()),
+                    new ClanTreasuryRepository(database.dataSource()),
+                    new ClanStorageRepository(
+                            database.dataSource(),
+                            itemCatalog,
+                            commodityMutator,
+                            uniqueItemRemoval
+                    ),
                     itemCatalog,
                     commodityMutator,
                     uniqueItemRemoval
@@ -391,6 +416,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand trade = Objects.requireNonNull(getCommand("trade"), "trade command missing from plugin.yml");
         trade.setExecutor(tradeCommand);
         trade.setTabCompleter(tradeCommand);
+        PluginCommand clan = Objects.requireNonNull(getCommand("clan"), "clan command missing from plugin.yml");
+        clan.setExecutor(clanCommand);
+        clan.setTabCompleter(clanCommand);
         PluginCommand salvage = Objects.requireNonNull(getCommand("salvage"), "salvage command missing from plugin.yml");
         salvage.setExecutor(salvageCommand);
         salvage.setTabCompleter(salvageCommand);
