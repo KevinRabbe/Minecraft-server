@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "tiers": [
+    {
+      "family_id": "zombie",
+      "tier": 1,
+      "contract_fee_minor": 100,
+      "required_eligible_kills": 10,
+      "boss_definition_id": "boss.zombie.t1",
+      "eligible_source_ids": [
+        "starter_pve.zombie"
+      ],
+      "fixed_rewards": {
+        "material.zombie_essence": 2
+      }
+    }
+  ]
+}
