@@ -5,6 +5,7 @@ public enum ItemLocationKind {
     PLAYER_INVENTORY,
     PENDING_DELIVERY,
     AUCTION_ESCROW,
+    TRADE_ESCROW,
     CLAN_STORAGE,
     WAR_CUSTODY,
     QUARANTINE,
