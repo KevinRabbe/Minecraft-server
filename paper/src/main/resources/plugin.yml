@@ -15,6 +15,9 @@ commands:
   skills:
     description: View authoritative skill levels and experience
     usage: /skills
+  bank:
+    description: View and manage protected Bank Manager Coin
+    usage: /bank [deposit <coins>|withdraw <coins>|upgrade]
   craft:
     description: Craft one authoritative personal recipe
     usage: /craft <recipe>
