@@ -16,6 +16,7 @@ import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGatheringService;
@@ -72,6 +73,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         backendId = requireBackendId();
 
         PaperAttunementCommand attunementCommand;
+        PaperSkillsCommand skillsCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
         try {
@@ -116,6 +118,12 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     database.dataSource()
             );
             PaperPlayerIdentityResolver playerIdentities = new PaperPlayerIdentityResolver(database.dataSource());
+            skillsCommand = new PaperSkillsCommand(
+                    this,
+                    playerIdentities,
+                    new SkillProgressionRepository(database.dataSource(), skillCatalog),
+                    skillCatalog
+            );
             itemRepresentationValidator = new PaperPlayerItemRepresentationValidator(
                     this,
                     database.dataSource(),
@@ -270,6 +278,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand attune = Objects.requireNonNull(getCommand("attune"), "attune command missing from plugin.yml");
         attune.setExecutor(attunementCommand);
         attune.setTabCompleter(attunementCommand);
+        PluginCommand skills = Objects.requireNonNull(getCommand("skills"), "skills command missing from plugin.yml");
+        skills.setExecutor(skillsCommand);
         PluginCommand craft = Objects.requireNonNull(getCommand("craft"), "craft command missing from plugin.yml");
         craft.setExecutor(craftingController);
         craft.setTabCompleter(craftingController);
