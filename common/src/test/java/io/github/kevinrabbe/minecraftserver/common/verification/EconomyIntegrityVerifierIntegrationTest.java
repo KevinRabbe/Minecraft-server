@@ -206,19 +206,50 @@ class EconomyIntegrityVerifierIntegrationTest {
         UniqueItemAuthorityResult item = uniqueItems.createForPlayer(
                 UUID.randomUUID(), UNIQUE, leader, "test.item", leader
         );
+        UUID corruptMoveOperation = UUID.randomUUID();
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE item_instances
-                     SET location_kind = 'CLAN_STORAGE',
-                         location_id = ?,
-                         state_version = state_version + 1,
-                         updated_at = NOW()
-                     WHERE item_instance_id = ?
-                     """)) {
-            statement.setObject(1, clan.clanId());
-            statement.setObject(2, item.itemInstanceId());
-            assertEquals(1, statement.executeUpdate());
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement provenance = connection.prepareStatement("""
+                    INSERT INTO item_provenance(
+                        item_instance_id,
+                        sequence_no,
+                        operation_id,
+                        event_type,
+                        from_location_kind,
+                        from_location_id,
+                        to_location_kind,
+                        to_location_id,
+                        reason,
+                        actor_player_id
+                    ) VALUES (?, ?, ?, 'MOVED', 'PLAYER_INVENTORY', ?, 'CLAN_STORAGE', ?, 'test.corruption', ?)
+                    """);
+                 PreparedStatement update = connection.prepareStatement("""
+                    UPDATE item_instances
+                    SET location_kind = 'CLAN_STORAGE',
+                        location_id = ?,
+                        state_version = ?,
+                        updated_at = NOW()
+                    WHERE item_instance_id = ? AND state_version = ?
+                    """)) {
+                provenance.setObject(1, item.itemInstanceId());
+                provenance.setLong(2, item.stateVersion() + 1);
+                provenance.setObject(3, corruptMoveOperation);
+                provenance.setObject(4, leader);
+                provenance.setObject(5, clan.clanId());
+                provenance.setObject(6, leader);
+                provenance.executeUpdate();
+
+                update.setObject(1, clan.clanId());
+                update.setLong(2, item.stateVersion() + 1);
+                update.setObject(3, item.itemInstanceId());
+                update.setLong(4, item.stateVersion());
+                assertEquals(1, update.executeUpdate());
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                throw exception;
+            }
         }
 
         List<IntegrityIssue> issues = verifier.verify(100);
