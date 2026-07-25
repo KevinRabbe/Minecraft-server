@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "salvage": [
+    {
+      "item_definition_id": "equipment.starter_sword",
+      "coin_return_minor": 0,
+      "commodity_returns": {
+        "material.raw_iron": 1
+      }
+    }
+  ]
+}
