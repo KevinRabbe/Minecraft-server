@@ -45,6 +45,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private BackendRegistry backendRegistry;
     private PaperSessionController sessionController;
     private PaperPlayerItemRepresentationValidator itemRepresentationValidator;
+    private PaperCommodityDeliveryController commodityDeliveryController;
     private BootstrapZoneInstance bootstrapZoneInstance;
     private PaperResourceGatheringListener resourceGatheringListener;
     private BukkitTask heartbeatTask;
@@ -92,6 +93,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     database.dataSource(),
                     itemCatalog
             );
+            PaperCommodityStateMutator commodityMutator = new PaperCommodityStateMutator(this, itemCatalog);
+            commodityDeliveryController = new PaperCommodityDeliveryController(
+                    this,
+                    database.dataSource(),
+                    sessionController,
+                    commodityMutator
+            );
 
             if (bootstrapZoneInstance != null) {
                 PaperResourceSourcePlacementCatalog placements = PaperResourceSourcePlacementCatalog.loadResource(
@@ -114,7 +122,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                         placements,
                         sourceRepository,
                         new ResourceGatheringService(sourceRepository, fulfillmentRepository),
-                        new PaperResourceSessionResolver(database.dataSource(), backendId)
+                        new PaperResourceSessionResolver(database.dataSource(), backendId),
+                        commodityDeliveryController
                 );
             }
         } catch (RuntimeException | SQLException exception) {
@@ -122,6 +131,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             markBackendOfflineQuietly();
             closeDatabase();
             resourceGatheringListener = null;
+            commodityDeliveryController = null;
             itemRepresentationValidator = null;
             resourceSourceCatalog = null;
             skillCatalog = null;
@@ -131,6 +141,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(sessionController, this);
+        getServer().getPluginManager().registerEvents(commodityDeliveryController, this);
         getServer().getPluginManager().registerEvents(
                 new PaperItemRepresentationGate(this, itemRepresentationValidator),
                 this
@@ -184,6 +195,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         }
 
         resourceGatheringListener = null;
+        commodityDeliveryController = null;
         stopBootstrapZoneQuietly();
         getServer().getMessenger().unregisterOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
         markBackendOfflineQuietly();
