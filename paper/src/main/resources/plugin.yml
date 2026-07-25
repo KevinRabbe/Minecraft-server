@@ -18,6 +18,9 @@ commands:
   bank:
     description: View and manage protected Bank Manager Coin
     usage: /bank [deposit <coins>|withdraw <coins>|upgrade]
+  bazaar:
+    description: Create and cancel fungible commodity Bazaar orders
+    usage: /bazaar buy <commodity> <quantity> <coin-per-unit> | sell <commodity> <quantity> <coin-per-unit> | cancel <order-id>
   craft:
     description: Craft one authoritative personal recipe
     usage: /craft <recipe>
