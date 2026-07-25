@@ -12,6 +12,9 @@ commands:
   attune:
     description: View or select your active Artifact Attunement profile
     usage: /attune [profile]
+  skills:
+    description: View authoritative skill levels and experience
+    usage: /skills
   craft:
     description: Craft one authoritative personal recipe
     usage: /craft <recipe>
