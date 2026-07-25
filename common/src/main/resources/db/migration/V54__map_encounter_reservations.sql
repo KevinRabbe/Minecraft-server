@@ -4,18 +4,21 @@
 -- Paper uses the same open_operation_id for reservation and Map opening. A database trigger therefore binds the exact
 -- reservation to the newly created run inside the existing state-coupled Map-open transaction without duplicating the
 -- mature Map item/player-state authority.
+--
+-- Cross-table validity is enforced with triggers rather than foreign keys so adding this feature does not make unrelated
+-- integration-test/item/session TRUNCATE fixtures depend on the Map reservation table.
 
 CREATE TABLE map_encounter_reservations (
     reservation_id UUID PRIMARY KEY,
     open_operation_id UUID NOT NULL UNIQUE,
-    source_map_item_id UUID NOT NULL REFERENCES item_instances(item_instance_id) ON DELETE RESTRICT,
-    player_id UUID NOT NULL REFERENCES players(player_id) ON DELETE RESTRICT,
-    target_instance_id UUID NOT NULL REFERENCES zone_instances(instance_id) ON DELETE RESTRICT,
-    target_backend_id TEXT NOT NULL REFERENCES backends(backend_id) ON DELETE RESTRICT,
+    source_map_item_id UUID NOT NULL,
+    player_id UUID NOT NULL,
+    target_instance_id UUID NOT NULL,
+    target_backend_id TEXT NOT NULL,
     target_zone_id TEXT NOT NULL,
     target_template_version TEXT NOT NULL,
     status TEXT NOT NULL,
-    run_id UUID UNIQUE REFERENCES map_runs(run_id) ON DELETE RESTRICT,
+    run_id UUID UNIQUE,
     lease_expires_at TIMESTAMPTZ NOT NULL,
     state_version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -65,7 +68,7 @@ CREATE INDEX map_encounter_reservations_recovery_idx
     ON map_encounter_reservations(status, lease_expires_at)
     WHERE status = 'RESERVED';
 
-CREATE OR REPLACE FUNCTION validate_map_encounter_reservation_target()
+CREATE OR REPLACE FUNCTION validate_map_encounter_reservation_source_and_target()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
@@ -74,6 +77,18 @@ DECLARE
     actual_zone TEXT;
     actual_template TEXT;
 BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM item_instances i
+        JOIN map_item_profiles p ON p.item_instance_id = i.item_instance_id
+        WHERE i.item_instance_id = NEW.source_map_item_id
+          AND i.location_kind = 'PLAYER_INVENTORY'
+          AND i.location_id = NEW.player_id
+    ) THEN
+        RAISE EXCEPTION 'Map encounter reservation source item is not an owned Map for player %', NEW.player_id
+            USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+
     SELECT backend_id, zone_id, template_version
     INTO actual_backend, actual_zone, actual_template
     FROM zone_instances
@@ -90,11 +105,11 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER map_encounter_reservations_validate_target
+CREATE TRIGGER map_encounter_reservations_validate_source_target
 BEFORE INSERT
 ON map_encounter_reservations
 FOR EACH ROW
-EXECUTE FUNCTION validate_map_encounter_reservation_target();
+EXECUTE FUNCTION validate_map_encounter_reservation_source_and_target();
 
 CREATE OR REPLACE FUNCTION validate_map_encounter_reservation_transition()
 RETURNS TRIGGER
@@ -171,8 +186,7 @@ FOR EACH ROW
 EXECUTE FUNCTION reject_map_encounter_reservation_delete();
 
 ALTER TABLE map_open_player_state_evidence
-    ADD COLUMN encounter_reservation_id UUID UNIQUE
-        REFERENCES map_encounter_reservations(reservation_id) ON DELETE RESTRICT;
+    ADD COLUMN encounter_reservation_id UUID UNIQUE;
 
 CREATE OR REPLACE FUNCTION bind_map_open_encounter_reservation()
 RETURNS TRIGGER
