@@ -30,6 +30,9 @@ commands:
   clan:
     description: Manage persistent MMO clans, treasury, and shared storage
     usage: /clan [status|create|invite|accept|leave|kick|role|transfer|treasury|storage]
+  commission:
+    description: Fund, browse, accept, complete, and cancel crafting commissions
+    usage: /commission [browse [limit]] | view <id> | create <recipe> <payment-coins> | accept <id> | complete <id> | cancel <id>
   salvage:
     description: Preview or confirm irreversible salvage of the unique item in your main hand
     usage: /salvage [confirm]
