@@ -19,6 +19,9 @@ import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicy;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicyLoader;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.SalvageCatalog;
+import io.github.kevinrabbe.minecraftserver.common.economy.SalvageCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.economy.SalvageRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
@@ -55,6 +58,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
     private static final String BANK_TIER_CATALOG_RESOURCE = "/content/bank-tiers.json";
     private static final String BAZAAR_POLICY_RESOURCE = "/content/bazaar-policy.json";
+    private static final String SALVAGE_CATALOG_RESOURCE = "/content/salvage.json";
     private static final String CRAFTING_CATALOG_RESOURCE = "/content/crafting.json";
     private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String RESOURCE_PLACEMENT_CATALOG_RESOURCE = "/content/resource-source-placements.json";
@@ -90,6 +94,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperBankCommand bankCommand;
         PaperBazaarCommand bazaarCommand;
         PaperAuctionHouseCommand auctionHouseCommand;
+        PaperSalvageCommand salvageCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
         BazaarPolicy bazaarPolicy;
@@ -100,6 +105,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
             BankTierCatalog bankTiers = new BankTierCatalogLoader().loadResource(BANK_TIER_CATALOG_RESOURCE);
             bazaarPolicy = new BazaarPolicyLoader().loadResource(BAZAAR_POLICY_RESOURCE);
+            SalvageCatalog salvageCatalog = new SalvageCatalogLoader().loadResource(
+                    SALVAGE_CATALOG_RESOURCE,
+                    itemCatalog
+            );
             CraftingContentCatalog craftingContent = new CraftingContentCatalogLoader().loadResource(
                     CRAFTING_CATALOG_RESOURCE,
                     itemCatalog,
@@ -193,6 +202,15 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     uniqueDeliveryController,
                     new AuctionHouseRepository(database.dataSource(), itemCatalog),
                     new AuctionHouseQueryRepository(database.dataSource()),
+                    itemCatalog
+            );
+            PaperUniqueItemStateRemovalMutator uniqueItemRemoval = new PaperUniqueItemStateRemovalMutator(this);
+            salvageCommand = new PaperSalvageCommand(
+                    this,
+                    sessionController,
+                    commodityDeliveryController,
+                    new SalvageRepository(database.dataSource(), salvageCatalog, uniqueItemRemoval),
+                    salvageCatalog,
                     itemCatalog
             );
 
@@ -341,6 +359,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand auctionHouse = Objects.requireNonNull(getCommand("ah"), "ah command missing from plugin.yml");
         auctionHouse.setExecutor(auctionHouseCommand);
         auctionHouse.setTabCompleter(auctionHouseCommand);
+        PluginCommand salvage = Objects.requireNonNull(getCommand("salvage"), "salvage command missing from plugin.yml");
+        salvage.setExecutor(salvageCommand);
+        salvage.setTabCompleter(salvageCommand);
         PluginCommand craft = Objects.requireNonNull(getCommand("craft"), "craft command missing from plugin.yml");
         craft.setExecutor(craftingController);
         craft.setTabCompleter(craftingController);
