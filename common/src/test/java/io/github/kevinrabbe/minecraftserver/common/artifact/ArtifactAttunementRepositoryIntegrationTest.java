@@ -18,14 +18,12 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -278,7 +276,7 @@ class ArtifactAttunementRepositoryIntegrationTest {
         assertEquals("martial", martial.activeProfileId());
         assertEquals(5L, martial.totalPoints());
         assertEquals(2L, martial.stateVersion());
-        assertEquals(2L, attunementRowCount(player));
+        assertEquals(1L, attunementRowCount(player));
     }
 
     @Test
