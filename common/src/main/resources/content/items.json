@@ -8,6 +8,22 @@
       "max_stack_size": 64,
       "category": "MATERIALS",
       "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "material.oak_log",
+      "minecraft_material": "OAK_LOG",
+      "display_name": "Oak Log",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "material.wheat",
+      "minecraft_material": "WHEAT",
+      "display_name": "Wheat",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
     }
   ]
 }
