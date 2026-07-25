@@ -9,6 +9,9 @@ commands:
     description: Development-only logical zone transfer acceptance command
     usage: /devzone <logical-zone-id>
     permission: minecraftserver.dev.route
+  attune:
+    description: View or select your active Artifact Attunement profile
+    usage: /attune [profile]
 permissions:
   minecraftserver.dev.route:
     description: Allows the development logical-zone transfer command
