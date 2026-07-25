@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.verification;
 
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanMembershipRepository;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankManagerRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierDefinition;
@@ -12,6 +14,8 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryIssueResult;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryRepository;
+import io.github.kevinrabbe.minecraftserver.common.item.UniqueItemAuthorityRepository;
+import io.github.kevinrabbe.minecraftserver.common.item.UniqueItemAuthorityResult;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
@@ -45,6 +49,8 @@ class EconomyIntegrityVerifierIntegrationTest {
     private BankManagerRepository bank;
     private SecureTradeRepository trades;
     private PendingUniqueDeliveryRepository uniqueDeliveries;
+    private UniqueItemAuthorityRepository uniqueItems;
+    private ClanMembershipRepository memberships;
     private EconomyIntegrityVerifier verifier;
 
     @BeforeAll
@@ -61,9 +67,7 @@ class EconomyIntegrityVerifierIntegrationTest {
         wallets = new CoinWalletRepository(dataSource);
         bank = new BankManagerRepository(
                 dataSource,
-                new BankTierCatalog(List.of(
-                        new BankTierDefinition(0, 1_000_000, 0)
-                ))
+                new BankTierCatalog(List.of(new BankTierDefinition(0, 1_000_000, 0)))
         );
         trades = new SecureTradeRepository(dataSource);
         ItemCatalog catalog = new ItemCatalog(List.of(
@@ -77,6 +81,8 @@ class EconomyIntegrityVerifierIntegrationTest {
                 )
         ));
         uniqueDeliveries = new PendingUniqueDeliveryRepository(dataSource, catalog);
+        uniqueItems = new UniqueItemAuthorityRepository(dataSource, catalog);
+        memberships = new ClanMembershipRepository(dataSource);
         verifier = new EconomyIntegrityVerifier(dataSource);
     }
 
@@ -94,6 +100,11 @@ class EconomyIntegrityVerifierIntegrationTest {
                         auction_listings,
                         pending_unique_deliveries,
                         pending_commodity_deliveries,
+                        clan_invitations,
+                        clan_commodity_balances,
+                        clan_treasuries,
+                        clan_members,
+                        clans,
                         item_provenance,
                         item_instances,
                         crafting_commission_returns,
@@ -164,6 +175,58 @@ class EconomyIntegrityVerifierIntegrationTest {
 
         assertEquals(player, issued.recipientPlayerId());
         assertTrue(verifier.verify(100).isEmpty());
+    }
+
+    @Test
+    void schemaValidClanCommodityDriftIsReported() throws Exception {
+        UUID leader = identities.ensurePlayer(UUID.randomUUID(), "VerifyClanA");
+        ClanSnapshot clan = memberships.createClan(UUID.randomUUID(), leader, "Verifier A", "VRA");
+
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     INSERT INTO clan_commodity_balances(clan_id, commodity_definition_id, quantity, state_version)
+                     VALUES (?, 'verify.iron', 7, 1)
+                     """)) {
+            statement.setObject(1, clan.clanId());
+            assertEquals(1, statement.executeUpdate());
+        }
+
+        List<IntegrityIssue> issues = verifier.verify(100);
+        assertEquals(1, issues.size());
+        IntegrityIssue issue = issues.getFirst();
+        assertEquals(IntegritySeverity.CRITICAL, issue.severity());
+        assertEquals("CLAN_COMMODITY_LEDGER_MISMATCH", issue.code());
+        assertEquals(clan.clanId() + ":verify.iron", issue.subjectId());
+    }
+
+    @Test
+    void schemaValidClanUniqueCustodyWithoutClanLedgerEvidenceIsReported() throws Exception {
+        UUID leader = identities.ensurePlayer(UUID.randomUUID(), "VerifyClanB");
+        ClanSnapshot clan = memberships.createClan(UUID.randomUUID(), leader, "Verifier B", "VRB");
+        UniqueItemAuthorityResult item = uniqueItems.createForPlayer(
+                UUID.randomUUID(), UNIQUE, leader, "test.item", leader
+        );
+
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE item_instances
+                     SET location_kind = 'CLAN_STORAGE',
+                         location_id = ?,
+                         state_version = state_version + 1,
+                         updated_at = NOW()
+                     WHERE item_instance_id = ?
+                     """)) {
+            statement.setObject(1, clan.clanId());
+            statement.setObject(2, item.itemInstanceId());
+            assertEquals(1, statement.executeUpdate());
+        }
+
+        List<IntegrityIssue> issues = verifier.verify(100);
+        assertEquals(1, issues.size());
+        IntegrityIssue issue = issues.getFirst();
+        assertEquals(IntegritySeverity.CRITICAL, issue.severity());
+        assertEquals("CLAN_UNIQUE_CUSTODY_LEDGER_MISMATCH", issue.code());
+        assertEquals(clan.clanId() + ":" + item.itemInstanceId(), issue.subjectId());
     }
 
     @Test
