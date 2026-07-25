@@ -1,6 +1,5 @@
 package io.github.kevinrabbe.minecraftserver.common.pvp;
 
-import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -12,9 +11,7 @@ public record ClanWarCustodiedItemSnapshot(
         String definitionId,
         long itemStateVersion,
         String rollStateJson,
-        int upgradeLevel,
-        Instant custodiedAt,
-        Instant releasedAt
+        int upgradeLevel
 ) {
     public ClanWarCustodiedItemSnapshot {
         warId = Objects.requireNonNull(warId, "warId");
@@ -24,7 +21,6 @@ public record ClanWarCustodiedItemSnapshot(
             throw new IllegalArgumentException("definitionId must not be blank");
         }
         rollStateJson = Objects.requireNonNull(rollStateJson, "rollStateJson");
-        custodiedAt = Objects.requireNonNull(custodiedAt, "custodiedAt");
         if (itemStateVersion < 0 || upgradeLevel < 0) {
             throw new IllegalArgumentException("item state/upgrade values must be >= 0");
         }
