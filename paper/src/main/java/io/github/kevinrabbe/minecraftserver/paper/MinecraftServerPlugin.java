@@ -13,6 +13,9 @@ import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingStateExecuti
 import io.github.kevinrabbe.minecraftserver.common.economy.BankManagerRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicy;
+import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicyLoader;
+import io.github.kevinrabbe.minecraftserver.common.economy.BazaarRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
@@ -45,9 +48,11 @@ import java.util.logging.Level;
 public final class MinecraftServerPlugin extends JavaPlugin implements Listener {
     private static final long HEARTBEAT_PERIOD_TICKS = 100L;
     private static final long CHECKPOINT_PERIOD_TICKS = 100L;
+    private static final long DELIVERY_PUMP_PERIOD_TICKS = 100L;
     private static final String ITEM_CATALOG_RESOURCE = "/content/items.json";
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
     private static final String BANK_TIER_CATALOG_RESOURCE = "/content/bank-tiers.json";
+    private static final String BAZAAR_POLICY_RESOURCE = "/content/bazaar-policy.json";
     private static final String CRAFTING_CATALOG_RESOURCE = "/content/crafting.json";
     private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String RESOURCE_PLACEMENT_CATALOG_RESOURCE = "/content/resource-source-placements.json";
@@ -72,6 +77,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private PaperArtifactDiscoveryListener artifactDiscoveryListener;
     private BukkitTask heartbeatTask;
     private BukkitTask checkpointTask;
+    private BukkitTask deliveryPumpTask;
 
     @Override
     public void onEnable() {
@@ -80,13 +86,17 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperAttunementCommand attunementCommand;
         PaperSkillsCommand skillsCommand;
         PaperBankCommand bankCommand;
+        PaperBazaarCommand bazaarCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
+        BazaarPolicy bazaarPolicy;
+        BazaarRepository bazaarRepository;
         try {
             itemCatalog = new ItemCatalogLoader().loadResource(ITEM_CATALOG_RESOURCE);
             PaperItemCatalogValidator.validate(itemCatalog);
             skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
             BankTierCatalog bankTiers = new BankTierCatalogLoader().loadResource(BANK_TIER_CATALOG_RESOURCE);
+            bazaarPolicy = new BazaarPolicyLoader().loadResource(BAZAAR_POLICY_RESOURCE);
             CraftingContentCatalog craftingContent = new CraftingContentCatalogLoader().loadResource(
                     CRAFTING_CATALOG_RESOURCE,
                     itemCatalog,
@@ -155,6 +165,22 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     database.dataSource(),
                     sessionController,
                     playerIdentities,
+                    itemCatalog
+            );
+            bazaarRepository = new BazaarRepository(
+                    database.dataSource(),
+                    itemCatalog,
+                    commodityMutator,
+                    bazaarPolicy.executionFeeBasisPoints()
+            );
+            bazaarCommand = new PaperBazaarCommand(
+                    this,
+                    sessionController,
+                    playerIdentities,
+                    commodityMutator,
+                    commodityDeliveryController,
+                    bazaarRepository,
+                    bazaarPolicy,
                     itemCatalog
             );
 
@@ -297,10 +323,20 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand bank = Objects.requireNonNull(getCommand("bank"), "bank command missing from plugin.yml");
         bank.setExecutor(bankCommand);
         bank.setTabCompleter(bankCommand);
+        PluginCommand bazaar = Objects.requireNonNull(getCommand("bazaar"), "bazaar command missing from plugin.yml");
+        bazaar.setExecutor(bazaarCommand);
+        bazaar.setTabCompleter(bazaarCommand);
         PluginCommand craft = Objects.requireNonNull(getCommand("craft"), "craft command missing from plugin.yml");
         craft.setExecutor(craftingController);
         craft.setTabCompleter(craftingController);
         craftingController.recoverPendingExperience();
+        PaperBazaarRecovery.schedule(
+                this,
+                bazaarRepository,
+                bazaarPolicy,
+                itemCatalog,
+                commodityDeliveryController
+        );
 
         heartbeatTask = getServer().getScheduler().runTaskTimerAsynchronously(
                 this,
@@ -313,6 +349,15 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 sessionController::checkpointOnlinePlayers,
                 CHECKPOINT_PERIOD_TICKS,
                 CHECKPOINT_PERIOD_TICKS
+        );
+        deliveryPumpTask = getServer().getScheduler().runTaskTimer(
+                this,
+                () -> getServer().getOnlinePlayers().forEach(player -> {
+                    commodityDeliveryController.requestDrain(player.getUniqueId());
+                    uniqueDeliveryController.requestDrain(player.getUniqueId());
+                }),
+                DELIVERY_PUMP_PERIOD_TICKS,
+                DELIVERY_PUMP_PERIOD_TICKS
         );
 
         String zoneDescription = bootstrapZoneInstance == null
@@ -331,6 +376,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
     @Override
     public void onDisable() {
+        if (deliveryPumpTask != null) {
+            deliveryPumpTask.cancel();
+            deliveryPumpTask = null;
+        }
         if (checkpointTask != null) {
             checkpointTask.cancel();
             checkpointTask = null;
