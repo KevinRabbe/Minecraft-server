@@ -24,6 +24,14 @@
       "max_stack_size": 64,
       "category": "MATERIALS",
       "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "material.rotten_flesh",
+      "minecraft_material": "ROTTEN_FLESH",
+      "display_name": "Rotten Flesh",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
     }
   ]
 }
