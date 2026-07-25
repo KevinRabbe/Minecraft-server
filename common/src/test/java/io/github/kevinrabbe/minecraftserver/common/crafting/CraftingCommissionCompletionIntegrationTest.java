@@ -145,7 +145,7 @@ class CraftingCommissionCompletionIntegrationTest {
 
     @Test
     void completionPaysWorkerAndCraftsRolledOutputToRequesterExactlyOnce() throws Exception {
-        PlayerContext requester = fundedPlayerWithSession("CompleteRequester", 10_000, new byte[]{5});
+        PlayerContext requester = fundedPlayerWithSession("CompRequester", 10_000, new byte[]{5});
         UUID worker = identities.ensurePlayer(UUID.randomUUID(), "CompleteWorker");
         setSkillExperience(worker, 1_000);
         CraftingCommissionSnapshot accepted = createAndAccept(requester, worker, 1_500);
@@ -174,7 +174,7 @@ class CraftingCommissionCompletionIntegrationTest {
 
     @Test
     void wrongWorkerCannotCompleteOrReceivePayment() throws Exception {
-        PlayerContext requester = fundedPlayerWithSession("WrongWorkerRequester", 10_000, new byte[]{5});
+        PlayerContext requester = fundedPlayerWithSession("WrongReq", 10_000, new byte[]{5});
         UUID worker = identities.ensurePlayer(UUID.randomUUID(), "AcceptedWorker");
         UUID outsider = identities.ensurePlayer(UUID.randomUUID(), "WrongWorker");
         setSkillExperience(worker, 1_000);
@@ -222,7 +222,7 @@ class CraftingCommissionCompletionIntegrationTest {
 
     @Test
     void databaseRejectsCompletedCommissionWithoutMatchingCraftEvidence() throws Exception {
-        PlayerContext requester = fundedPlayerWithSession("EvidenceRequester", 10_000, new byte[]{5});
+        PlayerContext requester = fundedPlayerWithSession("EvidenceReq", 10_000, new byte[]{5});
         UUID worker = identities.ensurePlayer(UUID.randomUUID(), "EvidenceWorker");
         setSkillExperience(worker, 1_000);
         CraftingCommissionSnapshot accepted = createAndAccept(requester, worker, 1_000);
@@ -246,7 +246,7 @@ class CraftingCommissionCompletionIntegrationTest {
 
     @Test
     void terminalCommissionRowCannotBeRewrittenAfterCompletion() throws Exception {
-        PlayerContext requester = fundedPlayerWithSession("ImmutableRequester", 10_000, new byte[]{5});
+        PlayerContext requester = fundedPlayerWithSession("ImmutableReq", 10_000, new byte[]{5});
         UUID worker = identities.ensurePlayer(UUID.randomUUID(), "ImmutableWorker");
         setSkillExperience(worker, 1_000);
         CraftingCommissionSnapshot accepted = createAndAccept(requester, worker, 500);
