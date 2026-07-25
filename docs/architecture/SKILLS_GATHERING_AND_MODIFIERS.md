@@ -15,6 +15,74 @@ The generic progression framework supports at minimum:
 
 Fishing is not required on Day 0 and may be introduced through a player-selected Fishing expansion/district.
 
+## Implemented starter baseline
+
+The authority/runtime baseline is now proven for the first ordinary progression loops.
+
+### Generic progression authority
+
+- skill identity and XP are PostgreSQL-authoritative;
+- the active cap is global/world-configured and advances only `50 -> 75 -> 100`;
+- XP cannot hide above the active cap;
+- retrying one XP event cannot duplicate XP;
+- raising the cap resumes progression from the committed capped state.
+
+The currently loaded starter curves for Mining, Woodcutting, Farming, Combat and Crafting are provisional content values. Their exact curve shape is tuning, not architecture.
+
+### Authorized gathering
+
+The first Paper source path is:
+
+`authored source interaction -> exact source cycle -> immutable harvest -> commodity delivery + XP -> fenced persistent inventory`
+
+Current proof content includes:
+
+- Mining -> Raw Iron;
+- Woodcutting -> Oak Log;
+- Farming -> Wheat.
+
+Only version-controlled authored source coordinates are economic sources. A player-placed block that happens to use the same Minecraft material is not a resource authority and cannot mint the configured commodity/XP.
+
+Source cooldown is durable authority. The physical block representation is derived from PostgreSQL `next_available_at`: during cooldown it may render as absent, and restart reconciliation restores the correct visible state from authority rather than trusting saved world bytes.
+
+### Ordinary PvE source identity
+
+Ordinary managed PvE reuses the same renewable source/reward authority rather than creating a second mob-drop economy.
+
+The entity path is:
+
+`source cycle -> unique spawn binding -> exact runtime entity UUID -> exact kill claim -> existing harvest fulfillment`
+
+Current proof content is one managed Zombie source producing Rotten Flesh + Combat XP.
+
+Important invariants:
+
+- entity-bound sources cannot be harvested directly without a matching active kill claim;
+- duplicated/stale mobs cannot consume a later source cycle;
+- environmental/no-player death advances the source cycle without reward;
+- expired pending/active entity bindings recover without leaving the source permanently locked;
+- vanilla hostile drops/XP are suppressed on the managed ordinary-PvE backend so they do not form a second value faucet.
+
+### Personal crafting
+
+The first live crafting path is:
+
+`authoritative carried commodities -> exact deterministic ingredient removal -> immutable craft -> durable output custody -> recoverable exactly-once Crafting XP -> pending delivery -> fenced persistent inventory`
+
+Current proof recipe content is deliberately narrow:
+
+`2 Raw Iron + 1 Oak Log -> Starter Sword`
+
+The Starter Sword is an individualized item with persistent normalized intrinsic roll state. The current `damage` roll profile and 25-XP award are provisional tuning values.
+
+Crafting XP is a recoverable fulfillment keyed by immutable `craft_id`. A crash after the craft commits but before the XP fulfillment marker cannot duplicate the item or XP; retry uses a deterministic XP operation ID.
+
+Individualized output uses generic pending unique-item custody. Paper projects the exact post-claim item authority version, inserts that exact representation into serialized player state, then commits item custody + player state atomically. Full inventory leaves the unique item safely pending.
+
+The current `/craft <recipe>` surface is intentionally minimal. A richer crafting station/UI is presentation work, not a new authority model.
+
+The persisted Starter Sword roll is **not yet applied by the Paper effective-combat-stat pipeline**. Derived damage/equipment effects belong to the centralized modifier pipeline below and should not be baked into item custody/crafting settlement.
+
 ## Progression philosophy
 
 Skills support specialization and optional routes. No skill should become a universal mandatory path merely because it exists.
@@ -68,14 +136,13 @@ Player-place -> break loops must not mint XP/resources unless the source is expl
 
 ## Woodcutting / Foraging
 
-Planned mechanics:
+The authorized tree-source baseline exists. Later progression mechanics may include:
 
 - skill speed
 - skill luck/quality where meaningful
 - better axes/use requirements
 - connected valid-tree breaking at higher progression
 - specialized Wood pouch where throughput justifies it
-- authorized tree sources only
 
 High level should increase useful throughput without turning into AFK automation.
 
@@ -85,24 +152,23 @@ Mining is an extraction profession, not merely "pickaxe use".
 
 Potential Mining-benefit materials may include ores, stone, sand/gravel, Quartz/Glowstone/Soul Sand later, while XP eligibility remains separately configured.
 
-Planned mechanics:
+The authorized node/cooldown baseline exists. Later progression mechanics may include:
 
 - speed
 - luck/quality where meaningful
 - better tools/use requirements
 - multi-block/vein-style manual extraction at higher progression
 - Mining pouch
-- authorized nodes/sections and reset/respawn behavior
 
 ## Farming
 
-Planned mechanics:
+The authorized starter source baseline exists. Later progression mechanics may include:
 
 - speed
 - luck/yield where meaningful
 - better tools/multi-harvest
 - Farming pouch
-- authoritative crop/livestock cycles where needed
+- richer authoritative crop/livestock cycles where needed
 
 Only valid mature/legitimate cycles grant economic output/XP. Plant/break spam or immature-cycle abuse must not.
 
@@ -110,7 +176,7 @@ Only valid mature/legitimate cycles grant economic output/XP. Plant/break spam o
 
 Combat progression may govern PvE effectiveness/equipment requirements/drop rules as needed.
 
-- normal mobs may grant Minecraft XP and/or configured progression;
+- authorized ordinary mobs may grant configured progression and economic output;
 - Portal/Map difficulty is **not** permission-gated by Combat level;
 - Bounty tier access may depend on the relevant bounty-family progression rather than one global combat ladder;
 - ranked PvP disables permanent gear/skill advantage through standardized temporary state;
@@ -197,9 +263,11 @@ Pouches are convenience/progression tools, not generic storage.
 Two broad uses are allowed:
 
 ### Gathering pouches
+
 Examples: Mining, Woodcutting, Farming, later Fishing.
 
 ### Bounty-family pouches
+
 One pouch may store the fungible materials for one bounty family such as Spider/Zombie/Golem.
 
 Common rules:
