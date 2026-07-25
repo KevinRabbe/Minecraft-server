@@ -27,7 +27,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
@@ -222,6 +221,7 @@ final class PaperClanCommand implements CommandExecutor, TabCompleter {
         UUID actorMinecraftUuid = actor.getUniqueId();
         UUID targetMinecraftUuid = target.getUniqueId();
         String actorName = actor.getName();
+        String liveTargetName = target.getName();
         runAsync(() -> {
             try {
                 UUID actorPlayerId = requirePlayerId(actorMinecraftUuid);
@@ -235,7 +235,7 @@ final class PaperClanCommand implements CommandExecutor, TabCompleter {
                         Instant.now().plus(INVITE_LIFETIME)
                 );
                 ClanSnapshot clan = memberships.loadClan(actorMember.clanId());
-                sendIfOnline(actorMinecraftUuid, "Invited " + target.getName() + " to [" + clan.tag() + "] " + clan.name() + ".");
+                sendIfOnline(actorMinecraftUuid, "Invited " + liveTargetName + " to [" + clan.tag() + "] " + clan.name() + ".");
                 sendIfOnline(
                         targetMinecraftUuid,
                         actorName + " invited you to [" + clan.tag() + "] " + clan.name()
