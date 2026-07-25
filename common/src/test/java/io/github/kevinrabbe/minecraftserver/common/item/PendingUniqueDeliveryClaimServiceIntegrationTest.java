@@ -96,7 +96,7 @@ class PendingUniqueDeliveryClaimServiceIntegrationTest {
 
     @Test
     void projectsExactPostClaimItemAndSameOperationRetryReturnsSameCommit() throws Exception {
-        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "ProjectedDelivery");
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "ProjectedItem");
         PendingUniqueDeliveryIssueResult issued = deliveries.issueNewIndividual(
                 UUID.randomUUID(), SWORD, playerId, "test.issue", playerId
         );
