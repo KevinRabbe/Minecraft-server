@@ -101,7 +101,6 @@ class EconomyIntegrityVerifierIntegrationTest {
                         crafting_commissions,
                         bazaar_fills,
                         bazaar_orders,
-                        bank_interest_credits,
                         economic_ledger,
                         processed_operations,
                         bank_accounts,
