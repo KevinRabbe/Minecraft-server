@@ -121,8 +121,8 @@ class SecureTradeWithdrawalIntegrationTest {
 
     @Test
     void partialCommodityWithdrawalReturnsOnlyRequestedQuantityAndClearsConfirmation() throws Exception {
-        PlayerContext a = playerWithSession("CommodityWithdrawA", new byte[]{10});
-        PlayerContext b = playerWithSession("CommodityWithdrawB", new byte[]{20});
+        PlayerContext a = playerWithSession("ComWithdrawA", new byte[]{10});
+        PlayerContext b = playerWithSession("ComWithdrawB", new byte[]{20});
         SecureTradeSnapshot trade = trades.createTrade(UUID.randomUUID(), a.playerId(), b.playerId());
         SecureTradeCommodityOfferResult offered = assets.addCommodity(
                 UUID.randomUUID(), trade.tradeId(), a.session().sessionId(), "paper-a",
