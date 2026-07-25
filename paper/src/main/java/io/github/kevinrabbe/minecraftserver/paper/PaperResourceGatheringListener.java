@@ -37,6 +37,7 @@ final class PaperResourceGatheringListener implements Listener {
     private final String backendId;
     private final PaperSessionController sessions;
     private final PaperResourceSessionResolver sessionResolver;
+    private final PaperCommodityDeliveryController commodityDeliveries;
     private final ResourceGatheringService gathering;
     private final Map<PaperResourceSourcePlacement.BlockKey, RegisteredSource> sourcesByBlock;
 
@@ -48,7 +49,8 @@ final class PaperResourceGatheringListener implements Listener {
             PaperResourceSourcePlacementCatalog placements,
             ResourceSourceRepository sourceRepository,
             ResourceGatheringService gathering,
-            PaperResourceSessionResolver sessionResolver
+            PaperResourceSessionResolver sessionResolver,
+            PaperCommodityDeliveryController commodityDeliveries
     ) throws SQLException {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         if (backendId == null || backendId.isBlank()) {
@@ -58,6 +60,7 @@ final class PaperResourceGatheringListener implements Listener {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.gathering = Objects.requireNonNull(gathering, "gathering");
         this.sessionResolver = Objects.requireNonNull(sessionResolver, "sessionResolver");
+        this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
         Objects.requireNonNull(zoneInstance, "zoneInstance");
         Objects.requireNonNull(placements, "placements");
         Objects.requireNonNull(sourceRepository, "sourceRepository");
@@ -156,10 +159,11 @@ final class PaperResourceGatheringListener implements Listener {
                     registered.sourceId(),
                     HARVEST_REASON
             );
+            commodityDeliveries.requestDrain(minecraftUuid);
             sendIfOnline(
                     minecraftUuid,
                     "Harvest secured: " + result.entitlement().commodityQuantity() + " × "
-                            + result.entitlement().commodityDefinitionId() + ". Delivery is pending."
+                            + result.entitlement().commodityDefinitionId()
             );
         } catch (ResourceSourceException exception) {
             // Expected authority rejection: cooldown, stale session/version, wrong instance, etc.
