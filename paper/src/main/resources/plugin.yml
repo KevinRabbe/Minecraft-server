@@ -31,8 +31,8 @@ commands:
     description: Create and settle exact-revision secure direct trades
     usage: /trade start <player> | view <id> | coin <id> <coins> | commodity <id> <commodity> <qty> | item <id> | confirm <id> <revision> | cancel <id>
   clan:
-    description: Manage persistent MMO clans, treasury, and shared storage
-    usage: /clan [status|create|invite|accept|leave|kick|role|transfer|treasury|storage]
+    description: Manage persistent MMO clans, roster, invitations, treasury, and shared storage
+    usage: /clan [status|members|invites|cancel-invite|create|invite|accept|leave|kick|role|transfer|treasury|storage]
   commission:
     description: Fund, browse, accept, complete, and cancel crafting commissions
     usage: /commission [browse [limit]] | view <id> | create <recipe> <payment-coins> | accept <id> | complete <id> | cancel <id>
