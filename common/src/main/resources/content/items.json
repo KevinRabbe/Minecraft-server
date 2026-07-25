@@ -1,4 +1,13 @@
 {
   "schema_version": 1,
-  "items": []
+  "items": [
+    {
+      "definition_id": "material.raw_iron",
+      "minecraft_material": "RAW_IRON",
+      "display_name": "Raw Iron",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    }
+  ]
 }
