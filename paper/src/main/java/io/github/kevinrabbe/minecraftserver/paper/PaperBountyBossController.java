@@ -28,6 +28,7 @@ import org.bukkit.scheduler.BukkitTask;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,6 +49,9 @@ final class PaperBountyBossController implements Listener {
     static final String SUMMON_ID_KEY_NAME = "bounty_summon_id";
 
     private static final long HEARTBEAT_PERIOD_TICKS = 100L;
+    private static final String PREPARE_REASON = "bounty.paper_boss_prepare";
+    private static final String CLAIM_REASON = "bounty.paper_boss_claim";
+    private static final String HEARTBEAT_REASON = "bounty.paper_boss_heartbeat";
     private static final String COMPLETE_REASON = "bounty.paper_boss_defeated";
     private static final String FAIL_REASON = "bounty.paper_boss_failed";
 
@@ -169,11 +173,17 @@ final class PaperBountyBossController implements Listener {
                 throw new BountyException("That bounty boss altar is currently occupied. Try again after the active boss resolves.");
             }
 
-            var prepared = bounties.prepareSummon(UUID.randomUUID(), contractId, playerId);
+            var prepared = bounties.prepareSummon(
+                    UUID.randomUUID(),
+                    contractId,
+                    playerId,
+                    PREPARE_REASON
+            );
             BountySummonLeaseResult claimed = bounties.claimSummon(
                     UUID.randomUUID(),
                     prepared.summon().summonId(),
-                    backendId
+                    backendId,
+                    CLAIM_REASON
             );
             UUID summonId = claimed.summon().summonId();
             busyBossDefinitions.replace(bossDefinitionId, contractId, summonId);
@@ -365,7 +375,8 @@ final class PaperBountyBossController implements Listener {
                         UUID.randomUUID(),
                         live.summonId(),
                         backendId,
-                        current.stateVersion()
+                        current.stateVersion(),
+                        HEARTBEAT_REASON
                 );
                 liveBySummon.computeIfPresent(live.summonId(), (ignored, existing) ->
                         existing.entityUuid().equals(live.entityUuid())
