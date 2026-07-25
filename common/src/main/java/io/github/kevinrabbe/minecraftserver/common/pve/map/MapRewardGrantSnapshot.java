@@ -48,4 +48,36 @@ public record MapRewardGrantSnapshot(
             throw new IllegalArgumentException("FULFILLED grant requires fulfillment evidence");
         }
     }
+
+    /** Transitional reader overload for pre-fulfillment queries that cannot contain fulfillment evidence. */
+    public MapRewardGrantSnapshot(
+            UUID grantId,
+            UUID runId,
+            UUID playerId,
+            int ordinal,
+            MapRewardKind kind,
+            String definitionId,
+            long quantity,
+            MapRunDefinition successorMapDefinition,
+            MapRewardGrantStatus status,
+            UUID fulfillmentOperationId,
+            Instant createdAt,
+            Instant fulfilledAt
+    ) {
+        this(
+                grantId,
+                runId,
+                playerId,
+                ordinal,
+                kind,
+                definitionId,
+                quantity,
+                successorMapDefinition,
+                status,
+                fulfillmentOperationId,
+                null,
+                createdAt,
+                fulfilledAt
+        );
+    }
 }
