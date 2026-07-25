@@ -1,6 +1,6 @@
 # Hidden Artifacts and Attunement
 
-Status: **Canonical V1 content-category contract.** This extends the already-planned artifact collection; it does not create a new item/equipment/resource category.
+Status: **Canonical V1 content-category contract with implemented persistence authority and first Paper interaction bridge.** This extends the already-planned artifact collection; it does not create a new item/equipment/resource category.
 
 ## Purpose
 
@@ -106,17 +106,44 @@ Hints, environmental language and community knowledge are acceptable, but the in
 
 The initial set stays deliberately small. Expansion adds a few high-quality discoveries rather than filling every new area with collectibles.
 
+## Implemented authority and Paper baseline
+
+The V1 persistence authority now implements:
+
+- stable opaque artifact definitions;
+- append-only location revisions so relocation preserves identity/history;
+- permanent `(player_id, artifact_id)` discovery evidence;
+- retry/concurrency-safe one-time discovery;
+- point awards frozen into each discovery under a versioned point policy;
+- Attunement Point totals derived from immutable discoveries rather than maintained as another mutable balance;
+- one persistent active attunement profile per player.
+
+The first Paper bridge additionally implements:
+
+- a strict version-controlled Artifact bootstrap file containing stable IDs and immutable creation-operation IDs;
+- initial coordinates used only when the Artifact does not yet exist;
+- PostgreSQL's current location revision winning on later restarts, so relocation is not reverted by stale content files;
+- exact-block interaction requesting discovery while PostgreSQL remains the authority;
+- break/explosion protection for the representation;
+- a minimal `/attune [profile]` player surface.
+
+The first content row is deliberately only a structural proof. More starter Artifacts are content expansion, not new mechanics.
+
+The only initial profile mapping currently locked into content is **Arcane -> Intelligence**. Other profile names/stat mappings are not invented ahead of design decisions.
+
+The exact Attunement-Point-to-stat conversion is **not yet locked or applied by the Paper stat pipeline**. `/attune` therefore persists the real profile choice and reports the real shared point pool without pretending a balance conversion has already been settled.
+
 ## Persistent records
 
-The eventual authority layer should minimally persist:
+The implemented authority persists:
 
-- stable artifact definitions/content version;
+- stable artifact definitions and point-policy version;
+- append-only artifact location revisions;
 - `player_id + artifact_id` discovery evidence;
-- discovery timestamp/world-era context;
-- current active attunement profile;
-- derived available/active point totals.
+- discovery timestamp and optional world-era context;
+- current active attunement profile.
 
-Point totals should be derived from discovery/config where practical rather than independently mutable counters.
+Available points are derived from discovery evidence. They are not an independently mutable counter.
 
 ## Acceptance proof
 
