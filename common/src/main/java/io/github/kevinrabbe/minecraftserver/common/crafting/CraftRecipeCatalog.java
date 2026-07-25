@@ -6,6 +6,7 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -37,6 +38,15 @@ public final class CraftRecipeCatalog {
             throw new CraftingException("Unknown craft recipe version: " + recipeId + "/" + version);
         }
         return recipe;
+    }
+
+    public List<CraftRecipeVersion> all() {
+        return recipes.values().stream()
+                .sorted((left, right) -> {
+                    int byId = left.recipe().recipeId().compareTo(right.recipe().recipeId());
+                    return byId != 0 ? byId : Integer.compare(left.version(), right.version());
+                })
+                .toList();
     }
 
     private static void validateRecipe(CraftRecipeVersion version, ItemCatalog itemCatalog) {
