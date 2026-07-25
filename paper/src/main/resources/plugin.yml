@@ -27,6 +27,9 @@ commands:
   trade:
     description: Create and settle exact-revision secure direct trades
     usage: /trade start <player> | view <id> | coin <id> <coins> | commodity <id> <commodity> <qty> | item <id> | confirm <id> <revision> | cancel <id>
+  clan:
+    description: Manage persistent MMO clans, treasury, and shared storage
+    usage: /clan [status|create|invite|accept|leave|kick|role|transfer|treasury|storage]
   salvage:
     description: Preview or confirm irreversible salvage of the unique item in your main hand
     usage: /salvage [confirm]
