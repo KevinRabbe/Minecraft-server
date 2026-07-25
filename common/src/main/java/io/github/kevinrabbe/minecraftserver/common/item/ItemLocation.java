@@ -33,6 +33,10 @@ public record ItemLocation(ItemLocationKind kind, UUID locationId) {
         );
     }
 
+    public static ItemLocation tradeEscrow(UUID tradeId) {
+        return new ItemLocation(ItemLocationKind.TRADE_ESCROW, Objects.requireNonNull(tradeId, "tradeId"));
+    }
+
     public static ItemLocation clanStorage(UUID clanId) {
         return new ItemLocation(ItemLocationKind.CLAN_STORAGE, Objects.requireNonNull(clanId, "clanId"));
     }
@@ -51,7 +55,7 @@ public record ItemLocation(ItemLocationKind kind, UUID locationId) {
 
     private static boolean requiresLocationId(ItemLocationKind kind) {
         return switch (kind) {
-            case PLAYER_INVENTORY, PENDING_DELIVERY, AUCTION_ESCROW, CLAN_STORAGE, WAR_CUSTODY -> true;
+            case PLAYER_INVENTORY, PENDING_DELIVERY, AUCTION_ESCROW, TRADE_ESCROW, CLAN_STORAGE, WAR_CUSTODY -> true;
             case QUARANTINE, DESTROYED -> false;
         };
     }
