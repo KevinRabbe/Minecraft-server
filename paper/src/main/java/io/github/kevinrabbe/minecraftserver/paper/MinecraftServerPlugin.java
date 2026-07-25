@@ -42,11 +42,13 @@ import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionRepository;
+import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyBossMaterializationRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalog;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyKillProgressRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
+import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGatheringService;
@@ -82,6 +84,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private static final String CRAFTING_CATALOG_RESOURCE = "/content/crafting.json";
     private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String BOUNTY_CONTENT_RESOURCE = "/content/bounties.json";
+    private static final String BOUNTY_BOSS_PLACEMENT_CATALOG_RESOURCE = "/content/bounty-boss-placements.json";
     private static final String RESOURCE_PLACEMENT_CATALOG_RESOURCE = "/content/resource-source-placements.json";
     private static final String RESOURCE_ENTITY_PLACEMENT_CATALOG_RESOURCE = "/content/resource-entity-placements.json";
     private static final String ATTUNEMENT_PROFILE_CATALOG_RESOURCE = "/content/attunement-profiles.json";
@@ -102,6 +105,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private PaperResourceGatheringListener resourceGatheringListener;
     private PaperResourceEntityController resourceEntityController;
     private PaperBountyProgressService bountyProgressService;
+    private PaperBountyBossController bountyBossController;
     private PaperArtifactDiscoveryListener artifactDiscoveryListener;
     private BukkitTask heartbeatTask;
     private BukkitTask checkpointTask;
@@ -149,6 +153,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     BOUNTY_CONTENT_RESOURCE,
                     itemCatalog,
                     resourceSourceCatalog
+            );
+            PaperBountyBossPlacementCatalog bountyBossPlacements = PaperBountyBossPlacementCatalog.loadResource(
+                    BOUNTY_BOSS_PLACEMENT_CATALOG_RESOURCE,
+                    bountyContent
             );
             AttunementProfileCatalog attunementProfiles = new AttunementProfileCatalogLoader().loadResource(
                     ATTUNEMENT_PROFILE_CATALOG_RESOURCE
@@ -427,8 +435,20 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                         bountyContent,
                         new BountyKillProgressRepository(database.dataSource())
                 );
+                bountyBossController = new PaperBountyBossController(
+                        this,
+                        backendId,
+                        bootstrapZoneInstance,
+                        playerIdentities,
+                        bountyContent,
+                        bountyBossPlacements,
+                        bountyRepository,
+                        new BountyBossMaterializationRepository(database.dataSource(), bountyContent.tiers()),
+                        new BountySummonRecoveryRepository(database.dataSource())
+                );
             }
         } catch (RuntimeException | SQLException exception) {
+            stopBountyBossController();
             stopBountyProgressService();
             stopResourceEntityController();
             stopBootstrapZoneQuietly();
@@ -463,6 +483,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         }
         if (bountyProgressService != null) {
             bountyProgressService.start();
+        }
+        if (bountyBossController != null) {
+            getServer().getPluginManager().registerEvents(bountyBossController, this);
+            bountyBossController.start();
         }
         getServer().getMessenger().registerOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
 
@@ -563,6 +587,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             heartbeatTask = null;
         }
 
+        stopBountyBossController();
         stopBountyProgressService();
         stopResourceEntityController();
 
@@ -610,6 +635,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         return itemCatalog;
     }
 
+    Optional<PaperBountyBossController> bountyBossController() {
+        return Optional.ofNullable(bountyBossController);
+    }
+
     private void sendHeartbeat() {
         int playerCount = onlinePlayers.get();
         try {
@@ -625,6 +654,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperSessionController controller = sessionController;
         if (controller != null) {
             controller.heartbeat();
+        }
+    }
+
+    private void stopBountyBossController() {
+        if (bountyBossController != null) {
+            bountyBossController.stop();
+            bountyBossController = null;
         }
     }
 
