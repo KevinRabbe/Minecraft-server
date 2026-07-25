@@ -22,6 +22,12 @@ import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.SalvageCatalog;
 import io.github.kevinrabbe.minecraftserver.common.economy.SalvageCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.economy.SalvageRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeAssetRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeConfirmationRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeQueryRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeResolutionRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeWithdrawalRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
@@ -94,6 +100,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperBankCommand bankCommand;
         PaperBazaarCommand bazaarCommand;
         PaperAuctionHouseCommand auctionHouseCommand;
+        PaperTradeCommand tradeCommand;
         PaperSalvageCommand salvageCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
@@ -205,6 +212,28 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     itemCatalog
             );
             PaperUniqueItemStateRemovalMutator uniqueItemRemoval = new PaperUniqueItemStateRemovalMutator(this);
+            SecureTradeRepository secureTrades = new SecureTradeRepository(database.dataSource());
+            tradeCommand = new PaperTradeCommand(
+                    this,
+                    sessionController,
+                    playerIdentities,
+                    commodityDeliveryController,
+                    uniqueDeliveryController,
+                    secureTrades,
+                    new SecureTradeAssetRepository(
+                            database.dataSource(),
+                            itemCatalog,
+                            commodityMutator,
+                            uniqueItemRemoval
+                    ),
+                    new SecureTradeWithdrawalRepository(database.dataSource()),
+                    new SecureTradeConfirmationRepository(database.dataSource()),
+                    new SecureTradeResolutionRepository(database.dataSource()),
+                    new SecureTradeQueryRepository(database.dataSource()),
+                    itemCatalog,
+                    commodityMutator,
+                    uniqueItemRemoval
+            );
             salvageCommand = new PaperSalvageCommand(
                     this,
                     sessionController,
@@ -359,6 +388,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand auctionHouse = Objects.requireNonNull(getCommand("ah"), "ah command missing from plugin.yml");
         auctionHouse.setExecutor(auctionHouseCommand);
         auctionHouse.setTabCompleter(auctionHouseCommand);
+        PluginCommand trade = Objects.requireNonNull(getCommand("trade"), "trade command missing from plugin.yml");
+        trade.setExecutor(tradeCommand);
+        trade.setTabCompleter(tradeCommand);
         PluginCommand salvage = Objects.requireNonNull(getCommand("salvage"), "salvage command missing from plugin.yml");
         salvage.setExecutor(salvageCommand);
         salvage.setTabCompleter(salvageCommand);
