@@ -24,12 +24,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 
-/** Player-facing contract/pouch surface; physical boss materialization remains a separate encounter boundary. */
+/** Player-facing bounty contract, boss-summon, and family-pouch surface. */
 final class PaperBountyCommand implements CommandExecutor, TabCompleter {
     private static final String START_REASON = "bounty.player_contract_start";
     private static final String POUCH_WITHDRAW_REASON = "bounty.player_pouch_withdraw";
@@ -83,6 +82,9 @@ final class PaperBountyCommand implements CommandExecutor, TabCompleter {
                 case "status" -> {
                     if (args.length != 2) usage(player); else scheduleStatus(player.getUniqueId(), parseUuid(args[1]));
                 }
+                case "summon" -> {
+                    if (args.length != 2) usage(player); else scheduleSummon(player.getUniqueId(), parseUuid(args[1]));
+                }
                 case "pouch" -> {
                     if (args.length != 2) usage(player); else schedulePouch(player.getUniqueId(), new BountyFamilyId(args[1]));
                 }
@@ -110,7 +112,7 @@ final class PaperBountyCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
-            return List.of("tiers", "start", "status", "pouch", "withdraw").stream()
+            return List.of("tiers", "start", "status", "summon", "pouch", "withdraw").stream()
                     .filter(value -> value.startsWith(prefix))
                     .toList();
         }
@@ -189,7 +191,8 @@ final class PaperBountyCommand implements CommandExecutor, TabCompleter {
                     throw new BountyException("That bounty contract belongs to another player.");
                 }
                 String suffix = contract.status() == BountyContractStatus.SUMMON_READY
-                        ? " Boss summon authorization is ready; physical boss materialization is not exposed yet."
+                        ? " Boss summon authorization is ready; use /bounty summon " + contract.contractId()
+                                + " on its authored boss backend."
                         : "";
                 sendIfOnline(
                         minecraftUuid,
@@ -200,6 +203,20 @@ final class PaperBountyCommand implements CommandExecutor, TabCompleter {
                 );
             } catch (SQLException | RuntimeException exception) {
                 handleFailure(minecraftUuid, "Could not load bounty contract.", exception);
+            }
+        });
+    }
+
+    private void scheduleSummon(UUID minecraftUuid, UUID contractId) {
+        runAsync(() -> {
+            try {
+                UUID playerId = requirePlayerId(minecraftUuid);
+                PaperBountyBossController controller = plugin.bountyBossController().orElseThrow(
+                        () -> new BountyException("Bounty boss summoning is not available on this backend.")
+                );
+                controller.requestSummon(minecraftUuid, playerId, contractId);
+            } catch (SQLException | RuntimeException exception) {
+                handleFailure(minecraftUuid, "Could not request bounty boss summon.", exception);
             }
         });
     }
@@ -298,10 +315,10 @@ final class PaperBountyCommand implements CommandExecutor, TabCompleter {
 
     private void usage(Player player) {
         player.sendMessage(Component.text(
-                "Bounty: /bounty tiers | start <family> <tier> | status <contract-id> | pouch <family>"
+                "Bounty: /bounty tiers | start <family> <tier> | status <contract-id> | summon <contract-id>"
         ));
         player.sendMessage(Component.text(
-                "        /bounty withdraw <family> <commodity> <quantity>"
+                "        /bounty pouch <family> | withdraw <family> <commodity> <quantity>"
         ));
     }
 
