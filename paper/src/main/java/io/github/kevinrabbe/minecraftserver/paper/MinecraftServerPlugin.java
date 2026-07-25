@@ -5,6 +5,11 @@ import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCat
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementRepository;
 import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
+import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalog;
+import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingExperienceFulfillmentRepository;
+import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingRepository;
+import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingStateExecutionService;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
@@ -37,6 +42,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private static final long CHECKPOINT_PERIOD_TICKS = 100L;
     private static final String ITEM_CATALOG_RESOURCE = "/content/items.json";
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
+    private static final String CRAFTING_CATALOG_RESOURCE = "/content/crafting.json";
     private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String RESOURCE_PLACEMENT_CATALOG_RESOURCE = "/content/resource-source-placements.json";
     private static final String RESOURCE_ENTITY_PLACEMENT_CATALOG_RESOURCE = "/content/resource-entity-placements.json";
@@ -66,10 +72,17 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         backendId = requireBackendId();
 
         PaperAttunementCommand attunementCommand;
+        PaperUniqueDeliveryController uniqueDeliveryController;
+        PaperCraftingController craftingController;
         try {
             itemCatalog = new ItemCatalogLoader().loadResource(ITEM_CATALOG_RESOURCE);
             PaperItemCatalogValidator.validate(itemCatalog);
             skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
+            CraftingContentCatalog craftingContent = new CraftingContentCatalogLoader().loadResource(
+                    CRAFTING_CATALOG_RESOURCE,
+                    itemCatalog,
+                    skillCatalog
+            );
             resourceSourceCatalog = new ResourceSourceCatalogLoader().loadResource(
                     RESOURCE_SOURCE_CATALOG_RESOURCE,
                     itemCatalog,
@@ -114,6 +127,36 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     database.dataSource(),
                     sessionController,
                     commodityMutator
+            );
+            uniqueDeliveryController = new PaperUniqueDeliveryController(
+                    this,
+                    database.dataSource(),
+                    sessionController,
+                    playerIdentities,
+                    itemCatalog
+            );
+
+            PaperCommodityBatchStateMutator craftingIngredients = new PaperCommodityBatchStateMutator(commodityMutator);
+            CraftingRepository craftingRepository = new CraftingRepository(
+                    database.dataSource(),
+                    itemCatalog,
+                    craftingContent.recipes(),
+                    skillCatalog,
+                    craftingIngredients
+            );
+            craftingController = new PaperCraftingController(
+                    this,
+                    sessionController,
+                    new CraftingStateExecutionService(craftingRepository),
+                    new CraftingExperienceFulfillmentRepository(
+                            database.dataSource(),
+                            craftingContent.experience(),
+                            skillCatalog
+                    ),
+                    craftingContent.recipes(),
+                    craftingIngredients,
+                    commodityDeliveryController,
+                    uniqueDeliveryController
             );
 
             ArtifactRepository artifactRepository = new ArtifactRepository(database.dataSource());
@@ -206,6 +249,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(sessionController, this);
         getServer().getPluginManager().registerEvents(commodityDeliveryController, this);
+        getServer().getPluginManager().registerEvents(uniqueDeliveryController, this);
         getServer().getPluginManager().registerEvents(artifactDiscoveryListener, this);
         getServer().getPluginManager().registerEvents(
                 new PaperItemRepresentationGate(this, itemRepresentationValidator),
@@ -226,6 +270,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand attune = Objects.requireNonNull(getCommand("attune"), "attune command missing from plugin.yml");
         attune.setExecutor(attunementCommand);
         attune.setTabCompleter(attunementCommand);
+        PluginCommand craft = Objects.requireNonNull(getCommand("craft"), "craft command missing from plugin.yml");
+        craft.setExecutor(craftingController);
+        craft.setTabCompleter(craftingController);
+        craftingController.recoverPendingExperience();
 
         heartbeatTask = getServer().getScheduler().runTaskTimerAsynchronously(
                 this,
