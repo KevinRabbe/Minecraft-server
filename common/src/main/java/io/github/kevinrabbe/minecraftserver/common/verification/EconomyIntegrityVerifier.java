@@ -31,6 +31,8 @@ public final class EconomyIntegrityVerifier {
             verifyPendingUniqueCustody(connection, issues, maxIssues);
             verifyAuctionCustody(connection, issues, maxIssues);
             verifyTradeCustody(connection, issues, maxIssues);
+            verifyClanCommodityCustody(connection, issues, maxIssues);
+            verifyClanUniqueCustody(connection, issues, maxIssues);
             verifySalvageEvidence(connection, issues, maxIssues);
             return List.copyOf(issues);
         }
@@ -200,6 +202,109 @@ public final class EconomyIntegrityVerifier {
                             "TRADE_CUSTODY_MISMATCH",
                             tradeId + ":" + itemId,
                             "Open/locked secure-trade item does not match unique-item escrow authority"
+                    ));
+                }
+            }
+        }
+    }
+
+    private static void verifyClanCommodityCustody(
+            Connection connection,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        int remaining = remaining(issues, maxIssues);
+        if (remaining == 0) return;
+        try (PreparedStatement statement = connection.prepareStatement("""
+                WITH clan_ledger AS (
+                    SELECT related_entity_id AS clan_id_text,
+                           asset_id AS commodity_definition_id,
+                           COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount ELSE -amount END), 0) AS ledger_net
+                    FROM economic_ledger
+                    WHERE player_id IS NULL
+                      AND asset_type = 'COMMODITY'
+                      AND related_entity_id IN (SELECT clan_id::text FROM clans)
+                    GROUP BY related_entity_id, asset_id
+                )
+                SELECT COALESCE(b.clan_id::text, l.clan_id_text) AS clan_id_text,
+                       COALESCE(b.commodity_definition_id, l.commodity_definition_id) AS commodity_definition_id,
+                       COALESCE(b.quantity, 0) AS stored_quantity,
+                       COALESCE(l.ledger_net, 0) AS ledger_net
+                FROM clan_commodity_balances b
+                FULL OUTER JOIN clan_ledger l
+                  ON l.clan_id_text = b.clan_id::text
+                 AND l.commodity_definition_id = b.commodity_definition_id
+                WHERE COALESCE(b.quantity, 0) <> COALESCE(l.ledger_net, 0)
+                ORDER BY 1, 2
+                LIMIT ?
+                """)) {
+            statement.setInt(1, remaining);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    String clanId = rows.getString("clan_id_text");
+                    String commodity = rows.getString("commodity_definition_id");
+                    long stored = rows.getLong("stored_quantity");
+                    long ledger = rows.getLong("ledger_net");
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "CLAN_COMMODITY_LEDGER_MISMATCH",
+                            clanId + ":" + commodity,
+                            "Clan commodity quantity " + stored + " does not match clan ledger net " + ledger
+                    ));
+                }
+            }
+        }
+    }
+
+    private static void verifyClanUniqueCustody(
+            Connection connection,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        int remaining = remaining(issues, maxIssues);
+        if (remaining == 0) return;
+        try (PreparedStatement statement = connection.prepareStatement("""
+                WITH clan_ledger AS (
+                    SELECT related_entity_id AS clan_id_text,
+                           asset_id AS item_id_text,
+                           COALESCE(SUM(CASE direction WHEN 'CREDIT' THEN amount ELSE -amount END), 0) AS ledger_net
+                    FROM economic_ledger
+                    WHERE player_id IS NULL
+                      AND asset_type = 'ITEM_INSTANCE'
+                      AND related_entity_id IN (SELECT clan_id::text FROM clans)
+                    GROUP BY related_entity_id, asset_id
+                ),
+                holdings AS (
+                    SELECT location_id::text AS clan_id_text,
+                           item_instance_id::text AS item_id_text,
+                           1::bigint AS held
+                    FROM item_instances
+                    WHERE location_kind = 'CLAN_STORAGE'
+                )
+                SELECT COALESCE(h.clan_id_text, l.clan_id_text) AS clan_id_text,
+                       COALESCE(h.item_id_text, l.item_id_text) AS item_id_text,
+                       COALESCE(h.held, 0) AS held,
+                       COALESCE(l.ledger_net, 0) AS ledger_net
+                FROM holdings h
+                FULL OUTER JOIN clan_ledger l
+                  ON l.clan_id_text = h.clan_id_text
+                 AND l.item_id_text = h.item_id_text
+                WHERE COALESCE(h.held, 0) <> COALESCE(l.ledger_net, 0)
+                ORDER BY 1, 2
+                LIMIT ?
+                """)) {
+            statement.setInt(1, remaining);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    String clanId = rows.getString("clan_id_text");
+                    String itemId = rows.getString("item_id_text");
+                    long held = rows.getLong("held");
+                    long ledger = rows.getLong("ledger_net");
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "CLAN_UNIQUE_CUSTODY_LEDGER_MISMATCH",
+                            clanId + ":" + itemId,
+                            "Clan unique-item custody " + held + " does not match clan ledger net " + ledger
                     ));
                 }
             }
