@@ -144,7 +144,7 @@ class CraftingCommissionRepositoryIntegrationTest {
 
     @Test
     void createEscrowsOnlyCanonicalRecipeMaterialsAndPaymentExactlyOnce() throws Exception {
-        PlayerContext requester = fundedPlayerWithSession("CommissionRequester", 10_000, new byte[]{9, 4});
+        PlayerContext requester = fundedPlayerWithSession("CommRequester", 10_000, new byte[]{9, 4});
         AtomicInteger validations = new AtomicInteger();
         CraftingCommissionRepository commissions = repository((playerId, materials, current, next) -> {
             validations.incrementAndGet();
@@ -189,7 +189,7 @@ class CraftingCommissionRepositoryIntegrationTest {
 
     @Test
     void validatorFailureRollsBackAllCommissionEscrow() throws Exception {
-        PlayerContext requester = fundedPlayerWithSession("CommissionRollback", 10_000, new byte[]{9});
+        PlayerContext requester = fundedPlayerWithSession("CommRollback", 10_000, new byte[]{9});
         CraftingCommissionRepository commissions = repository((playerId, materials, current, next) -> {
             throw new CraftingCommissionException("invalid inventory transition");
         });
