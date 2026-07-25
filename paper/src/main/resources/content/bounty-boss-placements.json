@@ -4,7 +4,7 @@
     {
       "boss_definition_id": "boss.zombie.t1",
       "zone_id": "starter_pve",
-      "template_version": "starter-pve-v1",
+      "template_version": "v1",
       "world_name": "world",
       "x": 32.5,
       "y": 64.0,
