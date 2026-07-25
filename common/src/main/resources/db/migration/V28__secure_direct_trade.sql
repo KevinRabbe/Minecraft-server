@@ -98,10 +98,6 @@ CREATE TABLE secure_trade_deliveries (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (trade_id, delivery_id),
     CONSTRAINT secure_trade_deliveries_kind_check CHECK (delivery_kind IN ('UNIQUE_ITEM', 'COMMODITY')),
-    CONSTRAINT secure_trade_deliveries_players_shape CHECK (
-        source_owner_player_id <> recipient_player_id
-        OR EXISTS (SELECT 1)
-    ),
     CONSTRAINT secure_trade_deliveries_asset_shape CHECK (
         (
             delivery_kind = 'UNIQUE_ITEM'
