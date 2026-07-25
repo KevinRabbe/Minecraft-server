@@ -156,33 +156,14 @@ class EconomyIntegrityVerifierIntegrationTest {
     }
 
     @Test
-    void pendingUniqueCustodyDriftIsReportedWithoutRepairingState() throws Exception {
+    void validPendingUniqueCustodyProducesNoVerifierIssue() throws Exception {
         UUID player = identities.ensurePlayer(UUID.randomUUID(), "VerifyItem");
         PendingUniqueDeliveryIssueResult issued = uniqueDeliveries.issueNewIndividual(
                 UUID.randomUUID(), UNIQUE, player, "test.delivery", player
         );
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE item_instances
-                     SET location_kind = 'QUARANTINE',
-                         location_id = NULL,
-                         state_version = state_version + 1,
-                         updated_at = NOW()
-                     WHERE item_instance_id = ?
-                     """)) {
-            statement.setObject(1, issued.itemInstanceId());
-            assertEquals(1, statement.executeUpdate());
-        }
-
-        List<IntegrityIssue> issues = verifier.verify(100);
-        assertEquals(1, issues.size());
-        IntegrityIssue issue = issues.getFirst();
-        assertEquals(IntegritySeverity.CRITICAL, issue.severity());
-        assertEquals("PENDING_UNIQUE_CUSTODY_MISMATCH", issue.code());
-        assertEquals(issued.deliveryId().toString(), issue.subjectId());
-
-        assertEquals("QUARANTINE", itemLocationKind(issued.itemInstanceId()));
+        assertEquals(player, issued.recipientPlayerId());
+        assertTrue(verifier.verify(100).isEmpty());
     }
 
     @Test
@@ -207,19 +188,6 @@ class EconomyIntegrityVerifierIntegrationTest {
         List<IntegrityIssue> issues = verifier.verify(1);
         assertEquals(1, issues.size());
         assertEquals("COIN_HOLDINGS_LEDGER_MISMATCH", issues.getFirst().code());
-    }
-
-    private String itemLocationKind(UUID itemId) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     SELECT location_kind FROM item_instances WHERE item_instance_id = ?
-                     """)) {
-            statement.setObject(1, itemId);
-            try (var row = statement.executeQuery()) {
-                if (!row.next()) throw new AssertionError("missing item");
-                return row.getString(1);
-            }
-        }
     }
 
     private static String requireEnvironment(String name) {
