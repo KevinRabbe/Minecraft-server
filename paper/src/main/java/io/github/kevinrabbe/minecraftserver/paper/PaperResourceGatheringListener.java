@@ -4,7 +4,9 @@ import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGather
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceHarvestFulfillmentResult;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceException;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceRepository;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceSnapshot;
 import net.kyori.adventure.text.Component;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -15,6 +17,8 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.sql.SQLException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -27,8 +31,8 @@ import java.util.logging.Level;
  * Paper representation bridge for authored renewable block sources.
  *
  * <p>Only exact version-controlled placements are intercepted. The physical block is never the economic authority:
- * PostgreSQL consumes the source cycle and creates the recoverable reward entitlement. The block remains rendered in
- * place while the authoritative cooldown prevents repeated rewards.</p>
+ * PostgreSQL consumes the source cycle and creates the recoverable reward entitlement. Visible block/AIR state is
+ * derived from the authoritative cooldown and is reconstructed after restart.</p>
  */
 final class PaperResourceGatheringListener implements Listener {
     private static final String HARVEST_REASON = "resource.harvest";
@@ -38,6 +42,7 @@ final class PaperResourceGatheringListener implements Listener {
     private final PaperSessionController sessions;
     private final PaperResourceSessionResolver sessionResolver;
     private final PaperCommodityDeliveryController commodityDeliveries;
+    private final ResourceSourceRepository sourceRepository;
     private final ResourceGatheringService gathering;
     private final Map<PaperResourceSourcePlacement.BlockKey, RegisteredSource> sourcesByBlock;
 
@@ -58,12 +63,12 @@ final class PaperResourceGatheringListener implements Listener {
         }
         this.backendId = backendId.trim();
         this.sessions = Objects.requireNonNull(sessions, "sessions");
+        this.sourceRepository = Objects.requireNonNull(sourceRepository, "sourceRepository");
         this.gathering = Objects.requireNonNull(gathering, "gathering");
         this.sessionResolver = Objects.requireNonNull(sessionResolver, "sessionResolver");
         this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
         Objects.requireNonNull(zoneInstance, "zoneInstance");
         Objects.requireNonNull(placements, "placements");
-        Objects.requireNonNull(sourceRepository, "sourceRepository");
 
         HashMap<PaperResourceSourcePlacement.BlockKey, RegisteredSource> registered = new HashMap<>();
         for (PaperResourceSourcePlacement placement : placements.forZone(
@@ -75,20 +80,14 @@ final class PaperResourceGatheringListener implements Listener {
                         "Configured resource source world is not loaded: " + placement.worldName()
                 );
             }
-            Block block = world.getBlockAt(placement.blockX(), placement.blockY(), placement.blockZ());
-            if (block.getType() != placement.expectedBlock()) {
-                throw new IllegalStateException(
-                        "Resource source " + placement.sourceKey() + " expects " + placement.expectedBlock()
-                                + " at " + placement.blockKey() + " but found " + block.getType()
-                );
-            }
 
-            UUID sourceId = sourceRepository.ensureSource(
+            ResourceSourceSnapshot source = sourceRepository.ensureSource(
                     zoneInstance.instanceId(), placement.sourceKey(), placement.definitionId()
-            ).sourceId();
-            RegisteredSource previous = registered.put(
-                    placement.blockKey(), new RegisteredSource(placement, sourceId)
             );
+            RegisteredSource registeredSource = new RegisteredSource(placement, source.sourceId());
+            reconcileVisualOnMainThread(registeredSource, source);
+
+            RegisteredSource previous = registered.put(placement.blockKey(), registeredSource);
             if (previous != null) {
                 throw new IllegalStateException("Duplicate registered resource block: " + placement.blockKey());
             }
@@ -124,6 +123,7 @@ final class PaperResourceGatheringListener implements Listener {
                             + registered.placement().expectedBlock() + " but found " + block.getType()
             );
             player.sendMessage(Component.text("This resource source is temporarily unavailable."));
+            refreshVisual(registered);
             return;
         }
         if (sessions.isMutationFrozen(player.getUniqueId())) {
@@ -159,6 +159,8 @@ final class PaperResourceGatheringListener implements Listener {
                     registered.sourceId(),
                     HARVEST_REASON
             );
+            ResourceSourceSnapshot source = sourceRepository.loadSource(registered.sourceId());
+            runOnMainThread(() -> reconcileVisualOnMainThread(registered, source));
             commodityDeliveries.requestDrain(minecraftUuid);
             sendIfOnline(
                     minecraftUuid,
@@ -167,6 +169,7 @@ final class PaperResourceGatheringListener implements Listener {
             );
         } catch (ResourceSourceException exception) {
             // Expected authority rejection: cooldown, stale session/version, wrong instance, etc.
+            refreshVisual(registered);
             sendIfOnline(minecraftUuid, "That resource is not available yet.");
         } catch (SQLException exception) {
             plugin.getLogger().log(Level.WARNING, "Resource harvest persistence failed", exception);
@@ -177,16 +180,77 @@ final class PaperResourceGatheringListener implements Listener {
         }
     }
 
-    private void sendIfOnline(UUID minecraftUuid, String message) {
+    private void refreshVisual(RegisteredSource registered) {
         if (!plugin.isEnabled()) {
             return;
         }
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                try {
+                    ResourceSourceSnapshot source = sourceRepository.loadSource(registered.sourceId());
+                    runOnMainThread(() -> reconcileVisualOnMainThread(registered, source));
+                } catch (SQLException | RuntimeException exception) {
+                    plugin.getLogger().log(Level.WARNING, "Could not reconcile resource source visual", exception);
+                }
+            });
+        } catch (RejectedExecutionException | IllegalStateException exception) {
+            plugin.getLogger().log(Level.WARNING, "Could not schedule resource visual reconciliation", exception);
+        }
+    }
+
+    private void reconcileVisualOnMainThread(RegisteredSource registered, ResourceSourceSnapshot source) {
+        PaperResourceSourcePlacement placement = registered.placement();
+        World world = plugin.getServer().getWorld(placement.worldName());
+        if (world == null) {
+            plugin.getLogger().warning("Resource source world unloaded during visual reconciliation: " + placement.worldName());
+            return;
+        }
+        Block block = world.getBlockAt(placement.blockX(), placement.blockY(), placement.blockZ());
+        boolean available = !source.nextAvailableAt().isAfter(Instant.now());
+        Material expected = placement.expectedBlock();
+
+        if (available) {
+            if (block.getType() != Material.AIR && block.getType() != expected) {
+                throw new IllegalStateException(
+                        "Resource source " + placement.sourceKey() + " has unexpected block " + block.getType()
+                                + " at " + placement.blockKey()
+                );
+            }
+            if (block.getType() != expected) {
+                block.setType(expected, false);
+            }
+            return;
+        }
+
+        if (block.getType() != Material.AIR && block.getType() != expected) {
+            throw new IllegalStateException(
+                    "Cooling resource source " + placement.sourceKey() + " has unexpected block " + block.getType()
+                            + " at " + placement.blockKey()
+            );
+        }
+        if (block.getType() != Material.AIR) {
+            block.setType(Material.AIR, false);
+        }
+
+        long delayMillis = Math.max(1L, Duration.between(Instant.now(), source.nextAvailableAt()).toMillis());
+        long delayTicks = Math.max(1L, (delayMillis + 49L) / 50L);
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> refreshVisual(registered), delayTicks);
+    }
+
+    private void sendIfOnline(UUID minecraftUuid, String message) {
+        runOnMainThread(() -> {
             Player player = plugin.getServer().getPlayer(minecraftUuid);
             if (player != null && player.isOnline()) {
                 player.sendMessage(Component.text(message));
             }
         });
+    }
+
+    private void runOnMainThread(Runnable task) {
+        if (!plugin.isEnabled()) {
+            return;
+        }
+        plugin.getServer().getScheduler().runTask(plugin, task);
     }
 
     private record RegisteredSource(PaperResourceSourcePlacement placement, UUID sourceId) {
