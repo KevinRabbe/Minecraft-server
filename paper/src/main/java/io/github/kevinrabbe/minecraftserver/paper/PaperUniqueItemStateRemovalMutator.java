@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.economy.UniqueItemEscrowValidator;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
 import io.github.kevinrabbe.minecraftserver.common.item.UniqueItemStateRemovalValidator;
 import org.bukkit.inventory.ItemStack;
@@ -10,7 +11,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /** Deterministic exact unique-item removal used both to build and verify sensitive serialized-state mutations. */
-final class PaperUniqueItemStateRemovalMutator implements UniqueItemStateRemovalValidator {
+final class PaperUniqueItemStateRemovalMutator implements UniqueItemStateRemovalValidator, UniqueItemEscrowValidator {
     private final PaperPlayerStateCodec stateCodec = new PaperPlayerStateCodec();
     private final PaperItemIdentityCodec identityCodec;
 
@@ -24,11 +25,20 @@ final class PaperUniqueItemStateRemovalMutator implements UniqueItemStateRemoval
             long expectedItemStateVersion,
             byte[] currentStatePayload
     ) {
-        Objects.requireNonNull(playerId, "playerId");
-        Objects.requireNonNull(itemInstanceId, "itemInstanceId");
         if (expectedItemStateVersion < 0) {
             throw new IllegalArgumentException("expectedItemStateVersion must be >= 0");
         }
+        return remove(playerId, itemInstanceId, Long.valueOf(expectedItemStateVersion), currentStatePayload);
+    }
+
+    private byte[] remove(
+            UUID playerId,
+            UUID itemInstanceId,
+            Long expectedItemStateVersion,
+            byte[] currentStatePayload
+    ) {
+        Objects.requireNonNull(playerId, "playerId");
+        Objects.requireNonNull(itemInstanceId, "itemInstanceId");
 
         PaperPlayerStateCodec.InventoryState current = stateCodec.decodeState(currentStatePayload);
         ItemStack[] storage = current.storage();
@@ -60,14 +70,28 @@ final class PaperUniqueItemStateRemovalMutator implements UniqueItemStateRemoval
             byte[] currentStatePayload,
             byte[] nextStatePayload
     ) {
-        Objects.requireNonNull(nextStatePayload, "nextStatePayload");
-        byte[] expected = remove(
-                playerId,
-                itemInstanceId,
-                expectedItemStateVersion,
-                currentStatePayload
+        verifyExactRemoval(
+                remove(playerId, itemInstanceId, expectedItemStateVersion, currentStatePayload),
+                nextStatePayload
         );
-        if (!Arrays.equals(expected, nextStatePayload)) {
+    }
+
+    @Override
+    public void verifyRemoval(
+            UUID playerId,
+            UUID itemInstanceId,
+            byte[] currentStatePayload,
+            byte[] nextStatePayload
+    ) {
+        verifyExactRemoval(
+                remove(playerId, itemInstanceId, null, currentStatePayload),
+                nextStatePayload
+        );
+    }
+
+    private static void verifyExactRemoval(byte[] expectedStatePayload, byte[] nextStatePayload) {
+        Objects.requireNonNull(nextStatePayload, "nextStatePayload");
+        if (!Arrays.equals(expectedStatePayload, nextStatePayload)) {
             throw new PaperItemRepresentationException(
                     "Serialized unique-item mutation changed more than the exact requested item removal"
             );
@@ -78,7 +102,7 @@ final class PaperUniqueItemStateRemovalMutator implements UniqueItemStateRemoval
             ItemStack[] contents,
             String section,
             UUID itemInstanceId,
-            long expectedItemStateVersion,
+            Long expectedItemStateVersion,
             Removal existing
     ) {
         Removal found = existing;
@@ -105,7 +129,8 @@ final class PaperUniqueItemStateRemovalMutator implements UniqueItemStateRemoval
                         "Unique item representation is malformed for removal: " + itemInstanceId
                 );
             }
-            if (claim.authorityVersion() != expectedItemStateVersion) {
+            if (expectedItemStateVersion != null
+                    && claim.authorityVersion().longValue() != expectedItemStateVersion.longValue()) {
                 throw new PaperItemRepresentationException(
                         "Unique item representation has stale authority_version for " + itemInstanceId
                                 + ": expected " + expectedItemStateVersion
