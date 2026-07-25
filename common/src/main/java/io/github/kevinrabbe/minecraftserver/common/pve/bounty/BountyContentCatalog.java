@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /** Immutable launch content for bounty tiers, fixed rewards, and ordinary-PvE eligibility mapping. */
 public final class BountyContentCatalog implements BountyRewardResolver {
@@ -29,7 +30,9 @@ public final class BountyContentCatalog implements BountyRewardResolver {
             BountyTierDefinition definition = configured.definition();
             Key key = new Key(definition.familyId(), definition.tier());
             if (rewards.putIfAbsent(key, configured.fixedRewards()) != null) {
-                throw new BountyException("duplicate bounty tier content: " + definition.familyId().value() + "/" + definition.tier());
+                throw new BountyException(
+                        "duplicate bounty tier content: " + definition.familyId().value() + "/" + definition.tier()
+                );
             }
             tierDefinitions.add(definition);
             for (String sourceId : configured.eligibleSourceIds()) {
@@ -54,6 +57,10 @@ public final class BountyContentCatalog implements BountyRewardResolver {
 
     public List<BountyTierDefinition> definitions() {
         return definitions;
+    }
+
+    public Set<String> eligibleSourceDefinitionIds() {
+        return familyByEligibleSource.keySet();
     }
 
     public Optional<BountyFamilyId> eligibleFamilyForSource(String sourceDefinitionId) {
@@ -109,7 +116,7 @@ public final class BountyContentCatalog implements BountyRewardResolver {
                     });
             fixedRewards = Map.copyOf(normalizedRewards);
 
-            if (!List.copyOf(fixedRewards.keySet()).stream().allMatch(definition.materialDefinitionIds()::contains)
+            if (!fixedRewards.keySet().stream().allMatch(definition.materialDefinitionIds()::contains)
                     || definition.materialDefinitionIds().size() != fixedRewards.size()) {
                 throw new IllegalArgumentException(
                         "tier materialDefinitionIds must exactly match configured fixed reward definitions"
