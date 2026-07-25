@@ -23,8 +23,10 @@ public record MapRewardSettlementResult(
         if (grants.isEmpty()) {
             throw new IllegalArgumentException("Map reward settlement must contain at least one grant");
         }
-        if (grants.stream().anyMatch(grant -> !grant.runId().equals(runId))) {
-            throw new IllegalArgumentException("all grants must belong to settlement runId");
+        for (MapRewardGrantSnapshot grant : grants) {
+            if (!grant.runId().equals(runId)) {
+                throw new IllegalArgumentException("all grants must belong to settlement runId");
+            }
         }
     }
 }
