@@ -18,7 +18,7 @@ public record CraftingCommissionCompletionResult(
         if (commission.status() != CraftingCommissionStatus.COMPLETED) {
             throw new IllegalArgumentException("commission must be COMPLETED");
         }
-        if (!commission.commissionId().equals(commission.commissionId())
+        if (commission.workerPlayerId() == null
                 || !commission.workerPlayerId().equals(craft.crafterPlayerId())
                 || !commission.requesterPlayerId().equals(craft.recipientPlayerId())
                 || !commission.recipeId().equals(craft.recipeId())
