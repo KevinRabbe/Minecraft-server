@@ -18,10 +18,6 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Objects;
@@ -35,18 +31,18 @@ import static org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK;
 /** Paper representation bridge for permanent per-player hidden Artifact discoveries. */
 final class PaperArtifactDiscoveryListener implements Listener {
     private final JavaPlugin plugin;
-    private final DataSource dataSource;
+    private final PaperPlayerIdentityResolver playerIdentities;
     private final ArtifactRepository artifacts;
     private final PaperArtifactPlacementCatalog placements;
 
     PaperArtifactDiscoveryListener(
             JavaPlugin plugin,
-            DataSource dataSource,
+            PaperPlayerIdentityResolver playerIdentities,
             ArtifactRepository artifacts,
             PaperArtifactPlacementCatalog placements
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         this.placements = Objects.requireNonNull(placements, "placements");
         reconcileAllOnMainThread();
@@ -124,7 +120,7 @@ final class PaperArtifactDiscoveryListener implements Listener {
             PaperArtifactPlacementCatalog.PaperArtifactPlacement placement
     ) {
         try {
-            Optional<UUID> playerId = resolvePlayerId(minecraftUuid);
+            Optional<UUID> playerId = playerIdentities.resolve(minecraftUuid);
             if (playerId.isEmpty()) {
                 sendIfOnline(minecraftUuid, "Artifact service could not resolve your persistent player identity.");
                 return;
@@ -157,27 +153,6 @@ final class PaperArtifactDiscoveryListener implements Listener {
         } catch (RuntimeException exception) {
             plugin.getLogger().log(Level.WARNING, "Artifact discovery failed closed", exception);
             sendIfOnline(minecraftUuid, "Artifact service is temporarily unavailable.");
-        }
-    }
-
-    private Optional<UUID> resolvePlayerId(UUID minecraftUuid) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     SELECT player_id
-                     FROM players
-                     WHERE minecraft_uuid = ?
-                     """)) {
-            statement.setObject(1, minecraftUuid);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) {
-                    return Optional.empty();
-                }
-                UUID playerId = row.getObject("player_id", UUID.class);
-                if (row.next()) {
-                    throw new IllegalStateException("Minecraft UUID resolved to multiple persistent player identities");
-                }
-                return Optional.of(playerId);
-            }
         }
     }
 
