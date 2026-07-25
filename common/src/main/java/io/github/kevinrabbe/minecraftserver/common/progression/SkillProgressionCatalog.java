@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.progression;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -31,5 +32,11 @@ public final class SkillProgressionCatalog {
             throw new SkillProgressionException("Unknown skill: " + skillId);
         }
         return definition;
+    }
+
+    public List<SkillProgressionDefinition> all() {
+        return definitions.values().stream()
+                .sorted((left, right) -> left.skillId().value().compareTo(right.skillId().value()))
+                .toList();
     }
 }
