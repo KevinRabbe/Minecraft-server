@@ -17,7 +17,7 @@ interface PaperAuthoritativeStateMutation {
             String entryPoint,
             byte[] currentStatePayload
     ) {
-        Context {
+        public Context {
             sessionId = Objects.requireNonNull(sessionId, "sessionId");
             playerId = Objects.requireNonNull(playerId, "playerId");
             if (backendId == null || backendId.isBlank()) {
@@ -37,7 +37,7 @@ interface PaperAuthoritativeStateMutation {
     }
 
     record Result(long stateVersion, byte[] statePayload) {
-        Result {
+        public Result {
             if (stateVersion < 0) {
                 throw new IllegalArgumentException("stateVersion must be >= 0");
             }
