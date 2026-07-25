@@ -10,6 +10,10 @@ import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatal
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingExperienceFulfillmentRepository;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingRepository;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingStateExecutionService;
+import io.github.kevinrabbe.minecraftserver.common.economy.BankManagerRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
+import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
@@ -43,6 +47,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private static final long CHECKPOINT_PERIOD_TICKS = 100L;
     private static final String ITEM_CATALOG_RESOURCE = "/content/items.json";
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
+    private static final String BANK_TIER_CATALOG_RESOURCE = "/content/bank-tiers.json";
     private static final String CRAFTING_CATALOG_RESOURCE = "/content/crafting.json";
     private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String RESOURCE_PLACEMENT_CATALOG_RESOURCE = "/content/resource-source-placements.json";
@@ -74,12 +79,14 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
         PaperAttunementCommand attunementCommand;
         PaperSkillsCommand skillsCommand;
+        PaperBankCommand bankCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
         PaperCraftingController craftingController;
         try {
             itemCatalog = new ItemCatalogLoader().loadResource(ITEM_CATALOG_RESOURCE);
             PaperItemCatalogValidator.validate(itemCatalog);
             skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
+            BankTierCatalog bankTiers = new BankTierCatalogLoader().loadResource(BANK_TIER_CATALOG_RESOURCE);
             CraftingContentCatalog craftingContent = new CraftingContentCatalogLoader().loadResource(
                     CRAFTING_CATALOG_RESOURCE,
                     itemCatalog,
@@ -123,6 +130,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     playerIdentities,
                     new SkillProgressionRepository(database.dataSource(), skillCatalog),
                     skillCatalog
+            );
+            bankCommand = new PaperBankCommand(
+                    this,
+                    playerIdentities,
+                    new BankManagerRepository(database.dataSource(), bankTiers),
+                    new CoinWalletRepository(database.dataSource()),
+                    bankTiers
             );
             itemRepresentationValidator = new PaperPlayerItemRepresentationValidator(
                     this,
@@ -280,6 +294,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         attune.setTabCompleter(attunementCommand);
         PluginCommand skills = Objects.requireNonNull(getCommand("skills"), "skills command missing from plugin.yml");
         skills.setExecutor(skillsCommand);
+        PluginCommand bank = Objects.requireNonNull(getCommand("bank"), "bank command missing from plugin.yml");
+        bank.setExecutor(bankCommand);
+        bank.setTabCompleter(bankCommand);
         PluginCommand craft = Objects.requireNonNull(getCommand("craft"), "craft command missing from plugin.yml");
         craft.setExecutor(craftingController);
         craft.setTabCompleter(craftingController);
