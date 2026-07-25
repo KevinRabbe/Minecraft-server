@@ -39,6 +39,7 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillLeaderboardRepository;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionRepository;
@@ -117,6 +118,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
         PaperAttunementCommand attunementCommand;
         PaperSkillsCommand skillsCommand;
+        PaperSkillLeaderboardCommand leaderboardCommand;
         PaperBankCommand bankCommand;
         PaperBazaarCommand bazaarCommand;
         PaperAuctionHouseCommand auctionHouseCommand;
@@ -190,6 +192,11 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     this,
                     playerIdentities,
                     new SkillProgressionRepository(database.dataSource(), skillCatalog),
+                    skillCatalog
+            );
+            leaderboardCommand = new PaperSkillLeaderboardCommand(
+                    this,
+                    new SkillLeaderboardRepository(database.dataSource(), skillCatalog),
                     skillCatalog
             );
             bankCommand = new PaperBankCommand(
@@ -497,6 +504,12 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         attune.setTabCompleter(attunementCommand);
         PluginCommand skills = Objects.requireNonNull(getCommand("skills"), "skills command missing from plugin.yml");
         skills.setExecutor(skillsCommand);
+        PluginCommand leaderboard = Objects.requireNonNull(
+                getCommand("leaderboard"),
+                "leaderboard command missing from plugin.yml"
+        );
+        leaderboard.setExecutor(leaderboardCommand);
+        leaderboard.setTabCompleter(leaderboardCommand);
         PluginCommand bank = Objects.requireNonNull(getCommand("bank"), "bank command missing from plugin.yml");
         bank.setExecutor(bankCommand);
         bank.setTabCompleter(bankCommand);
