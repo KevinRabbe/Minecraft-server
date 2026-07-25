@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "definition_id": "starter_mine.iron_ore",
+      "zone_id": "starter_mine",
+      "template_version": "v1",
+      "commodity_definition_id": "material.raw_iron",
+      "commodity_quantity": 1,
+      "skill_id": "mining",
+      "requested_experience": 10,
+      "respawn_millis": 15000
+    }
+  ]
+}
