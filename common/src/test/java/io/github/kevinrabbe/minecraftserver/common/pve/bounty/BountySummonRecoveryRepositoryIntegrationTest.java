@@ -73,7 +73,7 @@ class BountySummonRecoveryRepositoryIntegrationTest {
     @Test
     void returnsOnlyAbandonedReadyAndExpiredActiveSummons() throws Exception {
         UUID oldReady = insertSummon("RecoveryOldReady", "READY", "2 minutes", null);
-        UUID freshReady = insertSummon("RecoveryFreshReady", "READY", "5 seconds", null);
+        UUID freshReady = insertSummon("RecFreshReady", "READY", "5 seconds", null);
         UUID expiredActive = insertSummon("RecoveryExpired", "ACTIVE", "2 minutes", "-5 seconds");
         UUID liveActive = insertSummon("RecoveryLive", "ACTIVE", "2 minutes", "5 minutes");
 
