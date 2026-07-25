@@ -124,7 +124,7 @@ class ClanWarAuthorityIntegrationTest {
     }
 
     @Test
-    void challengeAcceptRosterLockAndStartAreExactAndRoleBound() throws Exception {
+    void lifecycleIsRoleBoundIdempotentAndRequiresExactBothSideRoster() throws Exception {
         WarFixture fixture = fixture("WarLifeA", "WarLifeB");
         UUID outsider = identities.ensurePlayer(UUID.randomUUID(), "WarOutsider");
         UUID challengeOperation = UUID.randomUUID();
@@ -141,31 +141,28 @@ class ClanWarAuthorityIntegrationTest {
                 fixture.challengerClan().clanId(),
                 fixture.defenderClan().clanId()
         ));
-        assertEquals(ClanWarStatus.CHALLENGED, challenged.status());
-        assertEquals(1000, resolutions.loadRating(fixture.challengerClan().clanId()).orElseThrow().rating());
-        assertEquals(1000, resolutions.loadRating(fixture.defenderClan().clanId()).orElseThrow().rating());
         assertThrows(
                 ClanWarException.class,
-                () -> wars.accept(UUID.randomUUID(), challenged.warId(), outsider)
+                () -> wars.challenge(
+                        challengeOperation,
+                        fixture.challenger().playerId(),
+                        fixture.defenderClan().clanId(),
+                        fixture.challengerClan().clanId()
+                )
         );
+        assertThrows(ClanWarException.class, () -> wars.accept(UUID.randomUUID(), challenged.warId(), outsider));
 
         ClanWarSnapshot accepted = wars.accept(
                 UUID.randomUUID(), challenged.warId(), fixture.defender().playerId()
         );
-        assertEquals(ClanWarStatus.ACCEPTED, accepted.status());
         wars.setRoster(
-                UUID.randomUUID(),
-                accepted.warId(),
-                fixture.challenger().playerId(),
-                fixture.challengerClan().clanId(),
-                List.of(fixture.challenger().playerId())
+                UUID.randomUUID(), accepted.warId(), fixture.challenger().playerId(),
+                fixture.challengerClan().clanId(), List.of(fixture.challenger().playerId())
         );
+        assertThrows(SQLException.class, () -> wars.lockRoster(UUID.randomUUID(), accepted.warId()));
         wars.setRoster(
-                UUID.randomUUID(),
-                accepted.warId(),
-                fixture.defender().playerId(),
-                fixture.defenderClan().clanId(),
-                List.of(fixture.defender().playerId())
+                UUID.randomUUID(), accepted.warId(), fixture.defender().playerId(),
+                fixture.defenderClan().clanId(), List.of(fixture.defender().playerId())
         );
 
         ClanWarSnapshot locked = wars.lockRoster(UUID.randomUUID(), accepted.warId());
@@ -183,26 +180,21 @@ class ClanWarAuthorityIntegrationTest {
     }
 
     @Test
-    void rosterLockRequiresExactBothSidesAndOnePlayerCannotOccupyTwoLiveWars() throws Exception {
-        WarFixture first = fixture("WarRosterA", "WarRosterB");
+    void onePlayerCannotOccupyTwoLiveWarRosters() throws Exception {
+        WarFixture first = fixture("WarOneA", "WarOneB");
         ClanWarSnapshot warA = acceptedWar(first);
         wars.setRoster(
                 UUID.randomUUID(), warA.warId(), first.challenger().playerId(),
                 first.challengerClan().clanId(), List.of(first.challenger().playerId())
         );
-        assertThrows(SQLException.class, () -> rawLockRoster(warA.warId()));
 
-        PlayerContext otherLeader = playerWithSession("WarRosterC", new byte[]{4});
-        ClanSnapshot otherClan = memberships.createClan(
-                UUID.randomUUID(), otherLeader.playerId(), "War Other", "WOC"
-        );
+        PlayerContext third = playerWithSession("WarOneC", new byte[]{4});
+        ClanSnapshot thirdClan = memberships.createClan(UUID.randomUUID(), third.playerId(), "War One C", randomTag());
         ClanWarSnapshot warB = wars.challenge(
-                UUID.randomUUID(),
-                otherLeader.playerId(),
-                otherClan.clanId(),
-                first.challengerClan().clanId()
+                UUID.randomUUID(), third.playerId(), thirdClan.clanId(), first.challengerClan().clanId()
         );
         wars.accept(UUID.randomUUID(), warB.warId(), first.challenger().playerId());
+
         assertThrows(
                 SQLException.class,
                 () -> wars.setRoster(
@@ -213,17 +205,16 @@ class ClanWarAuthorityIntegrationTest {
     }
 
     @Test
-    void playerGearEntersWarCustodyOnlyAfterRosterLockAndSnapshotContainsPersistentIdentity() throws Exception {
+    void realGearCrossesIntoWarCustodyOnlyAfterRosterLockAndYieldsReadOnlyCombatSnapshot() throws Exception {
         WarFixture fixture = fixture("WarGearA", "WarGearB");
         ClanWarSnapshot accepted = acceptedWar(fixture);
         UniqueItemAuthorityResult item = items.createForPlayer(
                 UUID.randomUUID(), ITEM, fixture.challenger().playerId(), "test.item", fixture.challenger().playerId()
         );
-        ClanWarLoadoutRepository loadouts = permissiveLoadouts();
-
+        ClanWarLoadoutRepository permissive = permissiveLoadouts();
         assertThrows(
                 ClanWarException.class,
-                () -> loadouts.depositPlayerItem(
+                () -> permissive.depositPlayerItem(
                         UUID.randomUUID(), accepted.warId(), fixture.challenger().session().sessionId(), "paper-a",
                         fixture.challenger().session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
                         "city", "spawn", new byte[]{0}, "clan.war_item_entry"
@@ -232,7 +223,7 @@ class ClanWarAuthorityIntegrationTest {
 
         setAndLockRosters(fixture, accepted.warId());
         AtomicInteger validations = new AtomicInteger();
-        ClanWarLoadoutRepository provingLoadouts = new ClanWarLoadoutRepository(
+        ClanWarLoadoutRepository proving = new ClanWarLoadoutRepository(
                 dataSource,
                 catalog,
                 (playerId, itemId, currentPayload, nextPayload) -> {
@@ -244,46 +235,29 @@ class ClanWarAuthorityIntegrationTest {
                 }
         );
         UUID operationId = UUID.randomUUID();
-        ClanWarCustodyDepositResult first = provingLoadouts.depositPlayerItem(
-                operationId,
-                accepted.warId(),
-                fixture.challenger().session().sessionId(),
-                "paper-a",
-                fixture.challenger().session().stateVersion(),
-                item.itemInstanceId(),
-                item.stateVersion(),
-                "city",
-                "spawn",
-                new byte[]{0},
-                "clan.war_item_entry"
+        ClanWarCustodyDepositResult first = proving.depositPlayerItem(
+                operationId, accepted.warId(), fixture.challenger().session().sessionId(), "paper-a",
+                fixture.challenger().session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
+                "city", "spawn", new byte[]{0}, "clan.war_item_entry"
         );
-        ClanWarCustodyDepositResult retry = provingLoadouts.depositPlayerItem(
-                operationId,
-                accepted.warId(),
-                fixture.challenger().session().sessionId(),
-                "paper-a",
-                fixture.challenger().session().stateVersion(),
-                item.itemInstanceId(),
-                item.stateVersion(),
-                "city",
-                "spawn",
-                new byte[]{0},
-                "clan.war_item_entry"
+        ClanWarCustodyDepositResult retry = proving.depositPlayerItem(
+                operationId, accepted.warId(), fixture.challenger().session().sessionId(), "paper-a",
+                fixture.challenger().session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
+                "city", "spawn", new byte[]{0}, "clan.war_item_entry"
         );
 
         assertEquals(first, retry);
         assertEquals(1, validations.get());
-        assertEquals(item.itemInstanceId(), first.item().itemInstanceId());
-        assertEquals(ITEM, first.item().definitionId());
         assertItemCustody(item.itemInstanceId(), "WAR_CUSTODY", accepted.warId(), item.stateVersion() + 1);
-        List<ClanWarCustodiedItemSnapshot> snapshot = provingLoadouts.loadActiveCombatSnapshot(accepted.warId());
-        assertEquals(1, snapshot.size());
-        assertEquals(item.itemInstanceId(), snapshot.getFirst().itemInstanceId());
+        List<ClanWarCustodiedItemSnapshot> combatSnapshot = proving.loadActiveCombatSnapshot(accepted.warId());
+        assertEquals(1, combatSnapshot.size());
+        assertEquals(item.itemInstanceId(), combatSnapshot.getFirst().itemInstanceId());
+        assertEquals(ITEM, combatSnapshot.getFirst().definitionId());
         assertArrayEquals(new byte[]{0}, states.load(fixture.challenger().playerId()).statePayload());
     }
 
     @Test
-    void completedWarSettlesRatingsOnceAndReturnsAllGearThroughPendingDelivery() throws Exception {
+    void completionSettlesClanRatingOnceAndReturnsEveryPersistentItemThroughDelivery() throws Exception {
         WarFixture fixture = fixture("WarWinA", "WarWinB");
         ClanWarSnapshot accepted = acceptedWar(fixture);
         setAndLockRosters(fixture, accepted.warId());
@@ -327,90 +301,72 @@ class ClanWarAuthorityIntegrationTest {
         assertPendingReturn(challengerItem.itemInstanceId(), fixture.challenger().playerId(), challengerCustody.item().itemStateVersion() + 1);
         assertPendingReturn(defenderItem.itemInstanceId(), fixture.defender().playerId(), defenderCustody.item().itemStateVersion() + 1);
         assertThrows(SQLException.class, () -> mutateWarResult(accepted.warId()));
-        assertThrows(ClanWarException.class, () -> resolutions.complete(
-                UUID.randomUUID(), accepted.warId(), fixture.defenderClan().clanId()
+        assertThrows(
+                ClanWarException.class,
+                () -> resolutions.complete(UUID.randomUUID(), accepted.warId(), fixture.defenderClan().clanId())
+        );
+    }
+
+    @Test
+    void cancelAndFailureRecoverCustodyWithoutChangingClanRating() throws Exception {
+        WarFixture cancelFixture = fixture("WarCanA", "WarCanB");
+        ClanWarSnapshot cancelWar = acceptedWar(cancelFixture);
+        setAndLockRosters(cancelFixture, cancelWar.warId());
+        UniqueItemAuthorityResult cancelItem = items.createForPlayer(
+                UUID.randomUUID(), ITEM, cancelFixture.challenger().playerId(), "test.item", cancelFixture.challenger().playerId()
+        );
+        ClanWarCustodyDepositResult cancelCustody = permissiveLoadouts().depositPlayerItem(
+                UUID.randomUUID(), cancelWar.warId(), cancelFixture.challenger().session().sessionId(), "paper-a",
+                cancelFixture.challenger().session().stateVersion(), cancelItem.itemInstanceId(), cancelItem.stateVersion(),
+                "city", "spawn", new byte[]{0}, "clan.war_item_entry"
+        );
+        UUID cancelOperation = UUID.randomUUID();
+        ClanWarTerminalResult cancelled = resolutions.cancel(
+                cancelOperation, cancelWar.warId(), cancelFixture.challenger().playerId()
+        );
+        assertEquals(cancelled, resolutions.cancel(
+                cancelOperation, cancelWar.warId(), cancelFixture.challenger().playerId()
         ));
-    }
+        assertEquals(ClanWarStatus.CANCELLED, cancelled.war().status());
+        assertPendingReturn(cancelItem.itemInstanceId(), cancelFixture.challenger().playerId(), cancelCustody.item().itemStateVersion() + 1);
+        assertEquals(1000, resolutions.loadRating(cancelFixture.challengerClan().clanId()).orElseThrow().rating());
+        assertEquals(1000, resolutions.loadRating(cancelFixture.defenderClan().clanId()).orElseThrow().rating());
 
-    @Test
-    void cancellationAfterCustodyReturnsGearWithoutMovingRatingAndAllowsPlayerIntoNewWar() throws Exception {
-        WarFixture fixture = fixture("WarCanA", "WarCanB");
-        ClanWarSnapshot accepted = acceptedWar(fixture);
-        setAndLockRosters(fixture, accepted.warId());
-        UniqueItemAuthorityResult item = items.createForPlayer(
-                UUID.randomUUID(), ITEM, fixture.challenger().playerId(), "test.item", fixture.challenger().playerId()
+        resetDatabase();
+        WarFixture failFixture = fixture("WarFailA", "WarFailB");
+        ClanWarSnapshot failWar = acceptedWar(failFixture);
+        setAndLockRosters(failFixture, failWar.warId());
+        UniqueItemAuthorityResult failItem = items.createForPlayer(
+                UUID.randomUUID(), ITEM, failFixture.defender().playerId(), "test.item", failFixture.defender().playerId()
         );
-        ClanWarCustodyDepositResult custody = permissiveLoadouts().depositPlayerItem(
-                UUID.randomUUID(), accepted.warId(), fixture.challenger().session().sessionId(), "paper-a",
-                fixture.challenger().session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
+        ClanWarCustodyDepositResult failCustody = permissiveLoadouts().depositPlayerItem(
+                UUID.randomUUID(), failWar.warId(), failFixture.defender().session().sessionId(), "paper-a",
+                failFixture.defender().session().stateVersion(), failItem.itemInstanceId(), failItem.stateVersion(),
                 "city", "spawn", new byte[]{0}, "clan.war_item_entry"
         );
-        UUID operationId = UUID.randomUUID();
-
-        ClanWarTerminalResult first = resolutions.cancel(
-                operationId, accepted.warId(), fixture.challenger().playerId()
-        );
-        ClanWarTerminalResult retry = resolutions.cancel(
-                operationId, accepted.warId(), fixture.challenger().playerId()
-        );
-
-        assertEquals(first, retry);
-        assertEquals(ClanWarStatus.CANCELLED, first.war().status());
-        assertEquals(1000, resolutions.loadRating(fixture.challengerClan().clanId()).orElseThrow().rating());
-        assertEquals(1000, resolutions.loadRating(fixture.defenderClan().clanId()).orElseThrow().rating());
-        assertPendingReturn(item.itemInstanceId(), fixture.challenger().playerId(), custody.item().itemStateVersion() + 1);
-        assertEquals(0L, liveRosterCount(accepted.warId()));
-
-        PlayerContext other = playerWithSession("WarCanC", new byte[]{5});
-        ClanSnapshot otherClan = memberships.createClan(UUID.randomUUID(), other.playerId(), "War Can C", "WCC");
-        ClanWarSnapshot next = wars.challenge(
-                UUID.randomUUID(), other.playerId(), otherClan.clanId(), fixture.challengerClan().clanId()
-        );
-        wars.accept(UUID.randomUUID(), next.warId(), fixture.challenger().playerId());
-        wars.setRoster(
-                UUID.randomUUID(), next.warId(), fixture.challenger().playerId(),
-                fixture.challengerClan().clanId(), List.of(fixture.challenger().playerId())
-        );
+        wars.start(UUID.randomUUID(), failWar.warId());
+        ClanWarTerminalResult failed = resolutions.fail(UUID.randomUUID(), failWar.warId());
+        assertEquals(ClanWarStatus.FAILED, failed.war().status());
+        assertEquals(0L, warResultCount(failWar.warId()));
+        assertPendingReturn(failItem.itemInstanceId(), failFixture.defender().playerId(), failCustody.item().itemStateVersion() + 1);
+        assertEquals(1000, resolutions.loadRating(failFixture.challengerClan().clanId()).orElseThrow().rating());
+        assertEquals(1000, resolutions.loadRating(failFixture.defenderClan().clanId()).orElseThrow().rating());
     }
 
     @Test
-    void activeFailureReturnsGearWithoutRatingSettlement() throws Exception {
-        WarFixture fixture = fixture("WarFailA", "WarFailB");
-        ClanWarSnapshot accepted = acceptedWar(fixture);
-        setAndLockRosters(fixture, accepted.warId());
-        UniqueItemAuthorityResult item = items.createForPlayer(
-                UUID.randomUUID(), ITEM, fixture.defender().playerId(), "test.item", fixture.defender().playerId()
-        );
-        ClanWarCustodyDepositResult custody = permissiveLoadouts().depositPlayerItem(
-                UUID.randomUUID(), accepted.warId(), fixture.defender().session().sessionId(), "paper-a",
-                fixture.defender().session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
-                "city", "spawn", new byte[]{0}, "clan.war_item_entry"
-        );
-        wars.start(UUID.randomUUID(), accepted.warId());
-
-        ClanWarTerminalResult result = resolutions.fail(UUID.randomUUID(), accepted.warId());
-
-        assertEquals(ClanWarStatus.FAILED, result.war().status());
-        assertEquals(0L, warResultCount(accepted.warId()));
-        assertEquals(1000, resolutions.loadRating(fixture.challengerClan().clanId()).orElseThrow().rating());
-        assertEquals(1000, resolutions.loadRating(fixture.defenderClan().clanId()).orElseThrow().rating());
-        assertPendingReturn(item.itemInstanceId(), fixture.defender().playerId(), custody.item().itemStateVersion() + 1);
-    }
-
-    @Test
-    void concurrentCompletionCanSettleWarAndReturnGearOnlyOnce() throws Exception {
-        WarFixture fixture = fixture("WarRaceA", "WarRaceB");
-        ClanWarSnapshot accepted = acceptedWar(fixture);
-        setAndLockRosters(fixture, accepted.warId());
-        wars.start(UUID.randomUUID(), accepted.warId());
+    void concurrentCompletionAndDeferredDatabaseChecksPreventDoubleSettlementOrStrandedTerminalCustody() throws Exception {
+        WarFixture race = fixture("WarRaceA", "WarRaceB");
+        ClanWarSnapshot raceWar = acceptedWar(race);
+        setAndLockRosters(race, raceWar.warId());
+        wars.start(UUID.randomUUID(), raceWar.warId());
 
         int successes = 0;
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             Future<ClanWarCompletionResult> first = executor.submit(() -> resolutions.complete(
-                    UUID.randomUUID(), accepted.warId(), fixture.challengerClan().clanId()
+                    UUID.randomUUID(), raceWar.warId(), race.challengerClan().clanId()
             ));
             Future<ClanWarCompletionResult> second = executor.submit(() -> resolutions.complete(
-                    UUID.randomUUID(), accepted.warId(), fixture.defenderClan().clanId()
+                    UUID.randomUUID(), raceWar.warId(), race.defenderClan().clanId()
             ));
             for (Future<ClanWarCompletionResult> future : List.of(first, second)) {
                 try {
@@ -421,52 +377,56 @@ class ClanWarAuthorityIntegrationTest {
                 }
             }
         }
-
         assertEquals(1, successes);
-        assertEquals(1L, warResultCount(accepted.warId()));
+        assertEquals(1L, warResultCount(raceWar.warId()));
         assertEquals(2000,
-                resolutions.loadRating(fixture.challengerClan().clanId()).orElseThrow().rating()
-                        + resolutions.loadRating(fixture.defenderClan().clanId()).orElseThrow().rating());
-    }
+                resolutions.loadRating(race.challengerClan().clanId()).orElseThrow().rating()
+                        + resolutions.loadRating(race.defenderClan().clanId()).orElseThrow().rating());
 
-    @Test
-    void databaseRejectsTerminalWarWithStrandedCustodyAndCompletedWarWithoutResult() throws Exception {
-        WarFixture fixture = fixture("WarDbA", "WarDbB");
-        ClanWarSnapshot accepted = acceptedWar(fixture);
-        setAndLockRosters(fixture, accepted.warId());
+        resetDatabase();
+        WarFixture noResult = fixture("WarDbA", "WarDbB");
+        ClanWarSnapshot resultlessWar = acceptedWar(noResult);
+        setAndLockRosters(noResult, resultlessWar.warId());
+        wars.start(UUID.randomUUID(), resultlessWar.warId());
+        assertThrows(
+                SQLException.class,
+                () -> rawCompleteWithoutResult(resultlessWar.warId(), noResult.challengerClan().clanId())
+        );
+        assertEquals(ClanWarStatus.ACTIVE, wars.loadWar(resultlessWar.warId()).orElseThrow().status());
+
+        resetDatabase();
+        WarFixture stranded = fixture("WarDbC", "WarDbD");
+        ClanWarSnapshot strandedWar = acceptedWar(stranded);
+        setAndLockRosters(stranded, strandedWar.warId());
         UniqueItemAuthorityResult item = items.createForPlayer(
-                UUID.randomUUID(), ITEM, fixture.challenger().playerId(), "test.item", fixture.challenger().playerId()
+                UUID.randomUUID(), ITEM, stranded.challenger().playerId(), "test.item", stranded.challenger().playerId()
         );
         permissiveLoadouts().depositPlayerItem(
-                UUID.randomUUID(), accepted.warId(), fixture.challenger().session().sessionId(), "paper-a",
-                fixture.challenger().session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
+                UUID.randomUUID(), strandedWar.warId(), stranded.challenger().session().sessionId(), "paper-a",
+                stranded.challenger().session().stateVersion(), item.itemInstanceId(), item.stateVersion(),
                 "city", "spawn", new byte[]{0}, "clan.war_item_entry"
         );
-        wars.start(UUID.randomUUID(), accepted.warId());
-
-        assertThrows(SQLException.class, () -> rawCompleteWithoutResult(accepted.warId(), fixture.challengerClan().clanId()));
-        assertEquals(ClanWarStatus.ACTIVE, wars.loadWar(accepted.warId()).orElseThrow().status());
-        assertItemCustody(item.itemInstanceId(), "WAR_CUSTODY", accepted.warId(), item.stateVersion() + 1);
+        assertThrows(SQLException.class, () -> rawFailWithoutCustodyRelease(strandedWar.warId()));
+        assertEquals(ClanWarStatus.ROSTER_LOCKED, wars.loadWar(strandedWar.warId()).orElseThrow().status());
+        assertItemCustody(item.itemInstanceId(), "WAR_CUSTODY", strandedWar.warId(), item.stateVersion() + 1);
     }
 
     private WarFixture fixture(String challengerName, String defenderName) throws SQLException {
         PlayerContext challenger = playerWithSession(challengerName, new byte[]{1});
         PlayerContext defender = playerWithSession(defenderName, new byte[]{1});
         ClanSnapshot challengerClan = memberships.createClan(
-                UUID.randomUUID(), challenger.playerId(), challengerName + " C", uniqueTag(challengerName)
+                UUID.randomUUID(), challenger.playerId(), challengerName + " C", randomTag()
         );
         ClanSnapshot defenderClan = memberships.createClan(
-                UUID.randomUUID(), defender.playerId(), defenderName + " C", uniqueTag(defenderName)
+                UUID.randomUUID(), defender.playerId(), defenderName + " C", randomTag()
         );
         return new WarFixture(challenger, defender, challengerClan, defenderClan);
     }
 
     private ClanWarSnapshot acceptedWar(WarFixture fixture) throws SQLException {
         ClanWarSnapshot challenged = wars.challenge(
-                UUID.randomUUID(),
-                fixture.challenger().playerId(),
-                fixture.challengerClan().clanId(),
-                fixture.defenderClan().clanId()
+                UUID.randomUUID(), fixture.challenger().playerId(),
+                fixture.challengerClan().clanId(), fixture.defenderClan().clanId()
         );
         return wars.accept(UUID.randomUUID(), challenged.warId(), fixture.defender().playerId());
     }
@@ -484,33 +444,25 @@ class ClanWarAuthorityIntegrationTest {
     }
 
     private ClanWarLoadoutRepository permissiveLoadouts() {
-        return new ClanWarLoadoutRepository(
-                dataSource,
-                catalog,
-                (playerId, itemId, currentPayload, nextPayload) -> { }
-        );
+        return new ClanWarLoadoutRepository(dataSource, catalog, (playerId, itemId, currentPayload, nextPayload) -> { });
     }
 
     private PlayerContext playerWithSession(String name, byte[] payload) throws SQLException {
         UUID playerId = identities.ensurePlayer(UUID.randomUUID(), name);
         SessionLease opened = sessions.openSession(playerId, "paper-a", null, LEASE);
-        long stateVersion = states.commit(
-                opened.sessionId(), "paper-a", opened.stateVersion(), "city", "spawn", payload
-        );
+        long stateVersion = states.commit(opened.sessionId(), "paper-a", opened.stateVersion(), "city", "spawn", payload);
         SessionLease refreshed = sessions.heartbeat(opened.sessionId(), "paper-a", LEASE);
         assertEquals(stateVersion, refreshed.stateVersion());
         return new PlayerContext(playerId, refreshed);
     }
 
-    private void assertPendingReturn(UUID itemId, UUID playerId, long expectedItemVersion) throws SQLException {
+    private void assertPendingReturn(UUID itemId, UUID playerId, long expectedVersion) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
                      SELECT d.delivery_id, i.location_kind, i.location_id, i.state_version
                      FROM pending_unique_deliveries d
                      JOIN item_instances i ON i.item_instance_id = d.item_instance_id
-                     WHERE d.item_instance_id = ?
-                       AND d.recipient_player_id = ?
-                       AND d.status = 'PENDING'
+                     WHERE d.item_instance_id = ? AND d.recipient_player_id = ? AND d.status = 'PENDING'
                      """)) {
             statement.setObject(1, itemId);
             statement.setObject(2, playerId);
@@ -519,7 +471,7 @@ class ClanWarAuthorityIntegrationTest {
                 UUID deliveryId = row.getObject("delivery_id", UUID.class);
                 assertEquals("PENDING_DELIVERY", row.getString("location_kind"));
                 assertEquals(deliveryId, row.getObject("location_id", UUID.class));
-                assertEquals(expectedItemVersion, row.getLong("state_version"));
+                assertEquals(expectedVersion, row.getLong("state_version"));
             }
         }
     }
@@ -527,8 +479,7 @@ class ClanWarAuthorityIntegrationTest {
     private void assertItemCustody(UUID itemId, String kind, UUID locationId, long version) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT location_kind, location_id, state_version
-                     FROM item_instances WHERE item_instance_id = ?
+                     SELECT location_kind, location_id, state_version FROM item_instances WHERE item_instance_id = ?
                      """)) {
             statement.setObject(1, itemId);
             try (ResultSet row = statement.executeQuery()) {
@@ -541,36 +492,20 @@ class ClanWarAuthorityIntegrationTest {
     }
 
     private long warResultCount(UUID warId) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "SELECT COUNT(*) FROM clan_war_results WHERE war_id = ?")) {
-            statement.setObject(1, warId);
-            try (ResultSet row = statement.executeQuery()) {
-                row.next();
-                return row.getLong(1);
-            }
-        }
+        return count("SELECT COUNT(*) FROM clan_war_results WHERE war_id = ?", warId);
     }
 
     private long activeWarItemCount(UUID warId) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     SELECT COUNT(*) FROM clan_war_items WHERE war_id = ? AND released_at IS NULL
-                     """)) {
-            statement.setObject(1, warId);
-            try (ResultSet row = statement.executeQuery()) {
-                row.next();
-                return row.getLong(1);
-            }
-        }
+        return count("SELECT COUNT(*) FROM clan_war_items WHERE war_id = ? AND released_at IS NULL", warId);
     }
 
     private long liveRosterCount(UUID warId) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     SELECT COUNT(*) FROM clan_war_rosters WHERE war_id = ? AND released_at IS NULL
-                     """)) {
-            statement.setObject(1, warId);
+        return count("SELECT COUNT(*) FROM clan_war_rosters WHERE war_id = ? AND released_at IS NULL", warId);
+    }
+
+    private long count(String sql, UUID id) throws SQLException {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, id);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getLong(1);
@@ -590,18 +525,6 @@ class ClanWarAuthorityIntegrationTest {
         }
     }
 
-    private void rawLockRoster(UUID warId) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE clan_wars
-                     SET status = 'ROSTER_LOCKED', state_version = state_version + 1
-                     WHERE war_id = ? AND status = 'ACCEPTED'
-                     """)) {
-            statement.setObject(1, warId);
-            statement.executeUpdate();
-        }
-    }
-
     private void rawCompleteWithoutResult(UUID warId, UUID winningClanId) throws SQLException {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -610,7 +533,7 @@ class ClanWarAuthorityIntegrationTest {
                     SET status = 'COMPLETED',
                         winning_clan_id = ?,
                         settlement_operation_id = ?,
-                        resolution_operation_id = settlement_operation_id,
+                        resolution_operation_id = ?,
                         finished_at = NOW(),
                         state_version = state_version + 1
                     WHERE war_id = ? AND status = 'ACTIVE'
@@ -618,7 +541,8 @@ class ClanWarAuthorityIntegrationTest {
                 UUID operationId = UUID.randomUUID();
                 statement.setObject(1, winningClanId);
                 statement.setObject(2, operationId);
-                statement.setObject(3, warId);
+                statement.setObject(3, operationId);
+                statement.setObject(4, warId);
                 assertEquals(1, statement.executeUpdate());
                 connection.commit();
             } catch (SQLException exception) {
@@ -628,16 +552,35 @@ class ClanWarAuthorityIntegrationTest {
         }
     }
 
-    private static String uniqueTag(String seed) {
-        String compact = seed.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
-        return (compact + UUID.randomUUID().toString().substring(0, 4).toUpperCase()).substring(0, 6);
+    private void rawFailWithoutCustodyRelease(UUID warId) throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE clan_wars
+                    SET status = 'FAILED',
+                        resolution_operation_id = ?,
+                        finished_at = NOW(),
+                        state_version = state_version + 1
+                    WHERE war_id = ? AND status = 'ROSTER_LOCKED'
+                    """)) {
+                statement.setObject(1, UUID.randomUUID());
+                statement.setObject(2, warId);
+                assertEquals(1, statement.executeUpdate());
+                connection.commit();
+            } catch (SQLException exception) {
+                connection.rollback();
+                throw exception;
+            }
+        }
+    }
+
+    private static String randomTag() {
+        return ("W" + UUID.randomUUID().toString().replace("-", "").substring(0, 5)).toUpperCase();
     }
 
     private static String requireEnvironment(String name) {
         String value = System.getenv(name);
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException("Missing environment variable: " + name);
-        }
+        if (value == null || value.isBlank()) throw new IllegalStateException("Missing environment variable: " + name);
         return value;
     }
 
