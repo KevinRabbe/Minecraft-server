@@ -13,11 +13,14 @@ import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.scheduler.ScheduledTask;
+import io.github.kevinrabbe.minecraftserver.common.control.ZoneRoute;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRouter;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRoute;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRouteRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveRuntimeTopologyRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.PlayerZoneRoutingRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.RoutedTransfer;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRoutingRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
@@ -25,7 +28,10 @@ import net.kyori.adventure.text.Component;
 
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -45,13 +51,16 @@ public final class MinecraftNetworkPlugin {
     );
 
     private final ProxyServer proxy;
-    private final ConcurrentHashMap<UUID, String> competitiveConnectionsInFlight = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Boolean> missingCompetitiveBackends = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> routeConnectionsInFlight = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Boolean> missingProxyBackends = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> blockedCompetitiveReturns = new ConcurrentHashMap<>();
 
     private Database database;
     private ZoneRouter zoneRouter;
     private TransferRoutingRepository transferRouting;
     private CompetitiveEntryRouteRepository competitiveEntryRoutes;
+    private CompetitiveRuntimeTopologyRepository competitiveRuntimeTopology;
+    private PlayerZoneRoutingRepository playerZoneRouting;
     private ScheduledTask competitiveRouteTask;
 
     @Inject
@@ -70,6 +79,8 @@ public final class MinecraftNetworkPlugin {
                     database.dataSource(),
                     COMPETITIVE_BACKEND_HEARTBEAT_FRESHNESS
             );
+            competitiveRuntimeTopology = new CompetitiveRuntimeTopologyRepository(database.dataSource());
+            playerZoneRouting = new PlayerZoneRoutingRepository(database.dataSource());
             proxy.getChannelRegistrar().register(TRANSFER_CHANNEL);
             competitiveRouteTask = proxy.getScheduler()
                     .buildTask(this, this::reconcileCompetitiveRoutes)
@@ -104,13 +115,13 @@ public final class MinecraftNetworkPlugin {
             CompetitiveEntryRoute route = routeResult.orElseThrow();
             Optional<RegisteredServer> targetResult = proxy.getServer(route.backendId());
             if (targetResult.isEmpty()) {
-                logMissingCompetitiveBackend(route.backendId());
+                logMissingProxyBackend(route.backendId(), "Competitive");
                 event.setResult(ServerPreConnectEvent.ServerResult.denied());
                 player.sendMessage(Component.text("Your competitive match backend is temporarily unavailable."));
                 return;
             }
 
-            missingCompetitiveBackends.remove(route.backendId());
+            missingProxyBackends.remove(route.backendId());
             event.setResult(ServerPreConnectEvent.ServerResult.allowed(targetResult.orElseThrow()));
         } catch (SQLException exception) {
             LOGGER.log(System.Logger.Level.ERROR, "Could not resolve competitive player route", exception);
@@ -120,58 +131,127 @@ public final class MinecraftNetworkPlugin {
     }
 
     /**
-     * Reconciles already-online players onto newly ACTIVE competitive executions. This deliberately reuses Velocity's
-     * ordinary server connection path instead of adding another Paper-to-proxy routing protocol.
+     * Reconciles both directions of the competitive boundary without adding another wire protocol. ACTIVE routes move
+     * players to their exact legacy backend. Once that route disappears, a player still on a configured legacy backend
+     * is sent back through the durable logical-zone projection and the normal healthy-instance router.
      */
     private void reconcileCompetitiveRoutes() {
         CompetitiveEntryRouteRepository routes = competitiveEntryRoutes;
-        if (routes == null) {
+        CompetitiveRuntimeTopologyRepository topology = competitiveRuntimeTopology;
+        if (routes == null || topology == null) {
+            return;
+        }
+
+        final List<CompetitiveEntryRoute> activeRoutes;
+        final Set<String> runtimeBackendIds;
+        try {
+            activeRoutes = routes.findAllActive();
+            runtimeBackendIds = topology.findBackendIds();
+        } catch (SQLException | RuntimeException exception) {
+            LOGGER.log(System.Logger.Level.ERROR, "Could not read competitive proxy routing projections", exception);
+            return;
+        }
+
+        Set<UUID> activePlayers = new HashSet<>();
+        for (CompetitiveEntryRoute route : activeRoutes) {
+            activePlayers.add(route.minecraftUuid());
+            proxy.getPlayer(route.minecraftUuid()).ifPresent(player -> connectToBackend(
+                    player,
+                    route.backendId(),
+                    "Competitive"
+            ));
+        }
+
+        for (Player player : proxy.getAllPlayers()) {
+            if (activePlayers.contains(player.getUniqueId())) {
+                blockedCompetitiveReturns.remove(player.getUniqueId());
+                continue;
+            }
+            Optional<ServerConnection> currentServer = player.getCurrentServer();
+            if (currentServer.isEmpty()
+                    || !runtimeBackendIds.contains(currentServer.orElseThrow().getServerInfo().getName())) {
+                blockedCompetitiveReturns.remove(player.getUniqueId());
+                continue;
+            }
+            returnToPersistentZone(player);
+        }
+    }
+
+    private void returnToPersistentZone(Player player) {
+        PlayerZoneRoutingRepository playerZones = playerZoneRouting;
+        ZoneRouter router = zoneRouter;
+        if (playerZones == null || router == null) {
             return;
         }
 
         try {
-            for (CompetitiveEntryRoute route : routes.findAllActive()) {
-                proxy.getPlayer(route.minecraftUuid()).ifPresent(player -> connectCompetitivePlayer(player, route));
+            Optional<String> logicalZoneResult = playerZones.findLogicalZone(player.getUniqueId());
+            if (logicalZoneResult.isEmpty()) {
+                logBlockedCompetitiveReturn(player, "no durable logical zone is available");
+                return;
             }
+
+            String logicalZoneId = logicalZoneResult.orElseThrow();
+            Optional<ZoneRoute> routeResult = router.findPreferredActiveInstance(logicalZoneId);
+            if (routeResult.isEmpty()) {
+                logBlockedCompetitiveReturn(player, "no healthy instance is available for zone " + logicalZoneId);
+                return;
+            }
+
+            blockedCompetitiveReturns.remove(player.getUniqueId());
+            connectToBackend(player, routeResult.orElseThrow().backendId(), "Persistent return");
         } catch (SQLException | RuntimeException exception) {
-            LOGGER.log(System.Logger.Level.ERROR, "Could not reconcile active competitive routes", exception);
+            LOGGER.log(System.Logger.Level.ERROR, "Could not resolve persistent return route after competitive play", exception);
         }
     }
 
-    private void connectCompetitivePlayer(Player player, CompetitiveEntryRoute route) {
+    private void connectToBackend(Player player, String targetBackendId, String routeKind) {
         Optional<ServerConnection> currentServer = player.getCurrentServer();
         if (currentServer.isPresent()
-                && currentServer.orElseThrow().getServerInfo().getName().equals(route.backendId())) {
-            competitiveConnectionsInFlight.remove(player.getUniqueId());
+                && currentServer.orElseThrow().getServerInfo().getName().equals(targetBackendId)) {
+            routeConnectionsInFlight.remove(player.getUniqueId());
             return;
         }
 
-        Optional<RegisteredServer> targetResult = proxy.getServer(route.backendId());
+        Optional<RegisteredServer> targetResult = proxy.getServer(targetBackendId);
         if (targetResult.isEmpty()) {
-            logMissingCompetitiveBackend(route.backendId());
+            logMissingProxyBackend(targetBackendId, routeKind);
             return;
         }
-        missingCompetitiveBackends.remove(route.backendId());
+        missingProxyBackends.remove(targetBackendId);
 
-        String previousTarget = competitiveConnectionsInFlight.putIfAbsent(player.getUniqueId(), route.backendId());
+        String previousTarget = routeConnectionsInFlight.putIfAbsent(player.getUniqueId(), targetBackendId);
         if (previousTarget != null) {
             return;
         }
 
         RegisteredServer target = targetResult.orElseThrow();
         player.createConnectionRequest(target).connectWithIndication().whenComplete((success, failure) -> {
-            competitiveConnectionsInFlight.remove(player.getUniqueId(), route.backendId());
+            routeConnectionsInFlight.remove(player.getUniqueId(), targetBackendId);
             if (failure != null) {
-                LOGGER.log(System.Logger.Level.WARNING, "Competitive backend connection failed", failure);
+                LOGGER.log(System.Logger.Level.WARNING, routeKind + " backend connection failed", failure);
             } else if (!Boolean.TRUE.equals(success)) {
-                LOGGER.log(System.Logger.Level.WARNING, "Competitive backend connection was not completed");
+                LOGGER.log(System.Logger.Level.WARNING, routeKind + " backend connection was not completed");
             }
         });
     }
 
-    private void logMissingCompetitiveBackend(String backendId) {
-        if (missingCompetitiveBackends.putIfAbsent(backendId, Boolean.TRUE) == null) {
-            LOGGER.log(System.Logger.Level.ERROR, "Competitive backend is not registered in Velocity: " + backendId);
+    private void logMissingProxyBackend(String backendId, String routeKind) {
+        if (missingProxyBackends.putIfAbsent(backendId, Boolean.TRUE) == null) {
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    routeKind + " backend is not registered in Velocity: " + backendId
+            );
+        }
+    }
+
+    private void logBlockedCompetitiveReturn(Player player, String reason) {
+        String previousReason = blockedCompetitiveReturns.put(player.getUniqueId(), reason);
+        if (!reason.equals(previousReason)) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Competitive return is blocked for " + player.getUniqueId() + ": " + reason
+            );
         }
     }
 
@@ -247,8 +327,11 @@ public final class MinecraftNetworkPlugin {
     public void onProxyShutdown(ProxyShutdownEvent event) {
         cancelCompetitiveRouteTask();
         proxy.getChannelRegistrar().unregister(TRANSFER_CHANNEL);
-        competitiveConnectionsInFlight.clear();
-        missingCompetitiveBackends.clear();
+        routeConnectionsInFlight.clear();
+        missingProxyBackends.clear();
+        blockedCompetitiveReturns.clear();
+        playerZoneRouting = null;
+        competitiveRuntimeTopology = null;
         competitiveEntryRoutes = null;
         transferRouting = null;
         zoneRouter = null;
