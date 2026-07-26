@@ -18,8 +18,8 @@ import java.util.UUID;
  *
  * <p>The queue itself is only durable intent. The second eligible player atomically consumes both queue rows and
  * creates the normal authoritative CREATED ranked match in the same PostgreSQL transaction. Existing competitive
- * reservations are never bypassed, and direct trusted match creation automatically clears stale queue intent through
- * the V67 trigger.</p>
+ * reservations are never bypassed, and stale queue intent is rejected when the player's persistent Paper session is
+ * no longer live.</p>
  */
 public final class RankedMatchmakingRepository {
     private static final long QUEUE_ADVISORY_LOCK = 0x52414E4B45445155L;
@@ -55,6 +55,7 @@ public final class RankedMatchmakingRepository {
                     deleteQueueEntry(connection, playerId);
                     throw new RankedArenaException("player already has a live competitive execution reservation");
                 }
+                requireLivePersistentSession(connection, playerId);
 
                 purgeIneligibleQueueEntries(connection);
                 insertQueueEntry(connection, playerId);
@@ -85,6 +86,16 @@ public final class RankedMatchmakingRepository {
                     throw new RankedArenaException("player became reserved for another competitive execution");
                 }
                 if (hasCompetitiveReservation(connection, opponentId)) {
+                    deleteQueueEntry(connection, opponentId);
+                    connection.commit();
+                    return Optional.empty();
+                }
+                if (!hasLivePersistentSession(connection, playerId)) {
+                    deleteQueueEntry(connection, playerId);
+                    connection.commit();
+                    throw new RankedArenaException("player no longer has a live persistent session for Ranked");
+                }
+                if (!hasLivePersistentSession(connection, opponentId)) {
                     deleteQueueEntry(connection, opponentId);
                     connection.commit();
                     return Optional.empty();
@@ -123,9 +134,16 @@ public final class RankedMatchmakingRepository {
         Objects.requireNonNull(playerId, "playerId");
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT joined_at
-                     FROM ranked_matchmaking_queue
-                     WHERE player_id = ?
+                     SELECT queue_entry.joined_at
+                     FROM ranked_matchmaking_queue queue_entry
+                     WHERE queue_entry.player_id = ?
+                       AND EXISTS (
+                           SELECT 1
+                           FROM player_sessions session
+                           WHERE session.player_id = queue_entry.player_id
+                             AND session.status IN ('ACTIVE', 'TRANSFERRING')
+                             AND session.lease_expires_at > NOW()
+                       )
                      """)) {
             statement.setObject(1, playerId);
             try (ResultSet row = statement.executeQuery()) {
@@ -312,6 +330,28 @@ public final class RankedMatchmakingRepository {
         }
     }
 
+    private static void requireLivePersistentSession(Connection connection, UUID playerId) throws SQLException {
+        if (!hasLivePersistentSession(connection, playerId)) {
+            throw new RankedArenaException("player must have a live persistent session to queue for Ranked");
+        }
+    }
+
+    private static boolean hasLivePersistentSession(Connection connection, UUID playerId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT 1
+                FROM player_sessions
+                WHERE player_id = ?
+                  AND status IN ('ACTIVE', 'TRANSFERRING')
+                  AND lease_expires_at > NOW()
+                LIMIT 1
+                """)) {
+            statement.setObject(1, playerId);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next();
+            }
+        }
+    }
+
     private static boolean hasCompetitiveReservation(Connection connection, UUID playerId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT 1
@@ -339,6 +379,13 @@ public final class RankedMatchmakingRepository {
                     FROM ranked_match_participants participant
                     WHERE participant.player_id = queue_entry.player_id
                       AND participant.released_at IS NULL
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM player_sessions session
+                    WHERE session.player_id = queue_entry.player_id
+                      AND session.status IN ('ACTIVE', 'TRANSFERRING')
+                      AND session.lease_expires_at > NOW()
                 )
                 """)) {
             statement.executeUpdate();
