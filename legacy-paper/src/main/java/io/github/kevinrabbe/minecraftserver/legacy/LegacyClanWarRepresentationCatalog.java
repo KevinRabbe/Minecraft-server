@@ -8,11 +8,15 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
- * Explicit definition-id -> Minecraft-1.8 representation allowlist for Clan War.
+ * Version-bound definition-id -> Minecraft-1.8 representation allowlist for Clan War.
  *
  * <p>This first slice intentionally supports only baseline items whose frozen intrinsic roll state is empty and whose
  * upgrade level is zero. Silently flattening a rolled/upgraded MMO item into a vanilla legacy item would change the
  * player's selected combat value, so unsupported combat semantics fail closed instead.</p>
+ *
+ * <p>The production mapping is part of {@code war.legacy_1_8_9@1} semantics. It is code-bound rather than operator
+ * configuration so a deployment cannot silently change combat value while executions still claim the same frozen
+ * ruleset version.</p>
  */
 final class LegacyClanWarRepresentationCatalog {
     private static final Pattern DEFINITION_ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
@@ -39,6 +43,12 @@ final class LegacyClanWarRepresentationCatalog {
         this.materialsByDefinition = Collections.unmodifiableMap(resolved);
     }
 
+    static LegacyClanWarRepresentationCatalog legacy189V1() {
+        LinkedHashMap<String, String> mappings = new LinkedHashMap<String, String>();
+        mappings.put("equipment.starter_sword", "IRON_SWORD");
+        return new LegacyClanWarRepresentationCatalog(mappings);
+    }
+
     String requireBaselineMaterial(LegacyLoadoutItem item) {
         Objects.requireNonNull(item, "item");
         if (!isEmptyRollState(item.getRollStateJson()) || item.getUpgradeLevel() != 0) {
@@ -50,7 +60,7 @@ final class LegacyClanWarRepresentationCatalog {
         String material = materialsByDefinition.get(item.getDefinitionId());
         if (material == null) {
             throw new IllegalArgumentException(
-                    "Clan-War legacy representation is not configured for " + item.getDefinitionId()
+                    "Clan-War legacy representation is not defined by the frozen ruleset for " + item.getDefinitionId()
             );
         }
         return material;
