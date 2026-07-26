@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class LegacyClanWarRuntimeStateTest {
     @Test
-    void preparationKeepsFrozenIdentityFreeRepresentationAndObjectiveTogether() {
+    void preparationKeepsFrozenMaterializationAndObjectiveTogether() {
         UUID challengerClan = UUID.randomUUID();
         UUID defenderClan = UUID.randomUUID();
         LegacyClanWarExecution war = war(challengerClan, defenderClan);
@@ -24,18 +24,25 @@ class LegacyClanWarRuntimeStateTest {
         );
         LinkedHashMap<String, String> configured = new LinkedHashMap<String, String>();
         configured.put("equipment.starter_sword", "IRON_SWORD");
-        LegacyClanWarObjectiveSettings settings = new LegacyClanWarObjectiveSettings(3.0D, 20, 1, 900);
+        LegacyClanWarArenaSettings arenaSettings = new LegacyClanWarArenaSettings(
+                128, 200, 0, 24, 4, 16, 2.0D,
+                "STONE", "BEDROCK", "GLASS"
+        );
+        LegacyClanWarObjectiveSettings objectiveSettings = new LegacyClanWarObjectiveSettings(3.0D, 20, 1, 900);
 
         LegacyClanWarRuntimeState state = LegacyClanWarRuntimeState.prepare(
                 war,
                 loadout,
                 new LegacyClanWarRepresentationCatalog(configured),
-                settings
+                arenaSettings,
+                objectiveSettings
         );
 
         assertEquals(war, state.getWar());
         assertEquals(1, state.getRepresentationPlan().getItems().size());
         assertEquals("IRON_SWORD", state.getRepresentationPlan().getItems().get(0).getMaterialId());
+        assertEquals(2, state.getMaterializationPlan().getSpawnLayout().size());
+        assertEquals(2, state.getMaterializationPlan().getInventoryProjection().getItemsByMinecraftUuid().size());
         assertEquals(challengerClan, state.getObjective().evaluate(1, 0));
         assertEquals(900, state.getObjectiveSettings().getMatchTimeoutSeconds());
     }
