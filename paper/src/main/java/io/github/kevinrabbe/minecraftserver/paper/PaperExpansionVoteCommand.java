@@ -6,6 +6,10 @@ import io.github.kevinrabbe.minecraftserver.common.world.ExpansionVoteException;
 import io.github.kevinrabbe.minecraftserver.common.world.ExpansionVoteQueryRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.ExpansionVoteRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.ExpansionVoteView;
+import io.github.kevinrabbe.minecraftserver.common.world.FeatureAccessibility;
+import io.github.kevinrabbe.minecraftserver.common.world.FeatureState;
+import io.github.kevinrabbe.minecraftserver.common.world.WorldEraSnapshot;
+import io.github.kevinrabbe.minecraftserver.common.world.WorldProgressionQueryRepository;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -24,26 +28,30 @@ import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 
-/** Player-facing world-expansion ballots; scheduling/resolution remain separate authoritative operations. */
+/** Player-facing world-expansion ballots plus read-only canonical progression state. */
 final class PaperExpansionVoteCommand implements CommandExecutor, TabCompleter {
     private static final int OPEN_VOTE_LIMIT = 5;
+    private static final int FEATURE_LIMIT = 100;
     private static final String CAST_REASON = "vote.paper_cast";
 
     private final JavaPlugin plugin;
     private final PaperPlayerIdentityResolver identities;
     private final ExpansionVoteRepository votes;
     private final ExpansionVoteQueryRepository queries;
+    private final WorldProgressionQueryRepository progression;
 
     private PaperExpansionVoteCommand(
             JavaPlugin plugin,
             PaperPlayerIdentityResolver identities,
             ExpansionVoteRepository votes,
-            ExpansionVoteQueryRepository queries
+            ExpansionVoteQueryRepository queries,
+            WorldProgressionQueryRepository progression
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.identities = Objects.requireNonNull(identities, "identities");
         this.votes = Objects.requireNonNull(votes, "votes");
         this.queries = Objects.requireNonNull(queries, "queries");
+        this.progression = Objects.requireNonNull(progression, "progression");
     }
 
     static void install(JavaPlugin plugin, javax.sql.DataSource dataSource) {
@@ -54,7 +62,8 @@ final class PaperExpansionVoteCommand implements CommandExecutor, TabCompleter {
                 plugin,
                 new PaperPlayerIdentityResolver(dataSource),
                 new ExpansionVoteRepository(dataSource),
-                new ExpansionVoteQueryRepository(dataSource)
+                new ExpansionVoteQueryRepository(dataSource),
+                new WorldProgressionQueryRepository(dataSource)
         );
         command.setExecutor(executor);
         command.setTabCompleter(executor);
@@ -69,6 +78,10 @@ final class PaperExpansionVoteCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 0 || (args.length == 1 && args[0].equalsIgnoreCase("list"))) {
             scheduleList(player.getUniqueId());
+            return true;
+        }
+        if (args.length == 1 && args[0].equalsIgnoreCase("state")) {
+            scheduleState(player.getUniqueId());
             return true;
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("cast")) {
@@ -90,7 +103,7 @@ final class PaperExpansionVoteCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
-            return List.of("list", "cast").stream().filter(value -> value.startsWith(prefix)).toList();
+            return List.of("list", "state", "cast").stream().filter(value -> value.startsWith(prefix)).toList();
         }
         return List.of();
     }
@@ -128,6 +141,37 @@ final class PaperExpansionVoteCommand implements CommandExecutor, TabCompleter {
                 sendIfOnline(minecraftUuid, messages);
             } catch (SQLException | RuntimeException exception) {
                 handleFailure(minecraftUuid, "Could not load expansion votes.", exception);
+            }
+        });
+    }
+
+    private void scheduleState(UUID minecraftUuid) {
+        runAsync(() -> {
+            try {
+                ArrayList<String> messages = new ArrayList<>();
+                WorldEraSnapshot era = progression.currentEra().orElse(null);
+                messages.add(era == null
+                        ? "World progression — no canonical era has started yet."
+                        : "World progression — era " + era.eraId().value() + " (#" + era.sequenceNumber() + ")");
+
+                List<FeatureState> features = progression.listFeatures(FEATURE_LIMIT);
+                List<String> available = features.stream()
+                        .filter(feature -> feature.accessibility() == FeatureAccessibility.AVAILABLE)
+                        .map(FeatureState::featureId)
+                        .toList();
+                List<String> locked = features.stream()
+                        .filter(feature -> feature.accessibility() == FeatureAccessibility.LOCKED)
+                        .map(FeatureState::featureId)
+                        .toList();
+                messages.add(available.isEmpty()
+                        ? "Available features: none recorded"
+                        : "Available features: " + String.join(", ", available));
+                if (!locked.isEmpty()) {
+                    messages.add("Known locked features: " + String.join(", ", locked));
+                }
+                sendIfOnline(minecraftUuid, messages);
+            } catch (SQLException | RuntimeException exception) {
+                handleFailure(minecraftUuid, "Could not load world progression state.", exception);
             }
         });
     }
@@ -181,6 +225,8 @@ final class PaperExpansionVoteCommand implements CommandExecutor, TabCompleter {
     }
 
     private static void usage(Player player) {
-        player.sendMessage(Component.text("Expansion vote: /vote [list] | /vote cast <vote-id> <candidate-id>"));
+        player.sendMessage(Component.text(
+                "Expansion vote: /vote [list] | /vote state | /vote cast <vote-id> <candidate-id>"
+        ));
     }
 }
