@@ -336,6 +336,9 @@ class CompetitiveExecutionServiceIntegrationTest {
         wars.setRoster(UUID.randomUUID(), war.warId(), leaderB, clanB.clanId(), List.of(leaderB));
         ClanWarSnapshot locked = wars.lockRoster(UUID.randomUUID(), war.warId());
         assertEquals(ClanWarStatus.ROSTER_LOCKED, locked.status());
+        ClanWarLoadoutReadinessRepository readiness = new ClanWarLoadoutReadinessRepository(dataSource);
+        readiness.confirm(UUID.randomUUID(), locked.warId(), leaderA);
+        readiness.confirm(UUID.randomUUID(), locked.warId(), leaderB);
         return new WarFixture(clanA, clanB, locked);
     }
 
