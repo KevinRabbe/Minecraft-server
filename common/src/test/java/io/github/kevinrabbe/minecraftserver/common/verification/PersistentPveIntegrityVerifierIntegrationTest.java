@@ -10,9 +10,9 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyFamilyId;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchWithdrawalResult;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityRepository;
+import io.github.kevinrabbe.minecraftserver.common.pve.map.MapDifficulty;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapItemProfile;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRunDefinition;
-import io.github.kevinrabbe.minecraftserver.common.pve.map.MapDifficulty;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -125,10 +125,10 @@ class PersistentPveIntegrityVerifierIntegrationTest {
 
     @Test
     void healthyMapAndBountyEvidenceProducesNoIssues() throws Exception {
-        UUID mapPlayer = player("VerifyMapHealthy");
+        UUID mapPlayer = player("MapHealthy");
         completeMap(mapPlayer);
 
-        UUID bountyPlayer = player("VerifyBountyHealthy");
+        UUID bountyPlayer = player("BountyHealthy");
         insertCompletedBountyReward(bountyPlayer, 10);
         BountyPouchWithdrawalResult withdrawal = pouches.withdraw(
                 UUID.randomUUID(),
@@ -145,25 +145,26 @@ class PersistentPveIntegrityVerifierIntegrationTest {
 
     @Test
     void reopenedConsumedMapItemIsReported() throws Exception {
-        UUID player = player("VerifyMapCorrupt");
+        UUID player = player("MapCorrupt");
         MapItemProfile profile = maps.issueMap(
                 UUID.randomUUID(), MAP, player, mapDefinition(), "map.issue"
         );
         UUID runId = maps.openMap(UUID.randomUUID(), profile.itemInstanceId(), player, 0, "map.open");
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE item_instances
-                     SET location_kind = 'PLAYER_INVENTORY',
-                         location_id = ?,
-                         state_version = state_version + 1,
-                         updated_at = NOW()
-                     WHERE item_instance_id = ?
-                     """)) {
-            statement.setObject(1, player);
-            statement.setObject(2, profile.itemInstanceId());
-            assertEquals(1, statement.executeUpdate());
-        }
+        withReplicationTriggersDisabled(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE item_instances
+                    SET location_kind = 'PLAYER_INVENTORY',
+                        location_id = ?,
+                        state_version = state_version + 1,
+                        updated_at = NOW()
+                    WHERE item_instance_id = ?
+                    """)) {
+                statement.setObject(1, player);
+                statement.setObject(2, profile.itemInstanceId());
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
 
         List<IntegrityIssue> issues = verifier.verify(100);
         assertTrue(issues.stream().anyMatch(issue ->
@@ -173,26 +174,27 @@ class PersistentPveIntegrityVerifierIntegrationTest {
 
     @Test
     void clearAttachedToNonCompletedRunIsReported() throws Exception {
-        UUID player = player("VerifyMapClear");
+        UUID player = player("MapClear");
         MapItemProfile profile = maps.issueMap(
                 UUID.randomUUID(), MAP, player, mapDefinition(), "map.issue"
         );
         UUID runId = maps.openMap(UUID.randomUUID(), profile.itemInstanceId(), player, 0, "map.open");
         maps.startRun(UUID.randomUUID(), runId, 0, List.of(player), "map.start");
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     INSERT INTO map_clears(
-                         clear_id, run_id, difficulty, elapsed_millis, solo,
-                         world_era_id, balance_version, completed_at
-                     ) VALUES (?, ?, 1, 1000, TRUE, ?, 1, ?)
-                     """)) {
-            statement.setObject(1, UUID.randomUUID());
-            statement.setObject(2, runId);
-            statement.setString(3, ERA);
-            statement.setTimestamp(4, Timestamp.from(NOW.plusSeconds(10)));
-            assertEquals(1, statement.executeUpdate());
-        }
+        withReplicationTriggersDisabled(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO map_clears(
+                        clear_id, run_id, difficulty, elapsed_millis, solo,
+                        world_era_id, balance_version, completed_at
+                    ) VALUES (?, ?, 1, 1000, TRUE, ?, 1, ?)
+                    """)) {
+                statement.setObject(1, UUID.randomUUID());
+                statement.setObject(2, runId);
+                statement.setString(3, ERA);
+                statement.setTimestamp(4, Timestamp.from(NOW.plusSeconds(10)));
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
 
         List<IntegrityIssue> issues = verifier.verify(100);
         assertTrue(issues.stream().anyMatch(issue ->
@@ -202,23 +204,24 @@ class PersistentPveIntegrityVerifierIntegrationTest {
 
     @Test
     void bountyPouchDriftIsReportedAgainstRewardAndWithdrawalHistory() throws Exception {
-        UUID player = player("VerifyPouchDrift");
+        UUID player = player("PouchDrift");
         insertCompletedBountyReward(player, 10);
         pouches.withdraw(UUID.randomUUID(), player, FAMILY, MATERIAL, 4, "bounty.pouch_withdraw");
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE bounty_pouch_balances
-                     SET quantity = quantity + 1,
-                         state_version = state_version + 1,
-                         updated_at = NOW()
-                     WHERE player_id = ? AND family_id = ? AND commodity_definition_id = ?
-                     """)) {
-            statement.setObject(1, player);
-            statement.setString(2, FAMILY.value());
-            statement.setString(3, MATERIAL);
-            assertEquals(1, statement.executeUpdate());
-        }
+        withReplicationTriggersDisabled(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE bounty_pouch_balances
+                    SET quantity = quantity + 1,
+                        state_version = state_version + 1,
+                        updated_at = NOW()
+                    WHERE player_id = ? AND family_id = ? AND commodity_definition_id = ?
+                    """)) {
+                statement.setObject(1, player);
+                statement.setString(2, FAMILY.value());
+                statement.setString(3, MATERIAL);
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
 
         List<IntegrityIssue> issues = verifier.verify(100);
         assertTrue(issues.stream().anyMatch(issue ->
@@ -228,21 +231,22 @@ class PersistentPveIntegrityVerifierIntegrationTest {
 
     @Test
     void bountyWithdrawalDeliveryDriftIsReported() throws Exception {
-        UUID player = player("VerifyPouchDelivery");
+        UUID player = player("PouchDelivery");
         insertCompletedBountyReward(player, 10);
         BountyPouchWithdrawalResult withdrawal = pouches.withdraw(
                 UUID.randomUUID(), player, FAMILY, MATERIAL, 4, "bounty.pouch_withdraw"
         );
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE pending_commodity_deliveries
-                     SET quantity = quantity + 1
-                     WHERE delivery_id = ?
-                     """)) {
-            statement.setObject(1, withdrawal.deliveryId());
-            assertEquals(1, statement.executeUpdate());
-        }
+        withReplicationTriggersDisabled(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE pending_commodity_deliveries
+                    SET quantity = quantity + 1
+                    WHERE delivery_id = ?
+                    """)) {
+                statement.setObject(1, withdrawal.deliveryId());
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
 
         List<IntegrityIssue> issues = verifier.verify(100);
         assertTrue(issues.stream().anyMatch(issue -> issue.code().equals("BOUNTY_WITHDRAWAL_DELIVERY_MISMATCH")));
@@ -250,8 +254,8 @@ class PersistentPveIntegrityVerifierIntegrationTest {
 
     @Test
     void outputIsBoundedAcrossPveCorruptions() throws Exception {
-        UUID first = player("VerifyBoundMapA");
-        UUID second = player("VerifyBoundMapB");
+        UUID first = player("BoundMapA");
+        UUID second = player("BoundMapB");
         corruptConsumedMap(first);
         corruptConsumedMap(second);
 
@@ -269,16 +273,17 @@ class PersistentPveIntegrityVerifierIntegrationTest {
     private void corruptConsumedMap(UUID player) throws SQLException {
         MapItemProfile profile = maps.issueMap(UUID.randomUUID(), MAP, player, mapDefinition(), "map.issue");
         maps.openMap(UUID.randomUUID(), profile.itemInstanceId(), player, 0, "map.open");
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE item_instances
-                     SET state_version = state_version + 1,
-                         updated_at = NOW()
-                     WHERE item_instance_id = ?
-                     """)) {
-            statement.setObject(1, profile.itemInstanceId());
-            assertEquals(1, statement.executeUpdate());
-        }
+        withReplicationTriggersDisabled(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE item_instances
+                    SET state_version = state_version + 1,
+                        updated_at = NOW()
+                    WHERE item_instance_id = ?
+                    """)) {
+                statement.setObject(1, profile.itemInstanceId());
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
     }
 
     private void insertCompletedBountyReward(UUID player, long quantity) throws SQLException {
@@ -354,6 +359,22 @@ class PersistentPveIntegrityVerifierIntegrationTest {
         }
     }
 
+    private void withReplicationTriggersDisabled(SqlWork work) throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (Statement statement = connection.createStatement()) {
+                    statement.execute("SET LOCAL session_replication_role = replica");
+                }
+                work.run(connection);
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                throw exception;
+            }
+        }
+    }
+
     private MapRunDefinition mapDefinition() {
         return new MapRunDefinition(
                 new MapDifficulty(1),
@@ -390,5 +411,10 @@ class PersistentPveIntegrityVerifierIntegrationTest {
             throw new IllegalStateException("Missing environment variable: " + name);
         }
         return value;
+    }
+
+    @FunctionalInterface
+    private interface SqlWork {
+        void run(Connection connection) throws SQLException;
     }
 }
