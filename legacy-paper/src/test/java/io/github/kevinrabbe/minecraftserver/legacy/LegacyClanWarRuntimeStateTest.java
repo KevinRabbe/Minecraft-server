@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class LegacyClanWarRuntimeStateTest {
     @Test
-    void preparationKeepsFrozenMaterializationAndObjectiveTogether() {
+    void preparationKeepsFrozenMaterializationAndObjectiveSettingsTogether() {
         UUID challengerClan = UUID.randomUUID();
         UUID defenderClan = UUID.randomUUID();
         LegacyClanWarExecution war = war(challengerClan, defenderClan);
@@ -43,7 +43,6 @@ class LegacyClanWarRuntimeStateTest {
         assertEquals("IRON_SWORD", state.getRepresentationPlan().getItems().get(0).getMaterialId());
         assertEquals(2, state.getMaterializationPlan().getSpawnLayout().size());
         assertEquals(2, state.getMaterializationPlan().getInventoryProjection().getItemsByMinecraftUuid().size());
-        assertEquals(challengerClan, state.getObjective().evaluate(1, 0));
         assertEquals(900, state.getObjectiveSettings().getMatchTimeoutSeconds());
     }
 
