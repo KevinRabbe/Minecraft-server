@@ -21,6 +21,9 @@ commands:
   map:
     description: Open the authoritative individualized Map in your main hand
     usage: /map open
+  vote:
+    description: View and cast authoritative player-directed world-expansion ballots
+    usage: /vote [list] | /vote cast <vote-id> <candidate-id>
   bank:
     description: View and manage protected Bank Manager Coin
     usage: /bank [deposit <coins>|withdraw <coins>|upgrade]
