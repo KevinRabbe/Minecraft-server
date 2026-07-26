@@ -58,6 +58,7 @@ final class PaperExpansionVoteCommand implements CommandExecutor, TabCompleter {
         );
         command.setExecutor(executor);
         command.setTabCompleter(executor);
+        PaperExpansionVoteLifecycle.schedule(plugin, dataSource);
     }
 
     @Override
