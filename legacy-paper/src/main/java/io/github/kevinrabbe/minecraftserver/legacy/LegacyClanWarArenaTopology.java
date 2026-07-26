@@ -2,7 +2,7 @@ package io.github.kevinrabbe.minecraftserver.legacy;
 
 import java.util.Objects;
 
-/** Pure consistency checks between disposable Clan-War arena geometry and its control point. */
+/** Pure consistency checks for disposable competitive arena geometry. */
 final class LegacyClanWarArenaTopology {
     private LegacyClanWarArenaTopology() { }
 
@@ -25,6 +25,29 @@ final class LegacyClanWarArenaTopology {
                 || controlPoint.getCenterY() < minimumY
                 || controlPoint.getCenterY() > maximumY) {
             throw new IllegalArgumentException("Clan-War control point must be inside the disposable arena interior");
+        }
+    }
+
+    static void requireDisjointFromRanked(
+            LegacyClanWarArenaSettings clanWar,
+            LegacyRankedArenaSettings ranked
+    ) {
+        Objects.requireNonNull(clanWar, "clanWar");
+        Objects.requireNonNull(ranked, "ranked");
+
+        boolean separatedX = clanWar.getOriginX() + clanWar.getHalfSize()
+                < ranked.getOriginX() - ranked.getHalfSize()
+                || ranked.getOriginX() + ranked.getHalfSize()
+                < clanWar.getOriginX() - clanWar.getHalfSize();
+        boolean separatedZ = clanWar.getOriginZ() + clanWar.getHalfSize()
+                < ranked.getOriginZ() - ranked.getHalfSize()
+                || ranked.getOriginZ() + ranked.getHalfSize()
+                < clanWar.getOriginZ() - clanWar.getHalfSize();
+        boolean separatedY = clanWar.getFloorY() + clanWar.getWallHeight() < ranked.getFloorY()
+                || ranked.getFloorY() + ranked.getWallHeight() < clanWar.getFloorY();
+
+        if (!separatedX && !separatedZ && !separatedY) {
+            throw new IllegalArgumentException("Ranked and Clan-War disposable arena regions must not overlap");
         }
     }
 }
