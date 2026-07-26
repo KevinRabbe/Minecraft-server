@@ -143,8 +143,9 @@ class ClanWarLoadoutReadinessIntegrationTest {
                         backend_id,
                         max_execution_lease_seconds,
                         dispatch_enabled,
-                        max_active_executions
-                    ) VALUES ('war-readiness-runtime', 'legacy-war-readiness', 120, TRUE, 4)
+                        max_active_executions,
+                        supports_clan_war
+                    ) VALUES ('war-readiness-runtime', 'legacy-war-readiness', 120, TRUE, 4, TRUE)
                     """);
         }
     }
