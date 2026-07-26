@@ -52,6 +52,8 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchReposit
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLifecycleRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLoadoutReadinessRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLoadoutRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarQueryRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarResolutionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarRuleset;
@@ -329,12 +331,17 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             );
             PaperClanWarCommand clanWarCommand = new PaperClanWarCommand(
                     this,
+                    sessionController,
                     playerIdentities,
                     clanMemberships,
                     clanQueries,
                     clanWars,
                     new ClanWarQueryRepository(database.dataSource()),
-                    new ClanWarResolutionRepository(database.dataSource())
+                    new ClanWarResolutionRepository(database.dataSource()),
+                    new ClanWarLoadoutRepository(database.dataSource(), itemCatalog, uniqueItemRemoval),
+                    new ClanWarLoadoutReadinessRepository(database.dataSource()),
+                    itemCatalog,
+                    uniqueItemRemoval
             );
             clanCommand = new PaperClanRouterCommand(
                     this,
