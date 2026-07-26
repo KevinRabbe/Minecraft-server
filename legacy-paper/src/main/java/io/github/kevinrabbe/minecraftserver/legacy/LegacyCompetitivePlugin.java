@@ -48,10 +48,12 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private String backendId;
     private int executionLeaseSeconds;
     private BukkitTask pumpTask;
+    private BukkitTask clanWarObjectiveTask;
     private LegacyRankedArenaMaterializer rankedArenaMaterializer;
     private LegacyRankedTimeoutTracker rankedTimeoutTracker;
     private LegacyClanWarRepresentationCatalog clanWarRepresentationCatalog;
     private LegacyClanWarObjectiveSettings clanWarObjectiveSettings;
+    private LegacyClanWarObjectiveController clanWarObjectiveController;
 
     @Override
     public void onEnable() {
@@ -63,8 +65,19 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         if (worlds.isEmpty()) {
             throw new IllegalStateException("Legacy competitive runtime requires one loaded Bukkit world");
         }
-        rankedArenaMaterializer = new LegacyRankedArenaMaterializer(worlds.get(0), rankedSettings);
+        World competitiveWorld = worlds.get(0);
+        rankedArenaMaterializer = new LegacyRankedArenaMaterializer(competitiveWorld, rankedSettings);
         rankedTimeoutTracker = new LegacyRankedTimeoutTracker(rankedSettings.getMatchTimeoutSeconds());
+        LegacyClanWarControlPointGeometry clanWarGeometry = LegacyClanWarControlPointGeometryLoader.load(
+                getConfig(),
+                clanWarObjectiveSettings
+        );
+        clanWarObjectiveController = new LegacyClanWarObjectiveController(
+                this,
+                combatGate,
+                competitiveWorld,
+                clanWarGeometry
+        );
 
         backendId = requireEnvironment("COMPETITIVE_BACKEND_ID");
         executionLeaseSeconds = optionalPositiveInt("COMPETITIVE_EXECUTION_LEASE_SECONDS", 60, 3600);
@@ -103,6 +116,18 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 INITIAL_POLL_DELAY_TICKS,
                 POLL_PERIOD_TICKS
         );
+        clanWarObjectiveTask = getServer().getScheduler().runTaskTimer(
+                this,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        LegacyClanWarObjectiveController controller = clanWarObjectiveController;
+                        if (controller != null) controller.tick();
+                    }
+                },
+                clanWarObjectiveSettings.getEvaluationPeriodTicks(),
+                clanWarObjectiveSettings.getEvaluationPeriodTicks()
+        );
         getLogger().info("Started isolated 1.8.9 competitive runtime backend " + backendId);
     }
 
@@ -112,12 +137,17 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             pumpTask.cancel();
             pumpTask = null;
         }
+        if (clanWarObjectiveTask != null) {
+            clanWarObjectiveTask.cancel();
+            clanWarObjectiveTask = null;
+        }
         combatGate.clear();
         rankedArenaMaterializer = null;
         if (rankedTimeoutTracker != null) {
             rankedTimeoutTracker.clear();
             rankedTimeoutTracker = null;
         }
+        clanWarObjectiveController = null;
         clanWarRepresentationCatalog = null;
         clanWarObjectiveSettings = null;
         onlineMinecraftUuids.clear();
@@ -212,7 +242,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         schedulePoll(onlineMinecraftUuids.size());
     }
 
-    /** Combat controller entry point: queue an exactly-once winner report using a frozen execution side identity. */
+    /** Combat controller entry point: queue an exactly-once winner report using the frozen runtime side identity. */
     void recordWinner(UUID executionId, UUID winnerMinecraftUuid) {
         LegacyExecution execution = requireActiveExecution(executionId);
         UUID winnerSideId = execution.sideIdForMinecraftUuid(winnerMinecraftUuid);
@@ -249,6 +279,10 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
     Map<UUID, LegacyExecution> snapshotActiveExecutions() {
         return Collections.unmodifiableMap(new LinkedHashMap<UUID, LegacyExecution>(activeExecutions));
+    }
+
+    Map<UUID, LegacyClanWarRuntimeState> snapshotClanWarRuntimeStates() {
+        return Collections.unmodifiableMap(new LinkedHashMap<UUID, LegacyClanWarRuntimeState>(clanWarRuntimeStates));
     }
 
     private void expireTimedOutRankedExecutions() {
