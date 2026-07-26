@@ -12,7 +12,8 @@ import java.util.UUID;
 
 /**
  * Resolves persisted Map handoff failures without restoring the consumed Map.
- * A concurrent target start wins: failRun rejects once the run is no longer CREATED, so the bound slot remains live.
+ * A concurrent target start wins: failRun rejects once the scanned CREATED state_version is stale, so the bound slot
+ * remains live.
  */
 public final class MapEncounterRecoveryService {
     private static final String FAIL_REASON = "map.encounter_recovery";
@@ -71,10 +72,11 @@ public final class MapEncounterRecoveryService {
                 maps.failRun(
                         failOperationId(candidate.runId()),
                         candidate.runId(),
+                        candidate.runStateVersion(),
                         FAIL_REASON
                 );
             } catch (MapAuthorityException concurrentStateChange) {
-                // Target start/completion may have won after the scan. Never release a slot for a non-CREATED run here.
+                // Target start/completion may have won after the scan. Never release a slot for a changed run here.
                 continue;
             }
 
