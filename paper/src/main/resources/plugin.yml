@@ -9,6 +9,10 @@ commands:
     description: Development-only logical zone transfer acceptance command
     usage: /devzone <logical-zone-id>
     permission: minecraftserver.dev.route
+  integrity:
+    description: Run a bounded read-only persistent integrity verification pass
+    usage: /integrity [limit]
+    permission: minecraftserver.admin.integrity
   attune:
     description: View or select your active Artifact Attunement profile
     usage: /attune [profile]
@@ -57,4 +61,7 @@ commands:
 permissions:
   minecraftserver.dev.route:
     description: Allows the development logical-zone transfer command
+    default: op
+  minecraftserver.admin.integrity:
+    description: Allows running bounded persistent integrity diagnostics
     default: op
