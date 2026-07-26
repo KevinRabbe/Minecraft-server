@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -11,9 +12,12 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -43,9 +47,18 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private String backendId;
     private int executionLeaseSeconds;
     private BukkitTask pumpTask;
+    private LegacyRankedArenaMaterializer rankedArenaMaterializer;
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();
+        LegacyRankedArenaSettings rankedSettings = LegacyRankedArenaSettingsLoader.load(getConfig());
+        List<World> worlds = getServer().getWorlds();
+        if (worlds.isEmpty()) {
+            throw new IllegalStateException("Legacy competitive runtime requires one loaded Bukkit world");
+        }
+        rankedArenaMaterializer = new LegacyRankedArenaMaterializer(worlds.get(0), rankedSettings);
+
         backendId = requireEnvironment("COMPETITIVE_BACKEND_ID");
         executionLeaseSeconds = optionalPositiveInt("COMPETITIVE_EXECUTION_LEASE_SECONDS", 60, 3600);
         database = new LegacyRuntimeDatabase(
@@ -69,11 +82,13 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(new LegacyCompetitiveIsolationListener(this, combatGate), this);
+        getServer().getPluginManager().registerEvents(new LegacyRankedCombatController(this, combatGate), this);
         pumpTask = getServer().getScheduler().runTaskTimer(
                 this,
                 new Runnable() {
                     @Override
                     public void run() {
+                        materializeReadyRankedExecutions();
                         schedulePoll(onlineMinecraftUuids.size());
                     }
                 },
@@ -90,6 +105,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             pumpTask = null;
         }
         combatGate.clear();
+        rankedArenaMaterializer = null;
         onlineMinecraftUuids.clear();
         admittedPlayerExecutions.clear();
         activeExecutions.clear();
@@ -157,6 +173,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         onlineMinecraftUuids.put(event.getPlayer().getUniqueId(), Boolean.TRUE);
+        materializeReadyRankedExecutions();
         schedulePoll(onlineMinecraftUuids.size());
     }
 
@@ -175,7 +192,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         queueOutcome(execution, new PendingOutcome(false, winnerSideId));
     }
 
-    /** Future combat controller entry point for runtime failure/abort. */
+    /** Runtime materialization/abort entry point. */
     void recordFailure(UUID executionId) {
         LegacyExecution execution = requireActiveExecution(executionId);
         queueOutcome(execution, new PendingOutcome(true, null));
@@ -196,6 +213,62 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
     Map<UUID, LegacyExecution> snapshotActiveExecutions() {
         return Collections.unmodifiableMap(new LinkedHashMap<UUID, LegacyExecution>(activeExecutions));
+    }
+
+    private void materializeReadyRankedExecutions() {
+        LegacyRankedArenaMaterializer materializer = rankedArenaMaterializer;
+        if (materializer == null) return;
+
+        ArrayList<LegacyExecution> candidates = new ArrayList<LegacyExecution>();
+        for (LegacyExecution execution : activeExecutions.values()) {
+            if (LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
+                    && !pendingOutcomes.containsKey(execution.getExecutionId())
+                    && !combatGate.isEnabled(execution.getExecutionId())) {
+                candidates.add(execution);
+            }
+        }
+        candidates.sort(Comparator.comparing(execution -> execution.getExecutionId().toString()));
+
+        for (LegacyExecution execution : candidates) {
+            LegacyRankedExecution ranked;
+            try {
+                ranked = LegacyRankedExecution.requireSupported(execution);
+            } catch (RuntimeException exception) {
+                getLogger().log(Level.SEVERE, "Refusing to materialize invalid Ranked execution", exception);
+                safeRecordFailure(execution.getExecutionId());
+                continue;
+            }
+
+            Player playerA = getServer().getPlayer(ranked.getPlayerA().getMinecraftUuid());
+            Player playerB = getServer().getPlayer(ranked.getPlayerB().getMinecraftUuid());
+            if (playerA == null || !playerA.isOnline() || playerB == null || !playerB.isOnline()) {
+                continue;
+            }
+
+            try {
+                if (materializer.materialize(ranked, playerA, playerB, combatGate)) {
+                    getLogger().info("Materialized Ranked execution " + execution.getExecutionId());
+                    return;
+                }
+                // The first V1 materializer owns only one arena. Another execution may wait without being treated as a loss.
+                return;
+            } catch (RuntimeException exception) {
+                getLogger().log(
+                        Level.SEVERE,
+                        "Ranked arena materialization failed for " + execution.getExecutionId(),
+                        exception
+                );
+                safeRecordFailure(execution.getExecutionId());
+            }
+        }
+    }
+
+    private void safeRecordFailure(UUID executionId) {
+        try {
+            recordFailure(executionId);
+        } catch (IllegalStateException ignored) {
+            // A concurrent/local terminal outcome already removed the execution.
+        }
     }
 
     private void queueOutcome(LegacyExecution execution, PendingOutcome outcome) {
