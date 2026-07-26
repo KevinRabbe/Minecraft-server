@@ -4,6 +4,8 @@ import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,23 +19,25 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
 class RankedMatchmakingRepositoryIntegrationTest {
     private static final String LEGACY_BACKEND = "legacy-ranked-matchmaking";
+    private static final String MODERN_BACKEND = "paper-ranked-matchmaking";
     private static final Duration FRESHNESS = Duration.ofMinutes(1);
     private static final Duration LEASE = Duration.ofSeconds(60);
 
     private Database database;
     private DataSource dataSource;
     private PlayerIdentityRepository identities;
+    private PlayerSessionRepository sessions;
     private RankedArenaRepository ranked;
     private RankedMatchmakingRepository matchmaking;
     private BackendRegistry backends;
@@ -53,6 +57,7 @@ class RankedMatchmakingRepositoryIntegrationTest {
         database.migrate();
         dataSource = database.dataSource();
         identities = new PlayerIdentityRepository(dataSource);
+        sessions = new PlayerSessionRepository(dataSource);
         RankedArenaRuleset ruleset = RankedArenaRuleset.legacy189V1();
         ranked = new RankedArenaRepository(dataSource, ruleset);
         matchmaking = new RankedMatchmakingRepository(dataSource, ruleset);
@@ -101,6 +106,7 @@ class RankedMatchmakingRepositoryIntegrationTest {
                     """);
         }
         backends.registerOnline(LEGACY_BACKEND, 0);
+        backends.registerOnline(MODERN_BACKEND, 0);
         runtimePrincipal();
     }
 
@@ -184,9 +190,47 @@ class RankedMatchmakingRepositoryIntegrationTest {
         assertTrue(matchmaking.queuedAt(newer.playerId()).isPresent());
     }
 
+    @Test
+    void playerWithoutLivePersistentSessionCannotQueue() throws Exception {
+        UUID minecraftUuid = UUID.randomUUID();
+        UUID playerId = identities.ensurePlayer(minecraftUuid, "QueueNoSession");
+
+        RankedArenaException failure = assertThrows(RankedArenaException.class, () -> matchmaking.join(playerId));
+        assertTrue(failure.getMessage().contains("live persistent session"));
+        assertTrue(matchmaking.queuedAt(playerId).isEmpty());
+    }
+
+    @Test
+    void explicitSessionDisconnectDeletesWaitingIntent() throws Exception {
+        Player waiting = player("QueueDisconnect");
+        assertTrue(matchmaking.join(waiting.playerId()).isEmpty());
+        assertTrue(matchmaking.queuedAt(waiting.playerId()).isPresent());
+
+        sessions.disconnect(waiting.sessionId(), MODERN_BACKEND);
+
+        assertTrue(matchmaking.queuedAt(waiting.playerId()).isEmpty());
+        assertFalse(rawQueueContains(waiting.playerId()));
+    }
+
+    @Test
+    void expiredSessionQueueEntryIsPurgedBeforeAnotherPlayerCanPairWithIt() throws Exception {
+        Player expired = player("QueueExpired");
+        Player joining = player("QueueAfterExpired");
+        assertTrue(matchmaking.join(expired.playerId()).isEmpty());
+        expireSession(expired.sessionId());
+
+        assertTrue(matchmaking.queuedAt(expired.playerId()).isEmpty());
+        assertTrue(matchmaking.join(joining.playerId()).isEmpty());
+        assertFalse(rawQueueContains(expired.playerId()));
+        assertTrue(matchmaking.queuedAt(joining.playerId()).isPresent());
+        assertTrue(matchmaking.liveMatch(joining.playerId()).isEmpty());
+    }
+
     private Player player(String name) throws SQLException {
         UUID minecraftUuid = UUID.randomUUID();
-        return new Player(identities.ensurePlayer(minecraftUuid, name), minecraftUuid);
+        UUID playerId = identities.ensurePlayer(minecraftUuid, name);
+        SessionLease lease = sessions.openSession(playerId, MODERN_BACKEND, null, LEASE);
+        return new Player(playerId, minecraftUuid, lease.sessionId());
     }
 
     private void insertQueue(UUID playerId, String age) throws SQLException {
@@ -198,6 +242,32 @@ class RankedMatchmakingRepositoryIntegrationTest {
             statement.setObject(1, playerId);
             statement.setString(2, age);
             statement.executeUpdate();
+        }
+    }
+
+    private void expireSession(UUID sessionId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE player_sessions
+                     SET lease_expires_at = NOW() - INTERVAL '1 second'
+                     WHERE network_session_id = ?
+                     """)) {
+            statement.setObject(1, sessionId);
+            assertEquals(1, statement.executeUpdate());
+        }
+    }
+
+    private boolean rawQueueContains(UUID playerId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT 1
+                     FROM ranked_matchmaking_queue
+                     WHERE player_id = ?
+                     """)) {
+            statement.setObject(1, playerId);
+            try (var row = statement.executeQuery()) {
+                return row.next();
+            }
         }
     }
 
@@ -225,6 +295,6 @@ class RankedMatchmakingRepositoryIntegrationTest {
         return value;
     }
 
-    private record Player(UUID playerId, UUID minecraftUuid) {
+    private record Player(UUID playerId, UUID minecraftUuid, UUID sessionId) {
     }
 }
