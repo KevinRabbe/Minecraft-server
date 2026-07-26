@@ -1,9 +1,10 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.pve.map.MapDifficulty;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRunDefinition;
 import org.bukkit.entity.EntityType;
 
-/** One version-controlled Paper materialization policy for a compatible Map run definition. */
+/** One version-controlled Paper materialization/reward policy for a compatible Map run definition. */
 record PaperMapEncounterDefinition(
         String encounterId,
         String environmentId,
@@ -18,7 +19,9 @@ record PaperMapEncounterDefinition(
         double damagePerDifficulty,
         double maxDamageMultiplier,
         double spawnRadius,
-        String rewardMapDefinitionId
+        String rewardMapDefinitionId,
+        int successorDifficultyDelta,
+        int maxSuccessorDifficulty
 ) {
     PaperMapEncounterDefinition {
         encounterId = requireId(encounterId, "encounterId");
@@ -42,6 +45,13 @@ record PaperMapEncounterDefinition(
             throw new IllegalArgumentException("spawnRadius must be finite and between 2 and 32");
         }
         rewardMapDefinitionId = requireId(rewardMapDefinitionId, "rewardMapDefinitionId");
+        if (successorDifficultyDelta < 0 || successorDifficultyDelta > 1_000) {
+            throw new IllegalArgumentException("successorDifficultyDelta must be between 0 and 1000");
+        }
+        if (maxSuccessorDifficulty < MapDifficulty.MIN_VALUE
+                || maxSuccessorDifficulty > MapDifficulty.TECHNICAL_MAX_VALUE) {
+            throw new IllegalArgumentException("maxSuccessorDifficulty is outside MapDifficulty bounds");
+        }
     }
 
     boolean matches(MapRunDefinition definition) {
@@ -61,6 +71,11 @@ record PaperMapEncounterDefinition(
 
     double damageMultiplier(int difficulty) {
         return boundedMultiplier(difficulty, damagePerDifficulty, maxDamageMultiplier);
+    }
+
+    int successorDifficulty(int clearedDifficulty) {
+        long next = (long) clearedDifficulty + successorDifficultyDelta;
+        return (int) Math.min(maxSuccessorDifficulty, Math.max(MapDifficulty.MIN_VALUE, next));
     }
 
     private static double boundedMultiplier(int difficulty, double perDifficulty, double maximum) {
