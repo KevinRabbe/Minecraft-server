@@ -3,24 +3,21 @@ package io.github.kevinrabbe.minecraftserver.legacy;
 import java.util.Objects;
 
 /**
- * Immutable-preparation shell plus mutable objective state for one disposable Clan-War execution.
- * Persistent item identity is absent; combat cannot start merely because this object exists.
+ * Immutable preparation state for one disposable Clan-War execution.
+ * Persistent item identity is absent; mutable objective progress is owned by the main-thread objective controller.
  */
 final class LegacyClanWarRuntimeState {
     private final LegacyClanWarExecution war;
     private final LegacyClanWarMaterializationPlan materializationPlan;
-    private final LegacyClanWarObjective objective;
     private final LegacyClanWarObjectiveSettings objectiveSettings;
 
     private LegacyClanWarRuntimeState(
             LegacyClanWarExecution war,
             LegacyClanWarMaterializationPlan materializationPlan,
-            LegacyClanWarObjective objective,
             LegacyClanWarObjectiveSettings objectiveSettings
     ) {
         this.war = war;
         this.materializationPlan = materializationPlan;
-        this.objective = objective;
         this.objectiveSettings = objectiveSettings;
     }
 
@@ -46,7 +43,6 @@ final class LegacyClanWarRuntimeState {
         return new LegacyClanWarRuntimeState(
                 war,
                 materializationPlan,
-                new LegacyClanWarObjective(war, objectiveSettings),
                 objectiveSettings
         );
     }
@@ -61,10 +57,6 @@ final class LegacyClanWarRuntimeState {
 
     LegacyClanWarRepresentationPlan getRepresentationPlan() {
         return materializationPlan.getRepresentationPlan();
-    }
-
-    LegacyClanWarObjective getObjective() {
-        return objective;
     }
 
     LegacyClanWarObjectiveSettings getObjectiveSettings() {
