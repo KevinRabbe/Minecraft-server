@@ -192,7 +192,7 @@ class MapEncounterReservationRepositoryIntegrationTest {
     @Test
     void releasedReservationCannotConsumeMapWithReservedOperation() throws Exception {
         activeEncounterInstance(0);
-        PlayerContext player = player("MapReserveRelease");
+        PlayerContext player = player("MapResRelease");
         MapItemProfile map = issue(player.playerId(), 35, 33L);
         UUID operationId = UUID.randomUUID();
         MapEncounterReservationSnapshot reservation = reservations.reserve(
