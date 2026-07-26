@@ -15,6 +15,7 @@ final class LegacyClanWarObjectiveController {
     private final LegacyCompetitiveCombatGate combatGate;
     private final World world;
     private final LegacyClanWarControlPointGeometry geometry;
+    private LegacyClanWarTimeoutTracker timeoutTracker;
 
     LegacyClanWarObjectiveController(
             LegacyCompetitivePlugin plugin,
@@ -29,11 +30,36 @@ final class LegacyClanWarObjectiveController {
     }
 
     void tick() {
-        for (Map.Entry<UUID, LegacyClanWarRuntimeState> entry : plugin.snapshotClanWarRuntimeStates().entrySet()) {
+        Map<UUID, LegacyClanWarRuntimeState> runtimeStates = plugin.snapshotClanWarRuntimeStates();
+        LegacyClanWarTimeoutTracker existingTimeoutTracker = timeoutTracker;
+        if (existingTimeoutTracker != null) {
+            existingTimeoutTracker.retain(runtimeStates.keySet());
+        }
+
+        for (Map.Entry<UUID, LegacyClanWarRuntimeState> entry : runtimeStates.entrySet()) {
             UUID executionId = entry.getKey();
             if (!combatGate.isEnabled(executionId)) continue;
 
             LegacyClanWarRuntimeState runtimeState = entry.getValue();
+            LegacyClanWarTimeoutTracker tracker = timeoutTracker;
+            if (tracker == null) {
+                tracker = new LegacyClanWarTimeoutTracker(
+                        runtimeState.getObjectiveSettings().getMatchTimeoutSeconds()
+                );
+                timeoutTracker = tracker;
+            }
+            tracker.start(executionId);
+            if (tracker.isExpired(executionId)) {
+                try {
+                    plugin.recordFailure(executionId);
+                } catch (IllegalStateException ignored) {
+                    // Another terminal path already removed this execution locally.
+                } finally {
+                    tracker.clear(executionId);
+                }
+                continue;
+            }
+
             LegacyClanWarControlPointPresence.Counts counts = LegacyClanWarControlPointPresence.count(
                     runtimeState.getWar(),
                     this::isInside
@@ -48,6 +74,8 @@ final class LegacyClanWarObjectiveController {
                 plugin.recordWinnerSide(executionId, winnerSideId);
             } catch (IllegalStateException ignored) {
                 // Another terminal path already removed this execution locally.
+            } finally {
+                tracker.clear(executionId);
             }
         }
     }
