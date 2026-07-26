@@ -36,6 +36,7 @@ final class LegacyRankedArenaSettingsLoader {
                 config.getInt("ranked.arena.half-size"),
                 config.getInt("ranked.arena.wall-height"),
                 config.getInt("ranked.arena.spawn-offset"),
+                config.getInt("ranked.match-timeout-seconds"),
                 config.getString("ranked.arena.floor-material"),
                 config.getString("ranked.arena.border-material"),
                 config.getString("ranked.arena.wall-material"),
