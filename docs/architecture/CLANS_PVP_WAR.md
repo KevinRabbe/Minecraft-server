@@ -154,7 +154,7 @@ PLAYER_INVENTORY / CLAN_STORAGE
         -> PENDING_DELIVERY / authorized clan custody
 ```
 
-The disposable match representation is not the economic item and may be destroyed/recreated freely. Persistent `item_instance_id`, roll state, upgrade state and ownership remain PostgreSQL concepts.
+The disposable match representation is not the economic item and may be destroyed/recreated freely. Persistent `item_instance_id`, ownership/custody, and canonical roll/upgrade authority remain PostgreSQL concepts; only the identity-free combat values required by the frozen execution snapshot may be copied into 1.8.9.
 
 Rules:
 
@@ -178,12 +178,15 @@ Destroying or restarting a live 1.8.9 match backend must never erase a committed
 ## State isolation
 
 ### Ranked Arena
+
 Temporary standardized state only; no normal MMO inventory mutation.
 
 ### Clan War
+
 Real value enters through explicit custody; only a temporary combat snapshot enters the 1.8.9 runtime; real value exits through explicit settlement/recovery.
 
 ### Normal PvE/gathering
+
 Modern persistent player state, protected from uncontrolled open-world player destruction.
 
 Do not reuse one inventory/death model across these contexts.
