@@ -22,6 +22,8 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
@@ -35,7 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
 class ClanWarLoadoutReadinessIntegrationTest {
-    private static final String BACKEND = "paper-war-readiness";
+    private static final String PAPER_BACKEND = "paper-war-readiness";
+    private static final String LEGACY_BACKEND = "legacy-war-readiness";
     private static final String ITEM = "war.readiness_sword";
     private static final Duration SESSION_LEASE = Duration.ofMinutes(5);
 
@@ -101,6 +104,7 @@ class ClanWarLoadoutReadinessIntegrationTest {
                     TRUNCATE TABLE
                         clan_war_loadout_confirmations,
                         competitive_player_execution_reservations,
+                        competitive_runtime_principals,
                         competitive_execution_participants,
                         competitive_execution_specs,
                         competitive_result_reports,
@@ -125,8 +129,22 @@ class ClanWarLoadoutReadinessIntegrationTest {
                         player_state,
                         player_names,
                         wallets,
-                        players
+                        players,
+                        backends
                     RESTART IDENTITY CASCADE
+                    """);
+            statement.execute("""
+                    INSERT INTO backends(backend_id, status, player_count)
+                    VALUES ('legacy-war-readiness', 'ONLINE', 0)
+                    """);
+            statement.execute("""
+                    INSERT INTO competitive_runtime_principals(
+                        database_role,
+                        backend_id,
+                        max_execution_lease_seconds,
+                        dispatch_enabled,
+                        max_active_executions
+                    ) VALUES ('war-readiness-runtime', 'legacy-war-readiness', 120, TRUE, 4)
                     """);
         }
     }
@@ -174,7 +192,7 @@ class ClanWarLoadoutReadinessIntegrationTest {
                 UUID.randomUUID(),
                 fixture.war().warId(),
                 fixture.challenger().session().sessionId(),
-                BACKEND,
+                PAPER_BACKEND,
                 fixture.challenger().session().stateVersion(),
                 item.itemInstanceId(),
                 item.stateVersion(),
@@ -201,6 +219,68 @@ class ClanWarLoadoutReadinessIntegrationTest {
 
         readiness.confirm(UUID.randomUUID(), fixture.war().warId(), fixture.challenger().playerId());
         assertTrue(findWarCandidate(fixture.war().warId()).isPresent());
+    }
+
+    @Test
+    void atomicDispatchRejectsStaleCandidateAndAssignmentFreezesFurtherCustody() throws Exception {
+        WarFixture fixture = lockedWar("ReadyRaceA", "ReadyRaceB");
+        readiness.confirm(UUID.randomUUID(), fixture.war().warId(), fixture.challenger().playerId());
+        readiness.confirm(UUID.randomUUID(), fixture.war().warId(), fixture.defender().playerId());
+        CompetitiveDispatchCandidate staleCandidate = findWarCandidate(fixture.war().warId()).orElseThrow();
+
+        UniqueItemAuthorityResult firstItem = items.createForPlayer(
+                UUID.randomUUID(), ITEM, fixture.challenger().playerId(),
+                "test.war_readiness_race_first", fixture.challenger().playerId()
+        );
+        ClanWarCustodyDepositResult firstDeposit = loadouts.depositPlayerItem(
+                UUID.randomUUID(),
+                fixture.war().warId(),
+                fixture.challenger().session().sessionId(),
+                PAPER_BACKEND,
+                fixture.challenger().session().stateVersion(),
+                firstItem.itemInstanceId(),
+                firstItem.stateVersion(),
+                "city",
+                "spawn",
+                new byte[]{0},
+                "test.war_readiness_race_deposit"
+        );
+
+        assertThrows(
+                SQLException.class,
+                () -> dispatch.dispatch(UUID.randomUUID(), staleCandidate),
+                "atomic dispatch must recheck readiness rather than trusting the earlier candidate projection"
+        );
+
+        readiness.confirm(UUID.randomUUID(), fixture.war().warId(), fixture.challenger().playerId());
+        CompetitiveDispatchCandidate readyAgain = findWarCandidate(fixture.war().warId()).orElseThrow();
+        CompetitiveExecutionSnapshot assigned = dispatch.dispatch(UUID.randomUUID(), readyAgain).orElseThrow();
+        assertEquals(CompetitiveExecutionStatus.ASSIGNED, assigned.status());
+        assertEquals(LEGACY_BACKEND, assigned.backendId());
+
+        UniqueItemAuthorityResult lateItem = items.createForPlayer(
+                UUID.randomUUID(), ITEM, fixture.challenger().playerId(),
+                "test.war_readiness_race_late", fixture.challenger().playerId()
+        );
+        assertThrows(
+                SQLException.class,
+                () -> loadouts.depositPlayerItem(
+                        UUID.randomUUID(),
+                        fixture.war().warId(),
+                        fixture.challenger().session().sessionId(),
+                        PAPER_BACKEND,
+                        firstDeposit.playerStateVersion(),
+                        lateItem.itemInstanceId(),
+                        lateItem.stateVersion(),
+                        "city",
+                        "spawn",
+                        new byte[]{0, 1},
+                        "test.war_readiness_late_deposit"
+                )
+        );
+
+        assertEquals("PLAYER_INVENTORY", itemLocationKind(lateItem.itemInstanceId()));
+        assertTrue(readiness.load(fixture.war().warId(), fixture.challenger().playerId()).isPresent());
     }
 
     @Test
@@ -257,7 +337,7 @@ class ClanWarLoadoutReadinessIntegrationTest {
     private Player player(String name) throws SQLException {
         UUID minecraftUuid = UUID.randomUUID();
         UUID playerId = identities.ensurePlayer(minecraftUuid, name);
-        SessionLease session = sessions.openSession(playerId, BACKEND, null, SESSION_LEASE);
+        SessionLease session = sessions.openSession(playerId, PAPER_BACKEND, null, SESSION_LEASE);
         return new Player(playerId, minecraftUuid, session);
     }
 
@@ -266,6 +346,21 @@ class ClanWarLoadoutReadinessIntegrationTest {
                 .filter(candidate -> candidate.activityKind() == CompetitiveActivityKind.CLAN_WAR)
                 .filter(candidate -> candidate.activityId().equals(warId))
                 .findFirst();
+    }
+
+    private String itemLocationKind(UUID itemInstanceId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT location_kind
+                     FROM item_instances
+                     WHERE item_instance_id = ?
+                     """)) {
+            statement.setObject(1, itemInstanceId);
+            try (ResultSet row = statement.executeQuery()) {
+                assertTrue(row.next());
+                return row.getString("location_kind");
+            }
+        }
     }
 
     private static String randomTag() {
