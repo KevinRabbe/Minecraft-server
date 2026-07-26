@@ -172,7 +172,8 @@ class MapEncounterHandoffQueryRepositoryIntegrationTest {
         assertTrue(queries.findCreatedForPlayerInstance(UUID.randomUUID(), targetInstance).isEmpty());
         assertTrue(queries.findCreatedForPlayerInstance(playerId, UUID.randomUUID()).isEmpty());
 
-        maps.failRun(UUID.randomUUID(), opened.runId(), "test.target_query");
+        long runStateVersion = maps.loadRun(opened.runId()).stateVersion();
+        maps.failRun(UUID.randomUUID(), opened.runId(), runStateVersion, "test.target_query");
         releases.releaseTerminalRun(reservation.reservationId(), opened.runId());
         assertTrue(queries.findCreatedForPlayerInstance(playerId, targetInstance).isEmpty());
     }
