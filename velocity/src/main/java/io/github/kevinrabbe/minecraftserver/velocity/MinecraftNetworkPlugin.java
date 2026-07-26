@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.velocity;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.PluginMessageEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
@@ -14,6 +15,8 @@ import com.velocitypowered.api.proxy.server.RegisteredServer;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRouter;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRoute;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRouteRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.RoutedTransfer;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRoutingRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
@@ -33,6 +36,7 @@ import java.util.UUID;
 public final class MinecraftNetworkPlugin {
     private static final System.Logger LOGGER = System.getLogger(MinecraftNetworkPlugin.class.getName());
     private static final Duration INSTANCE_HEARTBEAT_FRESHNESS = Duration.ofSeconds(15);
+    private static final Duration COMPETITIVE_BACKEND_HEARTBEAT_FRESHNESS = Duration.ofSeconds(30);
     private static final MinecraftChannelIdentifier TRANSFER_CHANNEL = MinecraftChannelIdentifier.from(
             TransferPluginMessage.CHANNEL
     );
@@ -42,6 +46,7 @@ public final class MinecraftNetworkPlugin {
     private Database database;
     private ZoneRouter zoneRouter;
     private TransferRoutingRepository transferRouting;
+    private CompetitiveEntryRouteRepository competitiveEntryRoutes;
 
     @Inject
     public MinecraftNetworkPlugin(ProxyServer proxy) {
@@ -55,6 +60,10 @@ public final class MinecraftNetworkPlugin {
             database.migrate();
             zoneRouter = new ZoneRouter(database.dataSource(), INSTANCE_HEARTBEAT_FRESHNESS);
             transferRouting = new TransferRoutingRepository(database.dataSource(), INSTANCE_HEARTBEAT_FRESHNESS);
+            competitiveEntryRoutes = new CompetitiveEntryRouteRepository(
+                    database.dataSource(),
+                    COMPETITIVE_BACKEND_HEARTBEAT_FRESHNESS
+            );
             proxy.getChannelRegistrar().register(TRANSFER_CHANNEL);
         } catch (RuntimeException exception) {
             closeDatabase();
@@ -62,6 +71,43 @@ public final class MinecraftNetworkPlugin {
         }
 
         LOGGER.log(System.Logger.Level.INFO, "Minecraft network plugin initialized with routed transfer coordination");
+    }
+
+    /**
+     * Keeps any player with one exact ACTIVE competitive execution pinned to its assigned legacy backend.
+     * The proxy consumes only the routing projection; it never receives MMO inventory, economy, or custody state.
+     */
+    @Subscribe
+    public void onServerPreConnect(ServerPreConnectEvent event) {
+        if (!event.getResult().isAllowed()) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        try {
+            Optional<CompetitiveEntryRoute> routeResult = competitiveEntryRoutes.findByMinecraftUuid(player.getUniqueId());
+            if (routeResult.isEmpty()) {
+                return;
+            }
+
+            CompetitiveEntryRoute route = routeResult.orElseThrow();
+            Optional<RegisteredServer> targetResult = proxy.getServer(route.backendId());
+            if (targetResult.isEmpty()) {
+                LOGGER.log(
+                        System.Logger.Level.ERROR,
+                        "Competitive backend is not registered in Velocity: " + route.backendId()
+                );
+                event.setResult(ServerPreConnectEvent.ServerResult.denied());
+                player.sendMessage(Component.text("Your competitive match backend is temporarily unavailable."));
+                return;
+            }
+
+            event.setResult(ServerPreConnectEvent.ServerResult.allowed(targetResult.orElseThrow()));
+        } catch (SQLException exception) {
+            LOGGER.log(System.Logger.Level.ERROR, "Could not resolve competitive player route", exception);
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            player.sendMessage(Component.text("Competitive routing is temporarily unavailable."));
+        }
     }
 
     @Subscribe
@@ -135,6 +181,7 @@ public final class MinecraftNetworkPlugin {
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         proxy.getChannelRegistrar().unregister(TRANSFER_CHANNEL);
+        competitiveEntryRoutes = null;
         transferRouting = null;
         zoneRouter = null;
         closeDatabase();
