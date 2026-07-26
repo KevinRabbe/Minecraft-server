@@ -48,6 +48,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private int executionLeaseSeconds;
     private BukkitTask pumpTask;
     private LegacyRankedArenaMaterializer rankedArenaMaterializer;
+    private LegacyRankedTimeoutTracker rankedTimeoutTracker;
 
     @Override
     public void onEnable() {
@@ -58,6 +59,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             throw new IllegalStateException("Legacy competitive runtime requires one loaded Bukkit world");
         }
         rankedArenaMaterializer = new LegacyRankedArenaMaterializer(worlds.get(0), rankedSettings);
+        rankedTimeoutTracker = new LegacyRankedTimeoutTracker(rankedSettings.getMatchTimeoutSeconds());
 
         backendId = requireEnvironment("COMPETITIVE_BACKEND_ID");
         executionLeaseSeconds = optionalPositiveInt("COMPETITIVE_EXECUTION_LEASE_SECONDS", 60, 3600);
@@ -88,6 +90,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 new Runnable() {
                     @Override
                     public void run() {
+                        expireTimedOutRankedExecutions();
                         materializeReadyRankedExecutions();
                         schedulePoll(onlineMinecraftUuids.size());
                     }
@@ -106,6 +109,10 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         }
         combatGate.clear();
         rankedArenaMaterializer = null;
+        if (rankedTimeoutTracker != null) {
+            rankedTimeoutTracker.clear();
+            rankedTimeoutTracker = null;
+        }
         onlineMinecraftUuids.clear();
         admittedPlayerExecutions.clear();
         activeExecutions.clear();
@@ -173,6 +180,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         onlineMinecraftUuids.put(event.getPlayer().getUniqueId(), Boolean.TRUE);
+        expireTimedOutRankedExecutions();
         materializeReadyRankedExecutions();
         schedulePoll(onlineMinecraftUuids.size());
     }
@@ -215,9 +223,29 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         return Collections.unmodifiableMap(new LinkedHashMap<UUID, LegacyExecution>(activeExecutions));
     }
 
+    private void expireTimedOutRankedExecutions() {
+        LegacyRankedTimeoutTracker timeouts = rankedTimeoutTracker;
+        if (timeouts == null) return;
+
+        ArrayList<UUID> expired = new ArrayList<UUID>();
+        for (LegacyExecution execution : activeExecutions.values()) {
+            UUID executionId = execution.getExecutionId();
+            if (LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
+                    && combatGate.isEnabled(executionId)
+                    && timeouts.isExpired(executionId)) {
+                expired.add(executionId);
+            }
+        }
+        for (UUID executionId : expired) {
+            getLogger().info("Ranked execution reached configured timeout; aborting without winner " + executionId);
+            safeRecordFailure(executionId);
+        }
+    }
+
     private void materializeReadyRankedExecutions() {
         LegacyRankedArenaMaterializer materializer = rankedArenaMaterializer;
-        if (materializer == null) return;
+        LegacyRankedTimeoutTracker timeouts = rankedTimeoutTracker;
+        if (materializer == null || timeouts == null) return;
 
         ArrayList<LegacyExecution> candidates = new ArrayList<LegacyExecution>();
         for (LegacyExecution execution : activeExecutions.values()) {
@@ -247,6 +275,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
             try {
                 if (materializer.materialize(ranked, playerA, playerB, combatGate)) {
+                    timeouts.start(execution.getExecutionId());
                     getLogger().info("Materialized Ranked execution " + execution.getExecutionId());
                     return;
                 }
@@ -277,6 +306,8 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             throw new IllegalStateException("Competitive execution already has a different local terminal outcome");
         }
         combatGate.disable(execution.getExecutionId());
+        LegacyRankedTimeoutTracker timeouts = rankedTimeoutTracker;
+        if (timeouts != null) timeouts.clear(execution.getExecutionId());
         clanWarLoadouts.remove(execution.getExecutionId());
         activeExecutions.remove(execution.getExecutionId(), execution);
         schedulePoll(onlineMinecraftUuids.size());
