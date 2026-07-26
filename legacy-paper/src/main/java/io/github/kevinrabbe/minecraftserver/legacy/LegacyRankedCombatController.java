@@ -25,6 +25,7 @@ final class LegacyRankedCombatController implements Listener {
         LegacyExecution execution = plugin.findExecutionForPlayer(victim.getUniqueId());
         if (execution == null
                 || !LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
+                || !plugin.snapshotActiveExecutions().containsKey(execution.getExecutionId())
                 || !LegacyCombatAvailability.isEnabled(execution, combatGate, this::isOnline)) {
             return;
         }
