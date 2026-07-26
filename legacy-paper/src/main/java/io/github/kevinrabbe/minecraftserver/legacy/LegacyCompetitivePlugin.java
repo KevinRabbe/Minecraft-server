@@ -39,6 +39,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private final ConcurrentMap<UUID, LegacyExecution> activeExecutions = new ConcurrentHashMap<UUID, LegacyExecution>();
     private final ConcurrentMap<UUID, LegacyExecution> admittedPlayerExecutions = new ConcurrentHashMap<UUID, LegacyExecution>();
     private final ConcurrentMap<UUID, LegacyClanWarLoadout> clanWarLoadouts = new ConcurrentHashMap<UUID, LegacyClanWarLoadout>();
+    private final ConcurrentMap<UUID, LegacyClanWarRuntimeState> clanWarRuntimeStates = new ConcurrentHashMap<UUID, LegacyClanWarRuntimeState>();
     private final ConcurrentMap<UUID, PendingOutcome> pendingOutcomes = new ConcurrentHashMap<UUID, PendingOutcome>();
     private final ConcurrentMap<UUID, Boolean> onlineMinecraftUuids = new ConcurrentHashMap<UUID, Boolean>();
     private final LegacyCompetitiveCombatGate combatGate = new LegacyCompetitiveCombatGate();
@@ -49,11 +50,15 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private BukkitTask pumpTask;
     private LegacyRankedArenaMaterializer rankedArenaMaterializer;
     private LegacyRankedTimeoutTracker rankedTimeoutTracker;
+    private LegacyClanWarRepresentationCatalog clanWarRepresentationCatalog;
+    private LegacyClanWarObjectiveSettings clanWarObjectiveSettings;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         LegacyRankedArenaSettings rankedSettings = LegacyRankedArenaSettingsLoader.load(getConfig());
+        clanWarRepresentationCatalog = LegacyClanWarRepresentationCatalogLoader.load(getConfig());
+        clanWarObjectiveSettings = LegacyClanWarObjectiveSettingsLoader.load(getConfig());
         List<World> worlds = getServer().getWorlds();
         if (worlds.isEmpty()) {
             throw new IllegalStateException("Legacy competitive runtime requires one loaded Bukkit world");
@@ -113,10 +118,13 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             rankedTimeoutTracker.clear();
             rankedTimeoutTracker = null;
         }
+        clanWarRepresentationCatalog = null;
+        clanWarObjectiveSettings = null;
         onlineMinecraftUuids.clear();
         admittedPlayerExecutions.clear();
         activeExecutions.clear();
         clanWarLoadouts.clear();
+        clanWarRuntimeStates.clear();
         pendingOutcomes.clear();
         LegacyRuntimeDatabase current = database;
         database = null;
@@ -132,7 +140,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     /**
      * Fail-closed admission for the isolated runtime. An exact ACTIVE execution must exist for this Minecraft identity
      * on this database principal's mapped backend. Clan War additionally requires its complete sealed V71/V74 loadout
-     * before the player is admitted.
+     * and a faithful currently-supported identity-free 1.8 representation before the player is admitted.
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onAsyncPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
@@ -141,7 +149,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         }
 
         LegacyRuntimeDatabase current = database;
-        if (current == null) {
+        LegacyClanWarRepresentationCatalog representationCatalog = clanWarRepresentationCatalog;
+        LegacyClanWarObjectiveSettings objectiveSettings = clanWarObjectiveSettings;
+        if (current == null || representationCatalog == null || objectiveSettings == null) {
             event.disallow(
                     AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                     "Competitive match admission is temporarily unavailable."
@@ -161,10 +171,19 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
             LegacyClanWarLoadout loadout = LegacyExecutionAdmission.prepare(
                     execution,
-                    current::pageExecutionLoadout
+                    current::pageExecutionLoadout,
+                    representationCatalog
             );
             if (loadout != null) {
+                LegacyClanWarExecution war = LegacyClanWarExecution.requireSupported(execution);
+                LegacyClanWarRuntimeState runtimeState = LegacyClanWarRuntimeState.prepare(
+                        war,
+                        loadout,
+                        representationCatalog,
+                        objectiveSettings
+                );
                 clanWarLoadouts.put(execution.getExecutionId(), loadout);
+                clanWarRuntimeStates.put(execution.getExecutionId(), runtimeState);
             }
             activeExecutions.put(execution.getExecutionId(), execution);
             admittedPlayerExecutions.put(event.getUniqueId(), execution);
@@ -193,10 +212,19 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         schedulePoll(onlineMinecraftUuids.size());
     }
 
-    /** Future combat controller entry point: queue an exactly-once winner report using the frozen runtime side identity. */
+    /** Combat controller entry point: queue an exactly-once winner report using a frozen execution side identity. */
     void recordWinner(UUID executionId, UUID winnerMinecraftUuid) {
         LegacyExecution execution = requireActiveExecution(executionId);
         UUID winnerSideId = execution.sideIdForMinecraftUuid(winnerMinecraftUuid);
+        queueOutcome(execution, new PendingOutcome(false, winnerSideId));
+    }
+
+    /** Clan-War objective entry point: winner is already the frozen clan-side id. */
+    void recordWinnerSide(UUID executionId, UUID winnerSideId) {
+        LegacyExecution execution = requireActiveExecution(executionId);
+        if (!execution.hasSideId(winnerSideId)) {
+            throw new IllegalArgumentException("winner is not a frozen execution side");
+        }
         queueOutcome(execution, new PendingOutcome(false, winnerSideId));
     }
 
@@ -309,6 +337,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         LegacyRankedTimeoutTracker timeouts = rankedTimeoutTracker;
         if (timeouts != null) timeouts.clear(execution.getExecutionId());
         clanWarLoadouts.remove(execution.getExecutionId());
+        clanWarRuntimeStates.remove(execution.getExecutionId());
         activeExecutions.remove(execution.getExecutionId(), execution);
         schedulePoll(onlineMinecraftUuids.size());
     }
@@ -345,7 +374,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
     private void pollOnce(int playerCount) {
         LegacyRuntimeDatabase current = database;
-        if (current == null) return;
+        LegacyClanWarRepresentationCatalog representationCatalog = clanWarRepresentationCatalog;
+        LegacyClanWarObjectiveSettings objectiveSettings = clanWarObjectiveSettings;
+        if (current == null || representationCatalog == null || objectiveSettings == null) return;
         Set<UUID> onlineSnapshot = new HashSet<UUID>(onlineMinecraftUuids.keySet());
         try {
             requireMappedBackend(current.heartbeatBackend(playerCount));
@@ -353,6 +384,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
             Map<UUID, LegacyExecution> refreshed = new LinkedHashMap<UUID, LegacyExecution>();
             Map<UUID, LegacyClanWarLoadout> refreshedClanWarLoadouts = new LinkedHashMap<UUID, LegacyClanWarLoadout>();
+            Map<UUID, LegacyClanWarRuntimeState> refreshedClanWarRuntimeStates = new LinkedHashMap<UUID, LegacyClanWarRuntimeState>();
             for (LegacyExecution execution : current.pollActive(MAX_ACTIVE_EXECUTIONS)) {
                 if (pendingOutcomes.containsKey(execution.getExecutionId())) {
                     continue;
@@ -370,25 +402,35 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
                 if (LegacyClanWarExecution.ACTIVITY_KIND.equals(execution.getActivityKind())) {
                     LegacyClanWarLoadout loadout = clanWarLoadouts.get(execution.getExecutionId());
+                    LegacyClanWarRuntimeState runtimeState = clanWarRuntimeStates.get(execution.getExecutionId());
                     try {
+                        LegacyClanWarExecution war = LegacyClanWarExecution.requireSupported(execution);
                         if (loadout == null) {
-                            LegacyClanWarExecution war = LegacyClanWarExecution.requireSupported(execution);
                             loadout = LegacyClanWarLoadoutLoader.load(war, current::pageExecutionLoadout);
                         } else {
                             // The immutable loadout can stay cached, but V74 seal/ownership/liveness must still be checked
                             // on every lease cycle so a corrupted/unsealed execution does not keep renewing from cache.
                             current.pageExecutionLoadout(execution.getExecutionId(), null, null, 1);
                         }
+                        if (runtimeState == null) {
+                            runtimeState = LegacyClanWarRuntimeState.prepare(
+                                    war,
+                                    loadout,
+                                    representationCatalog,
+                                    objectiveSettings
+                            );
+                        }
                     } catch (SQLException | RuntimeException exception) {
                         getLogger().log(
                                 Level.SEVERE,
-                                "Refusing to renew Clan-War execution without a valid frozen loadout "
+                                "Refusing Clan-War execution without a valid frozen/representable loadout "
                                         + execution.getExecutionId(),
                                 exception
                         );
                         continue;
                     }
                     refreshedClanWarLoadouts.put(execution.getExecutionId(), loadout);
+                    refreshedClanWarRuntimeStates.put(execution.getExecutionId(), runtimeState);
                 }
 
                 if (!LegacyExecutionLeasePolicy.shouldRenew(execution, combatGate, onlineSnapshot)) {
@@ -405,9 +447,12 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             activeExecutions.putAll(refreshed);
             clanWarLoadouts.clear();
             clanWarLoadouts.putAll(refreshedClanWarLoadouts);
+            clanWarRuntimeStates.clear();
+            clanWarRuntimeStates.putAll(refreshedClanWarRuntimeStates);
         } catch (SQLException | RuntimeException exception) {
             activeExecutions.clear();
             clanWarLoadouts.clear();
+            clanWarRuntimeStates.clear();
             getLogger().log(Level.WARNING, "Legacy competitive runtime poll failed closed", exception);
         }
     }
