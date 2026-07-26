@@ -5,6 +5,8 @@ import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLifecycleRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarResolutionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarRuleset;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchService;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionService;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRepository;
@@ -19,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/** Standalone trusted control-plane process for competitive report settlement and expired-execution recovery. */
+/** Standalone trusted control-plane process for competitive settlement, recovery, and backend dispatch. */
 public final class CompetitiveControlMain {
     private static final Logger LOGGER = Logger.getLogger(CompetitiveControlMain.class.getName());
 
@@ -52,15 +54,28 @@ public final class CompetitiveControlMain {
                     config.backendFreshness(),
                     config.maxExecutionLease()
             );
-            CompetitiveExecutionService service = new CompetitiveExecutionService(
+            CompetitiveExecutionService executionService = new CompetitiveExecutionService(
                     executions,
                     new RankedArenaRepository(database.dataSource(), RankedArenaRuleset.legacy189V1()),
                     new ClanWarLifecycleRepository(database.dataSource(), ClanWarRuleset.legacy189V1()),
                     new ClanWarResolutionRepository(database.dataSource())
             );
+            CompetitiveDispatchRepository dispatchRepository = new CompetitiveDispatchRepository(
+                    database.dataSource(),
+                    executions,
+                    config.backendFreshness(),
+                    config.executionLease()
+            );
+            CompetitiveDispatchService dispatchService = new CompetitiveDispatchService(
+                    dispatchRepository,
+                    executionService,
+                    config.executionLease()
+            );
             CompetitiveControlWorker worker = new CompetitiveControlWorker(
                     executions,
-                    service,
+                    executionService,
+                    dispatchRepository,
+                    dispatchService,
                     config.batchLimit(),
                     LOGGER
             );
@@ -68,6 +83,7 @@ public final class CompetitiveControlMain {
             LOGGER.info(() -> "Started competitive control worker: batchLimit=" + config.batchLimit()
                     + ", pollPeriod=" + config.pollPeriod()
                     + ", backendFreshness=" + config.backendFreshness()
+                    + ", executionLease=" + config.executionLease()
                     + ", maxExecutionLease=" + config.maxExecutionLease());
 
             scheduler.scheduleWithFixedDelay(
@@ -104,12 +120,14 @@ public final class CompetitiveControlMain {
     private static void runPass(CompetitiveControlWorker worker) {
         try {
             CompetitiveControlPassResult result = worker.runOnce();
-            if (result.transitions() > 0 || result.failures() > 0) {
+            if (result.transitions() > 0 || result.failures() > 0 || result.dispatchDeferred() > 0) {
                 Level level = result.failures() == 0 ? Level.INFO : Level.WARNING;
                 LOGGER.log(
                         level,
                         "Competitive control pass: reports=" + result.reportsApplied() + "/" + result.pendingReportsSeen()
                                 + ", recovered=" + result.executionsRecovered() + "/" + result.expiredExecutionsSeen()
+                                + ", dispatched=" + result.executionsDispatched() + "/" + result.readyActivitiesSeen()
+                                + ", deferred=" + result.dispatchDeferred()
                                 + ", failures=" + result.failures()
                 );
             }
