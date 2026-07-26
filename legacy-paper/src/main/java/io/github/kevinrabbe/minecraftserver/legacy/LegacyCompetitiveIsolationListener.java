@@ -20,10 +20,13 @@ import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPickupItemEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.projectiles.ProjectileSource;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Execution-isolation guard for the disposable 1.8.9 competitive tier.
@@ -35,18 +38,35 @@ import java.util.UUID;
 final class LegacyCompetitiveIsolationListener implements Listener {
     private final LegacyCompetitivePlugin plugin;
     private final LegacyCompetitiveCombatGate combatGate;
+    private final ConcurrentMap<UUID, UUID> eliminatedClanWarExecutionByPlayer =
+            new ConcurrentHashMap<UUID, UUID>();
 
     LegacyCompetitiveIsolationListener(LegacyCompetitivePlugin plugin, LegacyCompetitiveCombatGate combatGate) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.combatGate = Objects.requireNonNull(combatGate, "combatGate");
     }
 
-    /** Runs after the plugin's normal join materialization attempt; only still-unmaterialized players become spectators. */
+    /** Runs after the plugin's normal join materialization attempt; only still-unmaterialized/eliminated players spectate. */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onJoin(PlayerJoinEvent event) {
-        LegacyExecution execution = plugin.findExecutionForPlayer(event.getPlayer().getUniqueId());
-        if (execution != null && !combatGate.isEnabled(execution.getExecutionId())) {
-            event.getPlayer().setGameMode(GameMode.SPECTATOR);
+        Player player = event.getPlayer();
+        LegacyExecution execution = plugin.findExecutionForPlayer(player.getUniqueId());
+        UUID eliminatedExecution = eliminatedClanWarExecutionByPlayer.get(player.getUniqueId());
+        if (execution == null) {
+            if (eliminatedExecution != null) {
+                eliminatedClanWarExecutionByPlayer.remove(player.getUniqueId(), eliminatedExecution);
+            }
+            return;
+        }
+        if (eliminatedExecution != null) {
+            if (eliminatedExecution.equals(execution.getExecutionId())) {
+                player.setGameMode(GameMode.SPECTATOR);
+                return;
+            }
+            eliminatedClanWarExecutionByPlayer.remove(player.getUniqueId(), eliminatedExecution);
+        }
+        if (!combatGate.isEnabled(execution.getExecutionId())) {
+            player.setGameMode(GameMode.SPECTATOR);
         }
     }
 
@@ -134,9 +154,27 @@ final class LegacyCompetitiveIsolationListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onDeath(PlayerDeathEvent event) {
-        if (!isCompetitive(event.getEntity())) return;
+        Player player = event.getEntity();
+        LegacyExecution execution = plugin.findExecutionForPlayer(player.getUniqueId());
+        if (execution == null) return;
+
         event.getDrops().clear();
         event.setDroppedExp(0);
+        if (LegacyClanWarExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
+                && combatGate.isEnabled(execution.getExecutionId())) {
+            eliminatedClanWarExecutionByPlayer.put(player.getUniqueId(), execution.getExecutionId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        LegacyExecution execution = plugin.findExecutionForPlayer(player.getUniqueId());
+        if (execution == null) return;
+        UUID eliminatedExecution = eliminatedClanWarExecutionByPlayer.get(player.getUniqueId());
+        if (execution.getExecutionId().equals(eliminatedExecution)) {
+            player.setGameMode(GameMode.SPECTATOR);
+        }
     }
 
     private boolean sameEnabledExecutionOrUnrelated(Player first, Player second) {
