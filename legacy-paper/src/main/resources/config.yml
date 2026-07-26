@@ -39,6 +39,10 @@ ranked:
 # is implemented; it is never silently flattened into weaker/different vanilla stats.
 clan-war:
   objective:
+    # Local disposable-world placement; moving this point does not change persistent war identity/history.
+    center-x: 0.5
+    center-y: 201.0
+    center-z: 0.5
     # Simple control-point mode: uncontested presence adds one progress step per evaluation; contested/empty pauses.
     radius-blocks: 3.0
     evaluation-period-ticks: 20
