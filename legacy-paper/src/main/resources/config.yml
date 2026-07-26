@@ -2,6 +2,9 @@
 # The first runtime intentionally exposes one simple symmetric arena; future multi-arena placement may replace this
 # local geometry without changing match identity/rating authority.
 ranked:
+  # A timeout aborts the disposable match safely; it never invents a winner. Tune from playtesting.
+  match-timeout-seconds: 600
+
   arena:
     origin-x: 0
     floor-y: 200
