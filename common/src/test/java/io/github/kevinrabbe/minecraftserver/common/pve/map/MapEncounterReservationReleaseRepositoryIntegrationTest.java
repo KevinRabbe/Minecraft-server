@@ -134,7 +134,8 @@ class MapEncounterReservationReleaseRepositoryIntegrationTest {
     @Test
     void failedRunReleasesBoundSlotExactlyOnce() throws Exception {
         PreparedRun prepared = prepareRun("ReleaseFailed");
-        maps.failRun(UUID.randomUUID(), prepared.runId(), "test.handoff_failure");
+        long runStateVersion = maps.loadRun(prepared.runId()).stateVersion();
+        maps.failRun(UUID.randomUUID(), prepared.runId(), runStateVersion, "test.handoff_failure");
 
         MapEncounterReservationSnapshot first = releases.releaseTerminalRun(
                 prepared.reservationId(),
