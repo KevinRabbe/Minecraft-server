@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -75,6 +76,61 @@ class TransferRecoveryRepositoryIntegrationTest {
         if (database != null) {
             database.close();
         }
+    }
+
+    @Test
+    void exactUnclaimedTransferCanBeAbortedImmediately() throws SQLException {
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "AbortTransfer");
+        SessionLease source = sessions.openSession(playerId, "paper-source", null, LEASE);
+        TransferTicket ticket = sessions.beginTransfer(
+                source.sessionId(),
+                "paper-source",
+                "map_encounter",
+                source.stateVersion(),
+                Duration.ofSeconds(30)
+        );
+
+        recovery.abortAttachedTransfer("paper-source", source.sessionId(), ticket.transferId());
+
+        assertEquals("ACTIVE", sessionStatus(source.sessionId()));
+        assertTrue(ticketIsClosed(ticket.transferId()));
+        long nextVersion = states.commit(
+                source.sessionId(),
+                "paper-source",
+                source.stateVersion(),
+                "city",
+                "spawn",
+                new byte[]{9}
+        );
+        assertEquals(source.stateVersion() + 1, nextVersion);
+        assertThrows(
+                SessionConflictException.class,
+                () -> recovery.abortAttachedTransfer("paper-source", source.sessionId(), ticket.transferId())
+        );
+    }
+
+    @Test
+    void exactAbortRejectsWrongBackendAndWrongTicket() throws SQLException {
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "AbortReject");
+        SessionLease source = sessions.openSession(playerId, "paper-source", null, LEASE);
+        TransferTicket ticket = sessions.beginTransfer(
+                source.sessionId(),
+                "paper-source",
+                "map_encounter",
+                source.stateVersion(),
+                Duration.ofSeconds(30)
+        );
+
+        assertThrows(
+                SessionConflictException.class,
+                () -> recovery.abortAttachedTransfer("paper-other", source.sessionId(), ticket.transferId())
+        );
+        assertThrows(
+                SessionConflictException.class,
+                () -> recovery.abortAttachedTransfer("paper-source", source.sessionId(), UUID.randomUUID())
+        );
+        assertEquals("TRANSFERRING", sessionStatus(source.sessionId()));
+        assertTrue(!ticketIsClosed(ticket.transferId()));
     }
 
     @Test
