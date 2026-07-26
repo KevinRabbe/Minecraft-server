@@ -42,6 +42,7 @@ class CompetitiveDispatchRepositoryIntegrationTest {
     private BackendRegistry backends;
     private RankedArenaRepository ranked;
     private ClanWarLifecycleRepository wars;
+    private ClanWarLoadoutReadinessRepository warReadiness;
     private CompetitiveExecutionRepository executions;
     private CompetitiveDispatchRepository dispatch;
     private CompetitiveRuntimeManifestRepository manifests;
@@ -61,6 +62,7 @@ class CompetitiveDispatchRepositoryIntegrationTest {
         backends = new BackendRegistry(dataSource);
         ranked = new RankedArenaRepository(dataSource, RankedArenaRuleset.legacy189V1());
         wars = new ClanWarLifecycleRepository(dataSource, ClanWarRuleset.legacy189V1());
+        warReadiness = new ClanWarLoadoutReadinessRepository(dataSource);
         executions = new CompetitiveExecutionRepository(dataSource, FRESHNESS, Duration.ofMinutes(5));
         dispatch = new CompetitiveDispatchRepository(dataSource, executions, FRESHNESS, LEASE);
         manifests = new CompetitiveRuntimeManifestRepository(dataSource);
@@ -71,6 +73,8 @@ class CompetitiveDispatchRepositoryIntegrationTest {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
+                        clan_war_loadout_confirmations,
+                        competitive_player_execution_reservations,
                         competitive_runtime_principals,
                         competitive_execution_participants,
                         competitive_execution_specs,
@@ -214,6 +218,8 @@ class CompetitiveDispatchRepositoryIntegrationTest {
                 UUID.randomUUID(), war.warId(), defenderLeader, defender.clanId(), List.of(defenderLeader)
         );
         wars.lockRoster(UUID.randomUUID(), war.warId());
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), challengerLeader);
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), defenderLeader);
 
         CompetitiveDispatchCandidate candidate = dispatch.listReadyActivities(10).stream()
                 .filter(value -> value.activityKind() == CompetitiveActivityKind.CLAN_WAR)
