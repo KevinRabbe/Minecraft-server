@@ -17,6 +17,7 @@ import org.bukkit.entity.Player;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -25,13 +26,14 @@ import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 
-/** Adds bounded clan social read/admin subcommands while delegating the established clan mutation/storage surface. */
+/** Adds bounded clan social/war subcommands while delegating the established clan mutation/storage surface. */
 final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_CHAT_LIMIT = 20;
 
     private final MinecraftServerPlugin plugin;
     private final PaperClanCommand delegate;
+    private final PaperClanWarCommand warCommand;
     private final PaperPlayerIdentityResolver playerIdentities;
     private final ClanMembershipRepository memberships;
     private final ClanQueryRepository queries;
@@ -39,12 +41,14 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
     PaperClanRouterCommand(
             MinecraftServerPlugin plugin,
             PaperClanCommand delegate,
+            PaperClanWarCommand warCommand,
             PaperPlayerIdentityResolver playerIdentities,
             ClanMembershipRepository memberships,
             ClanQueryRepository queries
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.delegate = Objects.requireNonNull(delegate, "delegate");
+        this.warCommand = Objects.requireNonNull(warCommand, "warCommand");
         this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.memberships = Objects.requireNonNull(memberships, "memberships");
         this.queries = Objects.requireNonNull(queries, "queries");
@@ -56,12 +60,15 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
             return delegate.onCommand(sender, command, label, args);
         }
         String subcommand = args[0].toLowerCase(Locale.ROOT);
-        if (!List.of("members", "invites", "cancel-invite").contains(subcommand)) {
+        if (!List.of("members", "invites", "cancel-invite", "war").contains(subcommand)) {
             return delegate.onCommand(sender, command, label, args);
         }
         if (!(sender instanceof Player player)) {
             sender.sendMessage(Component.text("Only a player can use clan commands."));
             return true;
+        }
+        if ("war".equals(subcommand)) {
+            return warCommand.onCommand(player, Arrays.copyOfRange(args, 1, args.length));
         }
 
         try {
@@ -102,10 +109,13 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
             LinkedHashSet<String> result = new LinkedHashSet<>(delegate.onTabComplete(sender, command, alias, args));
-            List.of("members", "invites", "cancel-invite").stream()
+            List.of("members", "invites", "cancel-invite", "war").stream()
                     .filter(value -> value.startsWith(prefix))
                     .forEach(result::add);
             return result.stream().sorted().toList();
+        }
+        if ("war".equals(args[0].toLowerCase(Locale.ROOT))) {
+            return warCommand.onTabComplete(Arrays.copyOfRange(args, 1, args.length));
         }
         if (args.length >= 2 && List.of("members", "invites", "cancel-invite").contains(args[0].toLowerCase(Locale.ROOT))) {
             return List.of();
@@ -219,7 +229,9 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
     }
 
     private void usage(Player player) {
-        player.sendMessage(Component.text("Clan: /clan members [1-20] | invites [1-20] | cancel-invite <invite-id>"));
+        player.sendMessage(Component.text(
+                "Clan: /clan members [1-20] | invites [1-20] | cancel-invite <invite-id> | war ..."
+        ));
     }
 
     private static int parseLimit(String raw) {
