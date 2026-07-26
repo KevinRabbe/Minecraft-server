@@ -6,8 +6,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -244,6 +244,10 @@ public final class ClanChatRepository {
     }
 
     private static ClanChatMessageSnapshot readMessage(ResultSet row) throws SQLException {
+        Timestamp createdAt = row.getTimestamp("created_at");
+        if (createdAt == null) {
+            throw new SQLException("Clan chat message is missing created_at");
+        }
         return new ClanChatMessageSnapshot(
                 row.getLong("sequence"),
                 row.getObject("message_id", UUID.class),
@@ -251,7 +255,7 @@ public final class ClanChatRepository {
                 row.getObject("sender_player_id", UUID.class),
                 row.getString("sender_name"),
                 row.getString("body"),
-                row.getObject("created_at", Instant.class)
+                createdAt.toInstant()
         );
     }
 
