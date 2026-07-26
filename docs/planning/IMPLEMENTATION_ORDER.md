@@ -4,7 +4,7 @@ Status: **V1 vertical implementation active.** The architecture-alignment gate i
 
 See [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) for the complete milestone map.
 
-## Current implementation checkpoint — 2026-07-26
+## Current implementation checkpoint — 2026-07-27
 
 The active branch has moved materially beyond the original architecture-only checkpoint:
 
@@ -14,7 +14,8 @@ The active branch has moved materially beyond the original architecture-only che
 - Portal/Maps now have individualized persistent Map identity, exact open consumption, disposable-instance reservation/handoff, auto-pinned transfer evidence, managed Forest/Spider Extermination gameplay, exactly-once successor-Map rewards, persisted return routing, abandoned/completed recovery, `/map open`, and Persistent-MMO Map leaderboards;
 - the first-Map acquisition source remains intentionally unresolved in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md); do not create a hidden mandatory Bounty/crafting/vendor route just to make the first Map appear;
 - player-directed expansion voting already has authoritative schedule/open/ballot/resolve, feature/world-era consequences, historical evidence, a bounded player read projection, and `/vote` ballot access. Candidate scheduling/content remains a separate configuration/operations decision;
-- Ranked Arena now has end-to-end isolated 1.8.9 dispatch/routing/admission, a config-driven disposable symmetric 1v1 arena and standardized temporary kit, materialization-gated combat/lease renewal, disconnect pause/no-show recovery, bounded no-winner timeout, and death -> exactly-once result/rating settlement. Clan War has challenge/roster/custody/frozen-loadout transport and fail-closed recovery, but its 1.8.9 item representation, objective, and combat materializer remain incomplete.
+- Ranked Arena has end-to-end isolated 1.8.9 dispatch/routing/admission, a config-driven disposable symmetric 1v1 arena and standardized temporary kit, materialization-gated combat/lease renewal, disconnect pause/no-show recovery, bounded no-winner timeout, and death -> exactly-once result/rating settlement;
+- Clan War has challenge/roster/custody/frozen-loadout transport plus a structurally qualified baseline 1.8.9 control-point runtime: exact identity-free roster/loadout snapshot, code-bound `war.legacy_1_8_9@1` starter-sword representation, exact non-truncating inventory projection, deterministic separate arena/spawns, death isolation, control progress, timeout/failure recovery, trusted result/rating settlement, and capability-gated dispatch. Production `supports_clan_war` remains `FALSE` until the accepted V1 gear representation set and deferred real-client acceptance are proven; broader rolled/upgraded/equipment translation remains intentionally fail-closed.
 
 Treat this checkpoint as the execution state, while the numbered sections below remain the dependency/reference order.
 
