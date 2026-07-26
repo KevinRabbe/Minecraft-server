@@ -47,10 +47,28 @@ public final class CompetitiveDispatchRepository {
                          WHERE status = 'CREATED'
                          UNION ALL
                          SELECT 'CLAN_WAR'::TEXT AS activity_kind,
-                                war_id AS activity_id,
-                                created_at AS ready_since
-                         FROM clan_wars
-                         WHERE status = 'ROSTER_LOCKED'
+                                war.war_id AS activity_id,
+                                war.created_at AS ready_since
+                         FROM clan_wars war
+                         WHERE war.status = 'ROSTER_LOCKED'
+                           AND (
+                               SELECT COUNT(*)
+                               FROM clan_war_rosters roster
+                               WHERE roster.war_id = war.war_id
+                                 AND roster.released_at IS NULL
+                           ) = war.team_size * 2
+                           AND NOT EXISTS (
+                               SELECT 1
+                               FROM clan_war_rosters roster
+                               WHERE roster.war_id = war.war_id
+                                 AND roster.released_at IS NULL
+                                 AND NOT EXISTS (
+                                     SELECT 1
+                                     FROM clan_war_loadout_confirmations confirmation
+                                     WHERE confirmation.war_id = roster.war_id
+                                       AND confirmation.player_id = roster.player_id
+                                 )
+                           )
                      ) ready
                      WHERE NOT EXISTS (
                          SELECT 1
