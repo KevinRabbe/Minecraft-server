@@ -115,6 +115,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 );
                 return;
             }
+            requireSupportedManifest(execution);
             activeExecutions.put(execution.getExecutionId(), execution);
         } catch (SQLException | RuntimeException exception) {
             getLogger().log(Level.WARNING, "Competitive player admission lookup failed closed", exception);
@@ -202,6 +203,16 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 if (pendingOutcomes.containsKey(execution.getExecutionId())) {
                     continue;
                 }
+                try {
+                    requireSupportedManifest(execution);
+                } catch (RuntimeException exception) {
+                    getLogger().log(
+                            Level.SEVERE,
+                            "Refusing to renew unsupported competitive manifest " + execution.getExecutionId(),
+                            exception
+                    );
+                    continue;
+                }
                 LegacyExecution renewed = current.heartbeatExecution(execution, executionLeaseSeconds);
                 refreshed.put(renewed.getExecutionId(), renewed);
             }
@@ -228,6 +239,17 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 getLogger().log(Level.WARNING, "Could not submit competitive outcome for " + executionId, exception);
             }
         }
+    }
+
+    private static void requireSupportedManifest(LegacyExecution execution) {
+        if (LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())) {
+            LegacyRankedExecution.requireSupported(execution);
+            return;
+        }
+        if ("CLAN_WAR".equals(execution.getActivityKind())) {
+            return;
+        }
+        throw new IllegalArgumentException("Unsupported competitive activity kind: " + execution.getActivityKind());
     }
 
     private void requireMappedBackend(String mappedBackend) {
