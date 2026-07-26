@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,7 +21,7 @@ class LegacyClanWarInventoryProjectionTest {
         LegacyClanWarExecution war = war();
         LegacyClanWarRepresentationPlan plan = representationPlan(
                 war,
-                List.of(
+                Arrays.asList(
                         new LegacyLoadoutItem(0, 0, "equipment.starter_sword", "{}", 0),
                         new LegacyLoadoutItem(0, 1, "equipment.starter_sword", "{}", 0),
                         new LegacyLoadoutItem(1, 0, "equipment.starter_sword", "{}", 0)
@@ -100,7 +101,7 @@ class LegacyClanWarInventoryProjectionTest {
                 "war.legacy_1_8_9",
                 1,
                 1,
-                List.of(
+                Arrays.asList(
                         new LegacyParticipant(
                                 0, "CHALLENGER", challengerClan,
                                 UUID.randomUUID(), UUID.randomUUID(), "ProjectionA"
