@@ -38,9 +38,22 @@ ranked:
 # roll_state={} / upgrade_level=0 items. Rolled/upgraded gear remains fail-closed until its exact 1.8 combat translation
 # is implemented; it is never silently flattened into weaker/different vanilla stats.
 clan-war:
+  # Separate disposable region from Ranked. This is local runtime geometry, never persistent war identity.
+  arena:
+    origin-x: 128
+    floor-y: 200
+    origin-z: 0
+    half-size: 24
+    wall-height: 4
+    spawn-offset: 16
+    spawn-spacing: 2.0
+    floor-material: STONE
+    border-material: BEDROCK
+    wall-material: GLASS
+
   objective:
     # Local disposable-world placement; moving this point does not change persistent war identity/history.
-    center-x: 0.5
+    center-x: 128.5
     center-y: 201.0
     center-z: 0.5
     # Simple control-point mode: uncontested presence adds one progress step per evaluation; contested/empty pauses.
