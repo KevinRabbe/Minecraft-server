@@ -15,13 +15,10 @@ application {
     mainClass.set("io.github.kevinrabbe.minecraftserver.competitivecontrol.CompetitiveControlMain")
 }
 
+// Keep the normal application jar for Gradle distribution tasks and emit a separate self-contained control-plane jar.
 tasks.shadowJar {
-    archiveClassifier.set("")
+    archiveClassifier.set("all")
     mergeServiceFiles()
-}
-
-tasks.jar {
-    enabled = false
 }
 
 tasks.build {
