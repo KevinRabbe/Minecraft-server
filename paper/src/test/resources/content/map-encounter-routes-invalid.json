@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "routes": [
+    {
+      "environment_id": "forest",
+      "zone_id": "map_encounter",
+      "template_version": "v1",
+      "unexpected": true
+    }
+  ]
+}
