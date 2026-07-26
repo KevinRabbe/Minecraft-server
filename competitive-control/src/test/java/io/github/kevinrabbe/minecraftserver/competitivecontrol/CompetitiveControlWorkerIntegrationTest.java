@@ -7,9 +7,12 @@ import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLifecycleRepositor
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarResolutionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarRuleset;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveActivityKind;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchService;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionService;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionSnapshot;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionStatus;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveReportStatus;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveResultReportSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRepository;
@@ -27,6 +30,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
@@ -43,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CompetitiveControlWorkerIntegrationTest {
     private static final String BACKEND = "competitive-control-test";
     private static final Duration LEASE = Duration.ofMinutes(2);
+    private static final Duration CONTROL_LEASE = Duration.ofSeconds(60);
 
     private Database database;
     private DataSource dataSource;
@@ -51,6 +56,7 @@ class CompetitiveControlWorkerIntegrationTest {
     private RankedArenaRepository ranked;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
+    private CompetitiveDispatchRepository dispatchRepository;
     private CompetitiveControlWorker worker;
 
     @BeforeAll
@@ -77,9 +83,27 @@ class CompetitiveControlWorkerIntegrationTest {
                 new ClanWarLifecycleRepository(dataSource, ClanWarRuleset.legacy189V1()),
                 new ClanWarResolutionRepository(dataSource)
         );
+        dispatchRepository = new CompetitiveDispatchRepository(
+                dataSource,
+                executions,
+                Duration.ofMinutes(1),
+                CONTROL_LEASE
+        );
+        CompetitiveDispatchService dispatchService = new CompetitiveDispatchService(
+                dispatchRepository,
+                service,
+                CONTROL_LEASE
+        );
         Logger logger = Logger.getLogger(CompetitiveControlWorkerIntegrationTest.class.getName());
         logger.setLevel(Level.OFF);
-        worker = new CompetitiveControlWorker(executions, service, 20, logger);
+        worker = new CompetitiveControlWorker(
+                executions,
+                service,
+                dispatchRepository,
+                dispatchService,
+                20,
+                logger
+        );
     }
 
     @BeforeEach
@@ -145,6 +169,10 @@ class CompetitiveControlWorkerIntegrationTest {
         assertEquals(0, result.expiredExecutionsSeen());
         assertEquals(0, result.executionsRecovered());
         assertEquals(0, result.recoveryFailures());
+        assertEquals(0, result.readyActivitiesSeen());
+        assertEquals(0, result.executionsDispatched());
+        assertEquals(0, result.dispatchDeferred());
+        assertEquals(0, result.dispatchFailures());
 
         assertEquals(
                 CompetitiveReportStatus.PENDING,
@@ -158,6 +186,38 @@ class CompetitiveControlWorkerIntegrationTest {
         assertEquals(RankedMatchStatus.COMPLETED, completed.status());
         assertEquals(healthyFixture.winnerId(), completed.winnerPlayerId());
         assertTrue(executions.load(poisonedFixture.execution().executionId()).isPresent());
+    }
+
+    @Test
+    void readyActivityIsDispatchedActivatedAndCapacityDefersNextMatch() throws Exception {
+        runtimePrincipal(1);
+        RankedMatchSnapshot first = ranked.createMatch(
+                UUID.randomUUID(), player("DispatchOneA"), player("DispatchOneB")
+        );
+        RankedMatchSnapshot second = ranked.createMatch(
+                UUID.randomUUID(), player("DispatchTwoA"), player("DispatchTwoB")
+        );
+
+        CompetitiveControlPassResult result = worker.runOnce();
+        assertEquals(2, result.readyActivitiesSeen());
+        assertEquals(1, result.executionsDispatched());
+        assertEquals(1, result.dispatchDeferred());
+        assertEquals(0, result.dispatchFailures());
+
+        CompetitiveExecutionSnapshot execution = executionFor(first.matchId());
+        RankedMatchSnapshot firstAfter = ranked.loadMatch(first.matchId()).orElseThrow();
+        RankedMatchSnapshot secondAfter = ranked.loadMatch(second.matchId()).orElseThrow();
+        if (firstAfter.status() == RankedMatchStatus.CREATED) {
+            execution = executionFor(second.matchId());
+            assertEquals(RankedMatchStatus.ACTIVE, secondAfter.status());
+            assertEquals(RankedMatchStatus.CREATED, firstAfter.status());
+        } else {
+            assertEquals(RankedMatchStatus.ACTIVE, firstAfter.status());
+            assertEquals(RankedMatchStatus.CREATED, secondAfter.status());
+        }
+        assertEquals(BACKEND, execution.backendId());
+        assertEquals(CompetitiveExecutionStatus.ACTIVE, execution.status());
+        assertEquals(1, dispatchRepository.listReadyActivities(20).size());
     }
 
     private ReportFixture pendingRankedReport(String nameA, String nameB) throws SQLException {
@@ -179,6 +239,40 @@ class CompetitiveControlWorkerIntegrationTest {
                 playerA
         );
         return new ReportFixture(match, active, report, playerA);
+    }
+
+    private CompetitiveExecutionSnapshot executionFor(UUID matchId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT execution_id
+                     FROM competitive_executions
+                     WHERE activity_kind = 'RANKED_ARENA' AND activity_id = ?
+                     """)) {
+            statement.setObject(1, matchId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    throw new SQLException("No competitive execution for ranked match " + matchId);
+                }
+                return executions.load(row.getObject(1, UUID.class)).orElseThrow();
+            }
+        }
+    }
+
+    private void runtimePrincipal(int capacity) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     INSERT INTO competitive_runtime_principals(
+                         database_role,
+                         backend_id,
+                         max_execution_lease_seconds,
+                         dispatch_enabled,
+                         max_active_executions
+                     ) VALUES ('competitive-control-runtime', ?, 120, TRUE, ?)
+                     """)) {
+            statement.setString(1, BACKEND);
+            statement.setInt(2, capacity);
+            statement.executeUpdate();
+        }
     }
 
     private void deleteRankedMatchOutOfBand(UUID matchId) throws SQLException {
