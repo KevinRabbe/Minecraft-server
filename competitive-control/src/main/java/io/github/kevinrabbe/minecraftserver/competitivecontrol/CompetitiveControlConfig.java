@@ -4,22 +4,28 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 
-/** Small operational configuration for the trusted competitive settlement/recovery worker. */
+/** Small operational configuration for the trusted competitive settlement/recovery/dispatch worker. */
 public record CompetitiveControlConfig(
         Duration backendFreshness,
         Duration maxExecutionLease,
+        Duration executionLease,
         int batchLimit,
         Duration pollPeriod
 ) {
     private static final Duration DEFAULT_BACKEND_FRESHNESS = Duration.ofSeconds(30);
     private static final Duration DEFAULT_MAX_EXECUTION_LEASE = Duration.ofMinutes(5);
+    private static final Duration DEFAULT_EXECUTION_LEASE = Duration.ofSeconds(60);
     private static final int DEFAULT_BATCH_LIMIT = 50;
     private static final Duration DEFAULT_POLL_PERIOD = Duration.ofSeconds(1);
 
     public CompetitiveControlConfig {
         backendFreshness = requirePositive(backendFreshness, "backendFreshness");
         maxExecutionLease = requirePositive(maxExecutionLease, "maxExecutionLease");
+        executionLease = requirePositive(executionLease, "executionLease");
         pollPeriod = requirePositive(pollPeriod, "pollPeriod");
+        if (executionLease.compareTo(maxExecutionLease) > 0) {
+            throw new IllegalArgumentException("executionLease must not exceed maxExecutionLease");
+        }
         if (batchLimit < 1 || batchLimit > 500) {
             throw new IllegalArgumentException("batchLimit must be between 1 and 500");
         }
@@ -31,6 +37,13 @@ public record CompetitiveControlConfig(
 
     public static CompetitiveControlConfig fromEnvironment(Map<String, String> environment) {
         Objects.requireNonNull(environment, "environment");
+        Duration maxLease = parseDurationSeconds(
+                environment.get("COMPETITIVE_CONTROL_MAX_EXECUTION_LEASE_SECONDS"),
+                DEFAULT_MAX_EXECUTION_LEASE,
+                "COMPETITIVE_CONTROL_MAX_EXECUTION_LEASE_SECONDS",
+                1,
+                3_600
+        );
         return new CompetitiveControlConfig(
                 parseDurationSeconds(
                         environment.get("COMPETITIVE_CONTROL_BACKEND_FRESHNESS_SECONDS"),
@@ -39,10 +52,11 @@ public record CompetitiveControlConfig(
                         1,
                         3_600
                 ),
+                maxLease,
                 parseDurationSeconds(
-                        environment.get("COMPETITIVE_CONTROL_MAX_EXECUTION_LEASE_SECONDS"),
-                        DEFAULT_MAX_EXECUTION_LEASE,
-                        "COMPETITIVE_CONTROL_MAX_EXECUTION_LEASE_SECONDS",
+                        environment.get("COMPETITIVE_CONTROL_EXECUTION_LEASE_SECONDS"),
+                        DEFAULT_EXECUTION_LEASE,
+                        "COMPETITIVE_CONTROL_EXECUTION_LEASE_SECONDS",
                         1,
                         3_600
                 ),
