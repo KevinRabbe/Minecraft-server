@@ -2,6 +2,7 @@ package io.github.kevinrabbe.minecraftserver.legacy;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -26,5 +27,21 @@ class LegacyClanWarTimeoutTrackerTest {
 
         tracker.clear(executionId);
         assertFalse(tracker.isExpired(executionId));
+    }
+
+    @Test
+    void retainDropsTimeoutStateForExecutionsNoLongerLive() {
+        AtomicLong now = new AtomicLong();
+        LegacyClanWarTimeoutTracker tracker = new LegacyClanWarTimeoutTracker(1, now::get);
+        UUID kept = UUID.randomUUID();
+        UUID removed = UUID.randomUUID();
+        tracker.start(kept);
+        tracker.start(removed);
+        now.set(2_000_000_000L);
+
+        tracker.retain(Collections.singleton(kept));
+
+        assertTrue(tracker.isExpired(kept));
+        assertFalse(tracker.isExpired(removed));
     }
 }
