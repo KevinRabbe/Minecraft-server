@@ -33,6 +33,9 @@ final class LegacyClanWarObjectiveController {
     }
 
     void tick() {
+        Map<UUID, LegacyExecution> activeExecutions = plugin.snapshotActiveExecutions();
+        combatGate.retain(activeExecutions.keySet());
+
         Map<UUID, LegacyClanWarRuntimeState> runtimeStates = plugin.snapshotClanWarRuntimeStates();
         objectivesByExecution.keySet().retainAll(runtimeStates.keySet());
 
@@ -43,7 +46,7 @@ final class LegacyClanWarObjectiveController {
 
         for (Map.Entry<UUID, LegacyClanWarRuntimeState> entry : runtimeStates.entrySet()) {
             UUID executionId = entry.getKey();
-            if (!combatGate.isEnabled(executionId)) continue;
+            if (!activeExecutions.containsKey(executionId) || !combatGate.isEnabled(executionId)) continue;
 
             LegacyClanWarRuntimeState runtimeState = entry.getValue();
             LegacyClanWarTimeoutTracker tracker = timeoutTracker;
