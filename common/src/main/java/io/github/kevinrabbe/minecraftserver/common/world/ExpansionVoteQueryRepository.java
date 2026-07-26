@@ -10,10 +10,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -23,9 +24,15 @@ public final class ExpansionVoteQueryRepository {
     private static final int MAX_LIMIT = 20;
 
     private final DataSource dataSource;
+    private final Clock clock;
 
     public ExpansionVoteQueryRepository(DataSource dataSource) {
+        this(dataSource, Clock.systemUTC());
+    }
+
+    public ExpansionVoteQueryRepository(DataSource dataSource, Clock clock) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     /** Returns currently OPEN votes whose configured time window still accepts ballots, earliest closing first. */
@@ -34,6 +41,7 @@ public final class ExpansionVoteQueryRepository {
         if (limit < 1 || limit > MAX_LIMIT) {
             throw new IllegalArgumentException("limit must be between 1 and " + MAX_LIMIT);
         }
+        Instant now = clock.instant();
 
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -53,8 +61,8 @@ public final class ExpansionVoteQueryRepository {
                                    resolved_at
                             FROM expansion_votes
                             WHERE status = 'OPEN'
-                              AND opens_at <= NOW()
-                              AND closes_at > NOW()
+                              AND opens_at <= ?
+                              AND closes_at > ?
                             ORDER BY closes_at ASC, vote_id ASC
                             LIMIT ?
                         )
@@ -83,8 +91,10 @@ public final class ExpansionVoteQueryRepository {
                          AND b.player_id = ?
                         ORDER BY v.closes_at ASC, v.vote_id ASC, c.ordinal ASC
                         """)) {
-                    statement.setInt(1, limit);
-                    statement.setObject(2, playerId);
+                    statement.setTimestamp(1, Timestamp.from(now));
+                    statement.setTimestamp(2, Timestamp.from(now));
+                    statement.setInt(3, limit);
+                    statement.setObject(4, playerId);
                     try (ResultSet rows = statement.executeQuery()) {
                         while (rows.next()) {
                             UUID voteId = rows.getObject("vote_id", UUID.class);
