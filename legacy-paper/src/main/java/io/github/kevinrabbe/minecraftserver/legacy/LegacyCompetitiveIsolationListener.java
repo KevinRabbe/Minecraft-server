@@ -11,6 +11,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityCombustByEntityEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.PotionSplashEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
@@ -25,14 +26,27 @@ import java.util.Objects;
  * Execution-isolation guard for the disposable 1.8.9 competitive tier.
  *
  * <p>This is deliberately independent of the eventual arena geometry/loadout. It prevents players assigned to one
- * logical execution from damaging players in another execution and prevents temporary match inventory/world mutation
- * from leaking through shared backend infrastructure.</p>
+ * logical execution from interacting with another execution, prevents temporary match inventory/world mutation from
+ * leaking through shared backend infrastructure, and keeps combat closed until a materializer explicitly enables the
+ * exact execution.</p>
  */
 final class LegacyCompetitiveIsolationListener implements Listener {
     private final LegacyCompetitivePlugin plugin;
+    private final LegacyCompetitiveCombatGate combatGate;
 
-    LegacyCompetitiveIsolationListener(LegacyCompetitivePlugin plugin) {
+    LegacyCompetitiveIsolationListener(LegacyCompetitivePlugin plugin, LegacyCompetitiveCombatGate combatGate) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.combatGate = Objects.requireNonNull(combatGate, "combatGate");
+    }
+
+    /** Environmental damage is also blocked until the exact execution has been fully materialized. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+        LegacyExecution execution = plugin.findExecutionForPlayer(((Player) event.getEntity()).getUniqueId());
+        if (execution != null && !combatGate.isEnabled(execution.getExecutionId())) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -43,7 +57,7 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         Player attacker = attackingPlayer(event.getDamager());
         if (attacker == null) return;
 
-        if (!sameExecutionOrUnrelated(attacker, victim)) {
+        if (!sameEnabledExecutionOrUnrelated(attacker, victim)) {
             event.setCancelled(true);
         }
     }
@@ -56,7 +70,7 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         Player attacker = attackingPlayer(event.getCombuster());
         if (attacker == null) return;
 
-        if (!sameExecutionOrUnrelated(attacker, victim)) {
+        if (!sameEnabledExecutionOrUnrelated(attacker, victim)) {
             event.setCancelled(true);
         }
     }
@@ -70,7 +84,7 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         for (LivingEntity affected : event.getAffectedEntities()) {
             if (!(affected instanceof Player)) continue;
             Player victim = (Player) affected;
-            if (!sameExecutionOrUnrelated(attacker, victim)) {
+            if (!sameEnabledExecutionOrUnrelated(attacker, victim)) {
                 event.setIntensity(affected, 0.0D);
             }
         }
@@ -114,13 +128,13 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         event.setDroppedExp(0);
     }
 
-    private boolean sameExecutionOrUnrelated(Player first, Player second) {
+    private boolean sameEnabledExecutionOrUnrelated(Player first, Player second) {
         LegacyExecution firstExecution = plugin.findExecutionForPlayer(first.getUniqueId());
         LegacyExecution secondExecution = plugin.findExecutionForPlayer(second.getUniqueId());
         if (firstExecution == null && secondExecution == null) return true;
-        return firstExecution != null
-                && secondExecution != null
-                && firstExecution.getExecutionId().equals(secondExecution.getExecutionId());
+        if (firstExecution == null || secondExecution == null) return false;
+        if (!firstExecution.getExecutionId().equals(secondExecution.getExecutionId())) return false;
+        return combatGate.isEnabled(firstExecution.getExecutionId());
     }
 
     private boolean isCompetitive(Player player) {
