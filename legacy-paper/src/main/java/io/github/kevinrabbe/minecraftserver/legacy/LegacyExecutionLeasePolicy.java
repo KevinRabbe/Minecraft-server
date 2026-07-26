@@ -4,7 +4,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** Local liveness policy: a runtime extends only executions it has actually materialized enough to run. */
+/** Local liveness policy: a runtime extends only executions it can currently execute as combat. */
 final class LegacyExecutionLeasePolicy {
     private LegacyExecutionLeasePolicy() { }
 
@@ -13,19 +13,7 @@ final class LegacyExecutionLeasePolicy {
             LegacyCompetitiveCombatGate combatGate,
             Set<UUID> onlineMinecraftUuids
     ) {
-        Objects.requireNonNull(execution, "execution");
-        Objects.requireNonNull(combatGate, "combatGate");
         Objects.requireNonNull(onlineMinecraftUuids, "onlineMinecraftUuids");
-
-        if (!combatGate.isEnabled(execution.getExecutionId())) {
-            return false;
-        }
-        if (LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())) {
-            return execution.allParticipantsOnline(onlineMinecraftUuids);
-        }
-        if (LegacyClanWarExecution.ACTIVITY_KIND.equals(execution.getActivityKind())) {
-            return true;
-        }
-        return false;
+        return LegacyCombatAvailability.isEnabled(execution, combatGate, onlineMinecraftUuids::contains);
     }
 }
