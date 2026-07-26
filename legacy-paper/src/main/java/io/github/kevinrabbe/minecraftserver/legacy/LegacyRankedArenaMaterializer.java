@@ -4,6 +4,7 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -83,11 +84,22 @@ final class LegacyRankedArenaMaterializer {
 
     private void rebuildArena() {
         world.setPVP(true);
+        world.setSpawnFlags(false, false);
+        requireGameRule("doMobSpawning", "false");
+        requireGameRule("doDaylightCycle", "false");
+        world.setStorm(false);
+        world.setThundering(false);
+        world.setWeatherDuration(Integer.MAX_VALUE);
+        world.setThunderDuration(Integer.MAX_VALUE);
+        world.setTime(6000L);
+
         int minX = settings.getOriginX() - settings.getHalfSize();
         int maxX = settings.getOriginX() + settings.getHalfSize();
         int minZ = settings.getOriginZ() - settings.getHalfSize();
         int maxZ = settings.getOriginZ() + settings.getHalfSize();
         int floorY = settings.getFloorY();
+
+        clearDisposableArenaEntities(minX, maxX, minZ, maxZ, floorY);
 
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
@@ -97,6 +109,29 @@ final class LegacyRankedArenaMaterializer {
                     world.getBlockAt(x, floorY + height, z).setType(edge ? wallMaterial : Material.AIR);
                 }
             }
+        }
+    }
+
+    private void clearDisposableArenaEntities(int minX, int maxX, int minZ, int maxZ, int floorY) {
+        int minY = floorY - 4;
+        int maxY = floorY + settings.getWallHeight() + 8;
+        for (Entity entity : world.getEntities()) {
+            if (entity instanceof Player) continue;
+            Location location = entity.getLocation();
+            if (location.getX() >= minX
+                    && location.getX() <= maxX + 1.0D
+                    && location.getY() >= minY
+                    && location.getY() <= maxY
+                    && location.getZ() >= minZ
+                    && location.getZ() <= maxZ + 1.0D) {
+                entity.remove();
+            }
+        }
+    }
+
+    private void requireGameRule(String rule, String value) {
+        if (!world.setGameRuleValue(rule, value)) {
+            throw new IllegalStateException("legacy Ranked world does not support required gamerule " + rule);
         }
     }
 
