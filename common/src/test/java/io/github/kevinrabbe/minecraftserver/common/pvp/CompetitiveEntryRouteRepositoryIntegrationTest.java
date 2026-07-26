@@ -292,8 +292,9 @@ class CompetitiveEntryRouteRepositoryIntegrationTest {
                          backend_id,
                          max_execution_lease_seconds,
                          dispatch_enabled,
-                         max_active_executions
-                     ) VALUES ('entry-route-runtime', ?, 120, TRUE, ?)
+                         max_active_executions,
+                         supports_clan_war
+                     ) VALUES ('entry-route-runtime', ?, 120, TRUE, ?, TRUE)
                      """)) {
             statement.setString(1, BACKEND);
             statement.setInt(2, capacity);
