@@ -1,16 +1,21 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.sql.SQLException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -29,6 +34,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private final AtomicBoolean pollInFlight = new AtomicBoolean();
     private final ConcurrentMap<UUID, LegacyExecution> activeExecutions = new ConcurrentHashMap<UUID, LegacyExecution>();
     private final ConcurrentMap<UUID, PendingOutcome> pendingOutcomes = new ConcurrentHashMap<UUID, PendingOutcome>();
+    private final ConcurrentMap<UUID, Boolean> onlineMinecraftUuids = new ConcurrentHashMap<UUID, Boolean>();
 
     private volatile LegacyRuntimeDatabase database;
     private String backendId;
@@ -53,6 +59,11 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             throw new IllegalStateException("Could not initialize competitive runtime database boundary", exception);
         }
 
+        onlineMinecraftUuids.clear();
+        for (Player player : getServer().getOnlinePlayers()) {
+            onlineMinecraftUuids.put(player.getUniqueId(), Boolean.TRUE);
+        }
+
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(new LegacyCompetitiveIsolationListener(this), this);
         pumpTask = getServer().getScheduler().runTaskTimer(
@@ -60,7 +71,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 new Runnable() {
                     @Override
                     public void run() {
-                        schedulePoll(getServer().getOnlinePlayers().size());
+                        schedulePoll(onlineMinecraftUuids.size());
                     }
                 },
                 INITIAL_POLL_DELAY_TICKS,
@@ -75,6 +86,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             pumpTask.cancel();
             pumpTask = null;
         }
+        onlineMinecraftUuids.clear();
         activeExecutions.clear();
         pendingOutcomes.clear();
         LegacyRuntimeDatabase current = database;
@@ -127,6 +139,18 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         }
     }
 
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        onlineMinecraftUuids.put(event.getPlayer().getUniqueId(), Boolean.TRUE);
+        schedulePoll(onlineMinecraftUuids.size());
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        onlineMinecraftUuids.remove(event.getPlayer().getUniqueId());
+        schedulePoll(onlineMinecraftUuids.size());
+    }
+
     /** Future combat controller entry point: queue an exactly-once winner report using the frozen runtime side identity. */
     void recordWinner(UUID executionId, UUID winnerMinecraftUuid) {
         LegacyExecution execution = requireActiveExecution(executionId);
@@ -159,7 +183,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             throw new IllegalStateException("Competitive execution already has a different local terminal outcome");
         }
         activeExecutions.remove(execution.getExecutionId(), execution);
-        schedulePoll(getServer().getOnlinePlayers().size());
+        schedulePoll(onlineMinecraftUuids.size());
     }
 
     private LegacyExecution requireActiveExecution(UUID executionId) {
@@ -195,6 +219,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private void pollOnce(int playerCount) {
         LegacyRuntimeDatabase current = database;
         if (current == null) return;
+        Set<UUID> onlineSnapshot = new HashSet<UUID>(onlineMinecraftUuids.keySet());
         try {
             requireMappedBackend(current.heartbeatBackend(playerCount));
             flushPendingOutcomes(current);
@@ -214,6 +239,15 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                     );
                     continue;
                 }
+
+                if (LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
+                        && !execution.allParticipantsOnline(onlineSnapshot)) {
+                    // Keep the still-live manifest locally for admission/isolation, but deliberately do not extend its
+                    // database lease. The trusted control worker will cancel it after the original lease expires.
+                    refreshed.put(execution.getExecutionId(), execution);
+                    continue;
+                }
+
                 LegacyExecution renewed = current.heartbeatExecution(execution, executionLeaseSeconds);
                 refreshed.put(renewed.getExecutionId(), renewed);
             }
