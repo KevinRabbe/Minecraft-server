@@ -195,34 +195,38 @@ class CompetitiveDispatchRepositoryIntegrationTest {
     }
 
     @Test
+    void readyClanWarCannotDispatchUntilBackendExplicitlySupportsClanWar() throws Exception {
+        backends.registerOnline(BACKEND_A, 0);
+        principal("runtime-war-gated", BACKEND_A, true, 1);
+
+        ClanWarSnapshot war = readyClanWar("WarGateA", "WarGateB", "Gated Alpha", "Gated Beta");
+        CompetitiveDispatchCandidate candidate = dispatch.listReadyActivities(10).stream()
+                .filter(value -> value.activityKind() == CompetitiveActivityKind.CLAN_WAR)
+                .filter(value -> value.activityId().equals(war.warId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(
+                dispatch.dispatch(UUID.randomUUID(), candidate).isEmpty(),
+                "healthy runtime must still fail closed when Clan-War capability is not explicitly enabled"
+        );
+
+        setClanWarCapability(BACKEND_A, true);
+        CompetitiveExecutionSnapshot assigned = dispatch.dispatch(UUID.randomUUID(), candidate).orElseThrow();
+        assertEquals(BACKEND_A, assigned.backendId());
+        assertEquals(CompetitiveActivityKind.CLAN_WAR, assigned.activityKind());
+    }
+
+    @Test
     void lockedClanWarUsesSameDispatchAndSanitizedManifestBoundary() throws Exception {
         backends.registerOnline(BACKEND_A, 0);
         principal("runtime-war-a", BACKEND_A, true, 1, true);
 
-        UUID challengerLeader = player("WarDispatchA");
-        UUID defenderLeader = player("WarDispatchB");
-        ClanSnapshot challenger = memberships.createClan(
-                UUID.randomUUID(), challengerLeader, "Dispatch Alpha", randomTag()
-        );
-        ClanSnapshot defender = memberships.createClan(
-                UUID.randomUUID(), defenderLeader, "Dispatch Beta", randomTag()
-        );
-        ClanWarSnapshot war = wars.challenge(
-                UUID.randomUUID(), challengerLeader, challenger.clanId(), defender.clanId()
-        );
-        wars.accept(UUID.randomUUID(), war.warId(), defenderLeader);
-        wars.setRoster(
-                UUID.randomUUID(), war.warId(), challengerLeader, challenger.clanId(), List.of(challengerLeader)
-        );
-        wars.setRoster(
-                UUID.randomUUID(), war.warId(), defenderLeader, defender.clanId(), List.of(defenderLeader)
-        );
-        wars.lockRoster(UUID.randomUUID(), war.warId());
-        warReadiness.confirm(UUID.randomUUID(), war.warId(), challengerLeader);
-        warReadiness.confirm(UUID.randomUUID(), war.warId(), defenderLeader);
+        ClanWarSnapshot war = readyClanWar("WarDispatchA", "WarDispatchB", "Dispatch Alpha", "Dispatch Beta");
 
         CompetitiveDispatchCandidate candidate = dispatch.listReadyActivities(10).stream()
                 .filter(value -> value.activityKind() == CompetitiveActivityKind.CLAN_WAR)
+                .filter(value -> value.activityId().equals(war.warId()))
                 .findFirst()
                 .orElseThrow();
         CompetitiveExecutionSnapshot assigned = dispatch.dispatch(UUID.randomUUID(), candidate).orElseThrow();
@@ -251,6 +255,36 @@ class CompetitiveDispatchRepositoryIntegrationTest {
 
     private RankedMatchSnapshot rankedMatch(String playerAName, String playerBName) throws SQLException {
         return ranked.createMatch(UUID.randomUUID(), player(playerAName), player(playerBName));
+    }
+
+    private ClanWarSnapshot readyClanWar(
+            String challengerName,
+            String defenderName,
+            String challengerClanName,
+            String defenderClanName
+    ) throws SQLException {
+        UUID challengerLeader = player(challengerName);
+        UUID defenderLeader = player(defenderName);
+        ClanSnapshot challenger = memberships.createClan(
+                UUID.randomUUID(), challengerLeader, challengerClanName, randomTag()
+        );
+        ClanSnapshot defender = memberships.createClan(
+                UUID.randomUUID(), defenderLeader, defenderClanName, randomTag()
+        );
+        ClanWarSnapshot war = wars.challenge(
+                UUID.randomUUID(), challengerLeader, challenger.clanId(), defender.clanId()
+        );
+        wars.accept(UUID.randomUUID(), war.warId(), defenderLeader);
+        wars.setRoster(
+                UUID.randomUUID(), war.warId(), challengerLeader, challenger.clanId(), List.of(challengerLeader)
+        );
+        wars.setRoster(
+                UUID.randomUUID(), war.warId(), defenderLeader, defender.clanId(), List.of(defenderLeader)
+        );
+        wars.lockRoster(UUID.randomUUID(), war.warId());
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), challengerLeader);
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), defenderLeader);
+        return wars.loadWar(war.warId()).orElseThrow();
     }
 
     private CompetitiveDispatchCandidate candidate(UUID activityId) throws SQLException {
@@ -301,6 +335,19 @@ class CompetitiveDispatchRepositoryIntegrationTest {
              PreparedStatement statement = connection.prepareStatement("""
                      UPDATE competitive_runtime_principals
                      SET dispatch_enabled = ?
+                     WHERE backend_id = ?
+                     """)) {
+            statement.setBoolean(1, enabled);
+            statement.setString(2, backendId);
+            assertEquals(1, statement.executeUpdate());
+        }
+    }
+
+    private void setClanWarCapability(String backendId, boolean enabled) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE competitive_runtime_principals
+                     SET supports_clan_war = ?
                      WHERE backend_id = ?
                      """)) {
             statement.setBoolean(1, enabled);
