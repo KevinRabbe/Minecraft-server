@@ -35,7 +35,8 @@ public final class CompetitiveEntryRouteRepository {
 
     /**
      * Resolves at most one exact live route by Minecraft identity. Any impossible duplicate fails closed rather than
-     * choosing an arbitrary backend.
+     * choosing an arbitrary backend. A submitted terminal report makes the execution non-routable immediately, even
+     * before the trusted control worker completes durable settlement.
      */
     public Optional<CompetitiveEntryRoute> findByMinecraftUuid(UUID minecraftUuid) throws SQLException {
         Objects.requireNonNull(minecraftUuid, "minecraftUuid");
@@ -66,6 +67,11 @@ public final class CompetitiveEntryRouteRepository {
                        AND e.lease_expires_at > ?
                        AND b.status = 'ONLINE'
                        AND b.last_heartbeat_at >= ?
+                       AND NOT EXISTS (
+                           SELECT 1
+                           FROM competitive_result_reports report
+                           WHERE report.execution_id = e.execution_id
+                       )
                      ORDER BY e.execution_id ASC
                      LIMIT 2
                      """)) {
@@ -87,7 +93,8 @@ public final class CompetitiveEntryRouteRepository {
 
     /**
      * Reads the complete current routing projection in one query for proxy-side reconciliation. The result contains
-     * routing/identity only and fails closed if an impossible duplicate Minecraft identity is observed.
+     * routing/identity only and fails closed if an impossible duplicate Minecraft identity is observed. Executions with
+     * any submitted terminal report are omitted immediately, before trusted settlement closes the execution row.
      */
     public List<CompetitiveEntryRoute> findAllActive() throws SQLException {
         Instant now = clock.instant();
@@ -116,6 +123,11 @@ public final class CompetitiveEntryRouteRepository {
                        AND e.lease_expires_at > ?
                        AND b.status = 'ONLINE'
                        AND b.last_heartbeat_at >= ?
+                       AND NOT EXISTS (
+                           SELECT 1
+                           FROM competitive_result_reports report
+                           WHERE report.execution_id = e.execution_id
+                       )
                      ORDER BY p.minecraft_uuid ASC, e.execution_id ASC
                      """)) {
             statement.setTimestamp(1, Timestamp.from(now));
