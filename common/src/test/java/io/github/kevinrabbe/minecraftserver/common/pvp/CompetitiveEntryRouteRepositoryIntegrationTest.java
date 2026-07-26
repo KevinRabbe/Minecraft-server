@@ -43,6 +43,7 @@ class CompetitiveEntryRouteRepositoryIntegrationTest {
     private BackendRegistry backends;
     private RankedArenaRepository ranked;
     private ClanWarLifecycleRepository wars;
+    private ClanWarLoadoutReadinessRepository warReadiness;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService executionService;
     private CompetitiveDispatchRepository dispatchRepository;
@@ -64,6 +65,7 @@ class CompetitiveEntryRouteRepositoryIntegrationTest {
         backends = new BackendRegistry(dataSource);
         ranked = new RankedArenaRepository(dataSource, RankedArenaRuleset.legacy189V1());
         wars = new ClanWarLifecycleRepository(dataSource, ClanWarRuleset.legacy189V1());
+        warReadiness = new ClanWarLoadoutReadinessRepository(dataSource);
         executions = new CompetitiveExecutionRepository(dataSource, FRESHNESS, Duration.ofMinutes(5));
         executionService = new CompetitiveExecutionService(
                 executions,
@@ -81,6 +83,7 @@ class CompetitiveEntryRouteRepositoryIntegrationTest {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
+                        clan_war_loadout_confirmations,
                         competitive_player_execution_reservations,
                         competitive_runtime_principals,
                         competitive_execution_participants,
@@ -218,6 +221,8 @@ class CompetitiveEntryRouteRepositoryIntegrationTest {
                 List.of(defender.playerId())
         );
         wars.lockRoster(UUID.randomUUID(), war.warId());
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), challenger.playerId());
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), defender.playerId());
 
         CompetitiveExecutionSnapshot active = dispatchService.dispatchCandidate(
                 candidate(CompetitiveActivityKind.CLAN_WAR, war.warId())
