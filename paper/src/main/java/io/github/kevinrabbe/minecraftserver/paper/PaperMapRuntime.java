@@ -166,6 +166,7 @@ final class PaperMapRuntime {
 
         PaperMapCommand.install(plugin, openService);
         PaperExpansionVoteCommand.install(plugin, dataSource);
+        PaperChronicleCommand.install(plugin, dataSource);
         PaperLeaderboardRouterCommand.scheduleInstall(plugin, dataSource);
         return new PaperMapRuntime(openService, encounterController, recoveryTask);
     }
