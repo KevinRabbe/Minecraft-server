@@ -13,12 +13,14 @@ public final class PersistentIntegrityVerifier {
     private final EconomyIntegrityVerifier economy;
     private final PersistentPveIntegrityVerifier pve;
     private final CompetitiveIntegrityVerifier competitive;
+    private final CompetitiveExecutionLoadoutIntegrityVerifier competitiveLoadouts;
 
     public PersistentIntegrityVerifier(DataSource dataSource) {
         Objects.requireNonNull(dataSource, "dataSource");
         this.economy = new EconomyIntegrityVerifier(dataSource);
         this.pve = new PersistentPveIntegrityVerifier(dataSource);
         this.competitive = new CompetitiveIntegrityVerifier(dataSource);
+        this.competitiveLoadouts = new CompetitiveExecutionLoadoutIntegrityVerifier(dataSource);
     }
 
     public List<IntegrityIssue> verify(int maxIssues) throws SQLException {
@@ -33,6 +35,10 @@ public final class PersistentIntegrityVerifier {
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(competitive.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(competitiveLoadouts.verify(remaining));
         }
         return List.copyOf(issues);
     }
