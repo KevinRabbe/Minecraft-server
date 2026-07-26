@@ -214,19 +214,20 @@ class MapEncounterReservationRepositoryIntegrationTest {
     }
 
     @Test
-    void separateMapsReserveSeparateEncounterInstances() throws Exception {
+    void separatePlayersReserveSeparateEncounterInstances() throws Exception {
         UUID firstTarget = activeEncounterInstance(0);
         UUID secondTarget = activeEncounterInstance(0);
-        PlayerContext player = player("MapReserveSlots");
-        MapItemProfile firstMap = issue(player.playerId(), 40, 44L);
-        MapItemProfile secondMap = issue(player.playerId(), 45, 55L);
+        PlayerContext firstPlayer = player("MapReserveA");
+        PlayerContext secondPlayer = player("MapReserveB");
+        MapItemProfile firstMap = issue(firstPlayer.playerId(), 40, 44L);
+        MapItemProfile secondMap = issue(secondPlayer.playerId(), 45, 55L);
 
         MapEncounterReservationSnapshot first = reservations.reserve(
-                UUID.randomUUID(), player.playerId(), firstMap.itemInstanceId(),
+                UUID.randomUUID(), firstPlayer.playerId(), firstMap.itemInstanceId(),
                 MAP_ZONE, MAP_TEMPLATE, Duration.ofSeconds(30)
         );
         MapEncounterReservationSnapshot second = reservations.reserve(
-                UUID.randomUUID(), player.playerId(), secondMap.itemInstanceId(),
+                UUID.randomUUID(), secondPlayer.playerId(), secondMap.itemInstanceId(),
                 MAP_ZONE, MAP_TEMPLATE, Duration.ofSeconds(30)
         );
 
