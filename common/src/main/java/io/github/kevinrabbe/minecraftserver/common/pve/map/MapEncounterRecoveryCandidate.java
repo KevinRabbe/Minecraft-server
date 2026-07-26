@@ -8,6 +8,7 @@ public record MapEncounterRecoveryCandidate(
         UUID runId,
         UUID reservationId,
         UUID playerId,
+        long runStateVersion,
         UUID transferId,
         UUID sessionId,
         String sourceBackendId,
@@ -18,6 +19,9 @@ public record MapEncounterRecoveryCandidate(
         reservationId = Objects.requireNonNull(reservationId, "reservationId");
         playerId = Objects.requireNonNull(playerId, "playerId");
         reason = Objects.requireNonNull(reason, "reason");
+        if (runStateVersion < 0) {
+            throw new IllegalArgumentException("runStateVersion must be >= 0");
+        }
         if (reason == MapEncounterRecoveryReason.NO_HANDOFF) {
             if (transferId != null || sessionId != null || sourceBackendId != null) {
                 throw new IllegalArgumentException("NO_HANDOFF candidate must not carry transfer state");
