@@ -54,6 +54,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         }
 
         getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(new LegacyCompetitiveIsolationListener(this), this);
         pumpTask = getServer().getScheduler().runTaskTimer(
                 this,
                 new Runnable() {
