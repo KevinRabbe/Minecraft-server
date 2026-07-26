@@ -186,3 +186,29 @@ BEGIN
     RETURN new_execution_id;
 END;
 $$;
+
+-- Deposits lock the same clan_wars row before moving persistent item custody. If dispatch wins that row lock and commits
+-- an execution first, a later deposit must fail and roll back its entire custody/player-state transaction.
+CREATE OR REPLACE FUNCTION reject_clan_war_item_insert_after_dispatch()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM competitive_executions execution
+        WHERE execution.activity_kind = 'CLAN_WAR'
+          AND execution.activity_id = NEW.war_id
+    ) THEN
+        RAISE EXCEPTION 'Clan-War custody cannot change after competitive dispatch'
+            USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER clan_war_items_reject_insert_after_dispatch
+BEFORE INSERT
+ON clan_war_items
+FOR EACH ROW
+EXECUTE FUNCTION reject_clan_war_item_insert_after_dispatch();
