@@ -38,6 +38,9 @@ class LegacyExecutionTest {
         );
 
         assertTrue(execution.containsMinecraftUuid(minecraftA));
+        assertTrue(execution.hasSideId(playerA));
+        assertTrue(execution.hasSideId(playerB));
+        assertFalse(execution.hasSideId(UUID.randomUUID()));
         assertEquals(playerA, execution.sideIdForMinecraftUuid(minecraftA));
         assertEquals(playerB, execution.sideIdForMinecraftUuid(minecraftB));
         LegacyExecution renewed = execution.withLease(2, Instant.parse("2026-08-01T18:01:00Z"));
