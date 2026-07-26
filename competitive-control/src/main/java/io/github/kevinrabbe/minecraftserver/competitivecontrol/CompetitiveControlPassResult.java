@@ -1,6 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.competitivecontrol;
 
-/** One bounded trusted settlement/recovery/dispatch pass. */
+/** One bounded trusted settlement/recovery/preparation/dispatch pass. */
 public record CompetitiveControlPassResult(
         int pendingReportsSeen,
         int reportsApplied,
@@ -8,6 +8,9 @@ public record CompetitiveControlPassResult(
         int expiredExecutionsSeen,
         int executionsRecovered,
         int recoveryFailures,
+        int rosterLockCandidatesSeen,
+        int clanWarRostersLocked,
+        int rosterLockFailures,
         int readyActivitiesSeen,
         int executionsDispatched,
         int dispatchDeferred,
@@ -20,6 +23,9 @@ public record CompetitiveControlPassResult(
                 || expiredExecutionsSeen < 0
                 || executionsRecovered < 0
                 || recoveryFailures < 0
+                || rosterLockCandidatesSeen < 0
+                || clanWarRostersLocked < 0
+                || rosterLockFailures < 0
                 || readyActivitiesSeen < 0
                 || executionsDispatched < 0
                 || dispatchDeferred < 0
@@ -32,16 +38,19 @@ public record CompetitiveControlPassResult(
         if (executionsRecovered + recoveryFailures != expiredExecutionsSeen) {
             throw new IllegalArgumentException("recovery outcome counts must equal expiredExecutionsSeen");
         }
+        if (clanWarRostersLocked + rosterLockFailures != rosterLockCandidatesSeen) {
+            throw new IllegalArgumentException("roster-lock outcome counts must equal rosterLockCandidatesSeen");
+        }
         if (executionsDispatched + dispatchDeferred + dispatchFailures != readyActivitiesSeen) {
             throw new IllegalArgumentException("dispatch outcome counts must equal readyActivitiesSeen");
         }
     }
 
     public int failures() {
-        return reportFailures + recoveryFailures + dispatchFailures;
+        return reportFailures + recoveryFailures + rosterLockFailures + dispatchFailures;
     }
 
     public int transitions() {
-        return reportsApplied + executionsRecovered + executionsDispatched;
+        return reportsApplied + executionsRecovered + clanWarRostersLocked + executionsDispatched;
     }
 }
