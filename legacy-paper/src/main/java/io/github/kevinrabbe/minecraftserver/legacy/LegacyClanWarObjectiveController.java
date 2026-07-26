@@ -5,6 +5,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -15,6 +16,8 @@ final class LegacyClanWarObjectiveController {
     private final LegacyCompetitiveCombatGate combatGate;
     private final World world;
     private final LegacyClanWarControlPointGeometry geometry;
+    private final Map<UUID, LegacyClanWarObjective> objectivesByExecution =
+            new HashMap<UUID, LegacyClanWarObjective>();
     private LegacyClanWarTimeoutTracker timeoutTracker;
 
     LegacyClanWarObjectiveController(
@@ -31,6 +34,8 @@ final class LegacyClanWarObjectiveController {
 
     void tick() {
         Map<UUID, LegacyClanWarRuntimeState> runtimeStates = plugin.snapshotClanWarRuntimeStates();
+        objectivesByExecution.keySet().retainAll(runtimeStates.keySet());
+
         LegacyClanWarTimeoutTracker existingTimeoutTracker = timeoutTracker;
         if (existingTimeoutTracker != null) {
             existingTimeoutTracker.retain(runtimeStates.keySet());
@@ -56,15 +61,25 @@ final class LegacyClanWarObjectiveController {
                     // Another terminal path already removed this execution locally.
                 } finally {
                     tracker.clear(executionId);
+                    objectivesByExecution.remove(executionId);
                 }
                 continue;
+            }
+
+            LegacyClanWarObjective objective = objectivesByExecution.get(executionId);
+            if (objective == null) {
+                objective = new LegacyClanWarObjective(
+                        runtimeState.getWar(),
+                        runtimeState.getObjectiveSettings()
+                );
+                objectivesByExecution.put(executionId, objective);
             }
 
             LegacyClanWarControlPointPresence.Counts counts = LegacyClanWarControlPointPresence.count(
                     runtimeState.getWar(),
                     this::isInside
             );
-            UUID winnerSideId = runtimeState.getObjective().evaluate(
+            UUID winnerSideId = objective.evaluate(
                     counts.getChallenger(),
                     counts.getDefender()
             );
@@ -76,6 +91,7 @@ final class LegacyClanWarObjectiveController {
                 // Another terminal path already removed this execution locally.
             } finally {
                 tracker.clear(executionId);
+                objectivesByExecution.remove(executionId);
             }
         }
     }
