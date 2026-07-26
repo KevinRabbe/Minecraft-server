@@ -116,8 +116,9 @@ class CompetitiveEntryRouteSealIntegrationTest {
                         backend_id,
                         max_execution_lease_seconds,
                         dispatch_enabled,
-                        max_active_executions
-                    ) VALUES ('route-seal-runtime', 'legacy-route-seal', 120, TRUE, 4)
+                        max_active_executions,
+                        supports_clan_war
+                    ) VALUES ('route-seal-runtime', 'legacy-route-seal', 120, TRUE, 4, TRUE)
                     """);
         }
         backends.registerOnline(BACKEND, 0);
