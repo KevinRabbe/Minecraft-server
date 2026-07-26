@@ -114,6 +114,30 @@ public final class CompetitiveExecutionService {
         return pending.size();
     }
 
+    /** Recover one specific expired execution exactly once. */
+    public CompetitiveExecutionSnapshot recoverExpiredExecution(UUID executionId) throws SQLException {
+        Objects.requireNonNull(executionId, "executionId");
+        CompetitiveExecutionSnapshot execution = executions.load(executionId).orElseThrow(
+                () -> new CompetitiveExecutionException("Unknown competitive execution: " + executionId)
+        );
+        if (execution.status() == CompetitiveExecutionStatus.CLOSED) {
+            if (execution.closeReason() != CompetitiveExecutionCloseReason.FAILED) {
+                throw new CompetitiveExecutionException("Competitive execution already closed as " + execution.closeReason());
+            }
+            return execution;
+        }
+        if (execution.leaseExpiresAt().isAfter(clock.instant())) {
+            throw new CompetitiveExecutionException("Competitive execution is not expired: " + executionId);
+        }
+
+        UUID failureOperationId = operationId("expired-failure", execution.executionId());
+        switch (execution.activityKind()) {
+            case RANKED_ARENA -> ranked.cancelMatch(failureOperationId, execution.activityId());
+            case CLAN_WAR -> clanWarResolutions.fail(failureOperationId, execution.activityId());
+        }
+        return executions.markExecutionFailed(execution.executionId(), failureOperationId);
+    }
+
     /**
      * Terminally resolves expired executions that never produced a report.
      * Submitted reports are intentionally excluded by the repository and remain eligible for normal settlement.
@@ -121,12 +145,7 @@ public final class CompetitiveExecutionService {
     public int recoverExpired(int limit) throws SQLException {
         List<CompetitiveExecutionSnapshot> expired = executions.listExpiredExecutions(limit);
         for (CompetitiveExecutionSnapshot execution : expired) {
-            UUID failureOperationId = operationId("expired-failure", execution.executionId());
-            switch (execution.activityKind()) {
-                case RANKED_ARENA -> ranked.cancelMatch(failureOperationId, execution.activityId());
-                case CLAN_WAR -> clanWarResolutions.fail(failureOperationId, execution.activityId());
-            }
-            executions.markExecutionFailed(execution.executionId(), failureOperationId);
+            recoverExpiredExecution(execution.executionId());
         }
         return expired.size();
     }
