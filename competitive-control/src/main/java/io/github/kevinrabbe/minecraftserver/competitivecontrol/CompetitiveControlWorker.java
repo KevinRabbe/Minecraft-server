@@ -1,5 +1,8 @@
 package io.github.kevinrabbe.minecraftserver.competitivecontrol;
 
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchCandidate;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchService;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionService;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveExecutionSnapshot;
@@ -11,21 +14,27 @@ import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/** Trusted worker that isolates every settlement/recovery candidate so one bad row cannot poison the batch. */
+/** Trusted worker that isolates every settlement/recovery/dispatch candidate so one bad row cannot poison the batch. */
 public final class CompetitiveControlWorker {
     private final CompetitiveExecutionRepository executions;
-    private final CompetitiveExecutionService service;
+    private final CompetitiveExecutionService executionService;
+    private final CompetitiveDispatchRepository dispatchRepository;
+    private final CompetitiveDispatchService dispatchService;
     private final int batchLimit;
     private final Logger logger;
 
     public CompetitiveControlWorker(
             CompetitiveExecutionRepository executions,
-            CompetitiveExecutionService service,
+            CompetitiveExecutionService executionService,
+            CompetitiveDispatchRepository dispatchRepository,
+            CompetitiveDispatchService dispatchService,
             int batchLimit,
             Logger logger
     ) {
         this.executions = Objects.requireNonNull(executions, "executions");
-        this.service = Objects.requireNonNull(service, "service");
+        this.executionService = Objects.requireNonNull(executionService, "executionService");
+        this.dispatchRepository = Objects.requireNonNull(dispatchRepository, "dispatchRepository");
+        this.dispatchService = Objects.requireNonNull(dispatchService, "dispatchService");
         if (batchLimit < 1 || batchLimit > 500) {
             throw new IllegalArgumentException("batchLimit must be between 1 and 500");
         }
@@ -39,7 +48,7 @@ public final class CompetitiveControlWorker {
         int reportFailures = 0;
         for (CompetitiveResultReportSnapshot report : pendingReports) {
             try {
-                service.processReport(report.reportId());
+                executionService.processReport(report.reportId());
                 reportsApplied++;
             } catch (SQLException | RuntimeException exception) {
                 reportFailures++;
@@ -57,7 +66,7 @@ public final class CompetitiveControlWorker {
         int recoveryFailures = 0;
         for (CompetitiveExecutionSnapshot execution : expiredExecutions) {
             try {
-                service.recoverExpiredExecution(execution.executionId());
+                executionService.recoverExpiredExecution(execution.executionId());
                 executionsRecovered++;
             } catch (SQLException | RuntimeException exception) {
                 recoveryFailures++;
@@ -70,13 +79,39 @@ public final class CompetitiveControlWorker {
             }
         }
 
+        // Settlement/recovery happens first so capacity released in this pass is immediately available for new work.
+        List<CompetitiveDispatchCandidate> readyActivities = dispatchRepository.listReadyActivities(batchLimit);
+        int executionsDispatched = 0;
+        int dispatchDeferred = 0;
+        int dispatchFailures = 0;
+        for (CompetitiveDispatchCandidate candidate : readyActivities) {
+            try {
+                if (dispatchService.dispatchCandidate(candidate).isPresent()) {
+                    executionsDispatched++;
+                } else {
+                    dispatchDeferred++;
+                }
+            } catch (SQLException | RuntimeException exception) {
+                dispatchFailures++;
+                logger.log(
+                        Level.WARNING,
+                        "Competitive dispatch failed for " + candidate.activityKind() + "/" + candidate.activityId(),
+                        exception
+                );
+            }
+        }
+
         return new CompetitiveControlPassResult(
                 pendingReports.size(),
                 reportsApplied,
                 reportFailures,
                 expiredExecutions.size(),
                 executionsRecovered,
-                recoveryFailures
+                recoveryFailures,
+                readyActivities.size(),
+                executionsDispatched,
+                dispatchDeferred,
+                dispatchFailures
         );
     }
 }
