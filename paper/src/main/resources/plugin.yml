@@ -18,6 +18,9 @@ commands:
   leaderboard:
     description: View bounded authoritative Persistent-MMO skill and Map rankings
     usage: /leaderboard <skill> [limit] | map solo [limit] | map group [limit] | map fastest <solo|group> <difficulty> [limit]
+  map:
+    description: Open the authoritative individualized Map in your main hand
+    usage: /map open
   bank:
     description: View and manage protected Bank Manager Coin
     usage: /bank [deposit <coins>|withdraw <coins>|upgrade]
