@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.competitivecontrol;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLifecycleRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarPreparationRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarResolutionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarRuleset;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveDispatchRepository;
@@ -21,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/** Standalone trusted control-plane process for competitive settlement, recovery, and backend dispatch. */
+/** Standalone trusted control-plane process for competitive settlement, recovery, preparation, and backend dispatch. */
 public final class CompetitiveControlMain {
     private static final Logger LOGGER = Logger.getLogger(CompetitiveControlMain.class.getName());
 
@@ -54,10 +55,14 @@ public final class CompetitiveControlMain {
                     config.backendFreshness(),
                     config.maxExecutionLease()
             );
+            ClanWarLifecycleRepository clanWars = new ClanWarLifecycleRepository(
+                    database.dataSource(),
+                    ClanWarRuleset.legacy189V1()
+            );
             CompetitiveExecutionService executionService = new CompetitiveExecutionService(
                     executions,
                     new RankedArenaRepository(database.dataSource(), RankedArenaRuleset.legacy189V1()),
-                    new ClanWarLifecycleRepository(database.dataSource(), ClanWarRuleset.legacy189V1()),
+                    clanWars,
                     new ClanWarResolutionRepository(database.dataSource())
             );
             CompetitiveDispatchRepository dispatchRepository = new CompetitiveDispatchRepository(
@@ -74,6 +79,8 @@ public final class CompetitiveControlMain {
             CompetitiveControlWorker worker = new CompetitiveControlWorker(
                     executions,
                     executionService,
+                    new ClanWarPreparationRepository(database.dataSource()),
+                    clanWars,
                     dispatchRepository,
                     dispatchService,
                     config.batchLimit(),
@@ -126,6 +133,7 @@ public final class CompetitiveControlMain {
                         level,
                         "Competitive control pass: reports=" + result.reportsApplied() + "/" + result.pendingReportsSeen()
                                 + ", recovered=" + result.executionsRecovered() + "/" + result.expiredExecutionsSeen()
+                                + ", rostersLocked=" + result.clanWarRostersLocked() + "/" + result.rosterLockCandidatesSeen()
                                 + ", dispatched=" + result.executionsDispatched() + "/" + result.readyActivitiesSeen()
                                 + ", deferred=" + result.dispatchDeferred()
                                 + ", failures=" + result.failures()
