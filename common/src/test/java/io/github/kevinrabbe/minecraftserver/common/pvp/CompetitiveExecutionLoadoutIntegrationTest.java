@@ -142,8 +142,9 @@ class CompetitiveExecutionLoadoutIntegrationTest {
                         backend_id,
                         max_execution_lease_seconds,
                         dispatch_enabled,
-                        max_active_executions
-                    ) VALUES ('execution-loadout-runtime', 'legacy-execution-loadout', 120, TRUE, 4)
+                        max_active_executions,
+                        supports_clan_war
+                    ) VALUES ('execution-loadout-runtime', 'legacy-execution-loadout', 120, TRUE, 4, TRUE)
                     """);
         }
     }
