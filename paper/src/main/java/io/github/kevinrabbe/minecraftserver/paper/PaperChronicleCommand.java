@@ -12,6 +12,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -23,6 +24,9 @@ import java.util.logging.Level;
 final class PaperChronicleCommand implements CommandExecutor {
     private static final int DEFAULT_LIMIT = 10;
     private static final int MAX_CHAT_LIMIT = 20;
+    private static final int MAX_METADATA_ENTRIES = 4;
+    private static final int MAX_SOURCE_DISPLAY = 64;
+    private static final int MAX_METADATA_VALUE_DISPLAY = 80;
 
     private final JavaPlugin plugin;
     private final ChronicleRepository chronicle;
@@ -100,14 +104,26 @@ final class PaperChronicleCommand implements CommandExecutor {
         if (event.worldEraId() != null) {
             line.append(" · era ").append(event.worldEraId().value());
         }
-        line.append(" · ").append(event.sourceKind()).append('/').append(event.sourceId());
-        if (!event.metadata().isEmpty()) {
+        line.append(" · ")
+                .append(event.sourceKind())
+                .append('/')
+                .append(abbreviate(event.sourceId(), MAX_SOURCE_DISPLAY));
+
+        List<Map.Entry<String, String>> metadata = event.metadata().entrySet().stream()
+                .sorted(Comparator.comparing(Map.Entry::getKey))
+                .limit(MAX_METADATA_ENTRIES)
+                .toList();
+        if (!metadata.isEmpty()) {
             line.append(" · ");
-            boolean first = true;
-            for (Map.Entry<String, String> entry : event.metadata().entrySet()) {
-                if (!first) line.append(", ");
-                first = false;
-                line.append(entry.getKey()).append('=').append(entry.getValue());
+            for (int index = 0; index < metadata.size(); index++) {
+                if (index > 0) line.append(", ");
+                Map.Entry<String, String> entry = metadata.get(index);
+                line.append(entry.getKey())
+                        .append('=')
+                        .append(abbreviate(entry.getValue(), MAX_METADATA_VALUE_DISPLAY));
+            }
+            if (event.metadata().size() > metadata.size()) {
+                line.append(", …");
             }
         }
         return line.toString();
@@ -122,6 +138,11 @@ final class PaperChronicleCommand implements CommandExecutor {
             result.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
         }
         return result.toString();
+    }
+
+    private static String abbreviate(String value, int limit) {
+        if (value.length() <= limit) return value;
+        return value.substring(0, limit - 1) + "…";
     }
 
     private static int parseLimit(String raw) {
