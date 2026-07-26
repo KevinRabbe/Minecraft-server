@@ -18,6 +18,7 @@ class LegacyRankedArenaSettingsTest {
                 12,
                 4,
                 6,
+                600,
                 "STONE",
                 "BEDROCK",
                 "GLASS",
@@ -29,16 +30,17 @@ class LegacyRankedArenaSettingsTest {
 
         assertEquals(12, settings.getHalfSize());
         assertEquals(6, settings.getSpawnOffset());
+        assertEquals(600, settings.getMatchTimeoutSeconds());
         assertEquals("IRON_SWORD", settings.getLoadout().get(0).getMaterial());
         assertEquals("helmet", settings.getLoadout().get(1).getSlot());
     }
 
     @Test
-    void rejectsUnsafeGeometryAndAmbiguousLoadoutSlots() {
+    void rejectsUnsafeGeometryTimeoutAndAmbiguousLoadoutSlots() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new LegacyRankedArenaSettings(
-                        0, 255, 0, 12, 4, 6,
+                        0, 255, 0, 12, 4, 6, 600,
                         "STONE", "BEDROCK", "GLASS",
                         Collections.singletonList(new LegacyRankedArenaSettings.LoadoutEntry("0", "IRON_SWORD", 1))
                 )
@@ -47,7 +49,7 @@ class LegacyRankedArenaSettingsTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new LegacyRankedArenaSettings(
-                        0, 200, 0, 12, 4, 12,
+                        0, 200, 0, 12, 4, 12, 600,
                         "STONE", "BEDROCK", "GLASS",
                         Collections.singletonList(new LegacyRankedArenaSettings.LoadoutEntry("0", "IRON_SWORD", 1))
                 )
@@ -56,7 +58,16 @@ class LegacyRankedArenaSettingsTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new LegacyRankedArenaSettings(
-                        0, 200, 0, 12, 4, 6,
+                        0, 200, 0, 12, 4, 6, 0,
+                        "STONE", "BEDROCK", "GLASS",
+                        Collections.singletonList(new LegacyRankedArenaSettings.LoadoutEntry("0", "IRON_SWORD", 1))
+                )
+        );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new LegacyRankedArenaSettings(
+                        0, 200, 0, 12, 4, 6, 600,
                         "STONE", "BEDROCK", "GLASS",
                         Arrays.asList(
                                 new LegacyRankedArenaSettings.LoadoutEntry("0", "IRON_SWORD", 1),
