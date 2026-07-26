@@ -44,6 +44,7 @@ class CompetitiveRuntimeManifestRepositoryIntegrationTest {
     private BackendRegistry backends;
     private RankedArenaRepository ranked;
     private ClanWarLifecycleRepository wars;
+    private ClanWarLoadoutReadinessRepository warReadiness;
     private CompetitiveExecutionRepository executions;
     private CompetitiveRuntimeManifestRepository manifests;
 
@@ -62,6 +63,7 @@ class CompetitiveRuntimeManifestRepositoryIntegrationTest {
         backends = new BackendRegistry(dataSource);
         ranked = new RankedArenaRepository(dataSource, RankedArenaRuleset.legacy189V1());
         wars = new ClanWarLifecycleRepository(dataSource, ClanWarRuleset.legacy189V1());
+        warReadiness = new ClanWarLoadoutReadinessRepository(dataSource);
         executions = new CompetitiveExecutionRepository(
                 dataSource,
                 Duration.ofMinutes(1),
@@ -75,6 +77,8 @@ class CompetitiveRuntimeManifestRepositoryIntegrationTest {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
+                        competitive_execution_loadout_items,
+                        clan_war_loadout_confirmations,
                         competitive_execution_participants,
                         competitive_execution_specs,
                         competitive_result_reports,
@@ -169,6 +173,8 @@ class CompetitiveRuntimeManifestRepositoryIntegrationTest {
                 UUID.randomUUID(), war.warId(), defender.playerId(), defenderClan.clanId(), List.of(defender.playerId())
         );
         wars.lockRoster(UUID.randomUUID(), war.warId());
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), challenger.playerId());
+        warReadiness.confirm(UUID.randomUUID(), war.warId(), defender.playerId());
 
         CompetitiveExecutionSnapshot execution = executions.assign(
                 UUID.randomUUID(), CompetitiveActivityKind.CLAN_WAR, war.warId(), BACKEND, LEASE
