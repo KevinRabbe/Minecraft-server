@@ -39,4 +39,5 @@ ranked:
 # is implemented; it is never silently flattened into weaker/different vanilla stats.
 clan-war:
   representations:
-    equipment.starter_sword: IRON_SWORD
+    - definition-id: equipment.starter_sword
+      material: IRON_SWORD
