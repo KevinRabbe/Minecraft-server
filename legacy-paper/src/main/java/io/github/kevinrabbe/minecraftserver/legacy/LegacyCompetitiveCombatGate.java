@@ -40,6 +40,12 @@ final class LegacyCompetitiveCombatGate {
         enabledExecutions.remove(Objects.requireNonNull(executionId, "executionId"));
     }
 
+    /** Drops any local combat permission whose execution is no longer in the trusted active snapshot. */
+    synchronized void retain(Set<UUID> activeExecutionIds) {
+        Objects.requireNonNull(activeExecutionIds, "activeExecutionIds");
+        enabledExecutions.retainAll(activeExecutionIds);
+    }
+
     void clear() {
         enabledExecutions.clear();
     }
