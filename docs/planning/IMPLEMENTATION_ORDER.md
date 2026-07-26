@@ -14,7 +14,7 @@ The active branch has moved materially beyond the original architecture-only che
 - Portal/Maps now have individualized persistent Map identity, exact open consumption, disposable-instance reservation/handoff, auto-pinned transfer evidence, managed Forest/Spider Extermination gameplay, exactly-once successor-Map rewards, persisted return routing, abandoned/completed recovery, `/map open`, and Persistent-MMO Map leaderboards;
 - the first-Map acquisition source remains intentionally unresolved in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md); do not create a hidden mandatory Bounty/crafting/vendor route just to make the first Map appear;
 - player-directed expansion voting already has authoritative schedule/open/ballot/resolve, feature/world-era consequences, historical evidence, a bounded player read projection, and `/vote` ballot access. Candidate scheduling/content remains a separate configuration/operations decision;
-- Ranked Arena and Clan-War authority remain isolated from the 1.21 MMO Paper work until the dedicated 1.8.9 transport/runtime boundary is implemented.
+- Ranked Arena and Clan War now have the isolated 1.8.9 transport/runtime shell, narrow sanitized manifest/admission boundary, backend dispatch, fail-closed combat gate, and Clan-War frozen-loadout hydration. Actual arena/loadout materialization and combat controllers remain incomplete.
 
 Treat this checkpoint as the execution state, while the numbered sections below remain the dependency/reference order.
 
