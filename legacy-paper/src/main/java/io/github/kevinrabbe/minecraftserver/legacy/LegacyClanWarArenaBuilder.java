@@ -26,6 +26,16 @@ final class LegacyClanWarArenaBuilder {
     }
 
     void rebuild() {
+        world.setPVP(true);
+        world.setSpawnFlags(false, false);
+        requireGameRule("doMobSpawning", "false");
+        requireGameRule("doDaylightCycle", "false");
+        world.setStorm(false);
+        world.setThundering(false);
+        world.setWeatherDuration(Integer.MAX_VALUE);
+        world.setThunderDuration(Integer.MAX_VALUE);
+        world.setTime(6000L);
+
         int minX = settings.getOriginX() - settings.getHalfSize();
         int maxX = settings.getOriginX() + settings.getHalfSize();
         int minZ = settings.getOriginZ() - settings.getHalfSize();
@@ -59,6 +69,12 @@ final class LegacyClanWarArenaBuilder {
                     && location.getZ() <= maxZ + 1.0D) {
                 entity.remove();
             }
+        }
+    }
+
+    private void requireGameRule(String rule, String value) {
+        if (!world.setGameRuleValue(rule, value)) {
+            throw new IllegalStateException("legacy Clan-War world does not support required gamerule " + rule);
         }
     }
 
