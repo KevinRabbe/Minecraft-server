@@ -7,8 +7,9 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 
 import java.util.Objects;
+import java.util.UUID;
 
-/** Converts one live Ranked death into the already-existing exactly-once winner report boundary. */
+/** Converts one runnable Ranked death into the already-existing exactly-once winner report boundary. */
 final class LegacyRankedCombatController implements Listener {
     private final LegacyCompetitivePlugin plugin;
     private final LegacyCompetitiveCombatGate combatGate;
@@ -24,7 +25,7 @@ final class LegacyRankedCombatController implements Listener {
         LegacyExecution execution = plugin.findExecutionForPlayer(victim.getUniqueId());
         if (execution == null
                 || !LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
-                || !combatGate.isEnabled(execution.getExecutionId())) {
+                || !LegacyCombatAvailability.isEnabled(execution, combatGate, this::isOnline)) {
             return;
         }
 
@@ -35,5 +36,10 @@ final class LegacyRankedCombatController implements Listener {
         } catch (IllegalStateException ignored) {
             // A second death event after the first terminal report is harmless; the first outcome already closed locally.
         }
+    }
+
+    private boolean isOnline(UUID minecraftUuid) {
+        Player player = plugin.getServer().getPlayer(minecraftUuid);
+        return player != null && player.isOnline();
     }
 }
