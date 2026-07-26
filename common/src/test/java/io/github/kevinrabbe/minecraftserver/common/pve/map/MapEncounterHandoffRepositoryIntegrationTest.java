@@ -267,7 +267,7 @@ class MapEncounterHandoffRepositoryIntegrationTest {
         return new PreparedRun(
                 playerId,
                 session.sessionId(),
-                opened.nextPlayerStateVersion(),
+                opened.playerStateVersion(),
                 opened.runId(),
                 bound.reservationId(),
                 bound.targetInstanceId()
