@@ -33,8 +33,10 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
     private final AtomicBoolean pollInFlight = new AtomicBoolean();
     private final ConcurrentMap<UUID, LegacyExecution> activeExecutions = new ConcurrentHashMap<UUID, LegacyExecution>();
+    private final ConcurrentMap<UUID, LegacyExecution> admittedPlayerExecutions = new ConcurrentHashMap<UUID, LegacyExecution>();
     private final ConcurrentMap<UUID, PendingOutcome> pendingOutcomes = new ConcurrentHashMap<UUID, PendingOutcome>();
     private final ConcurrentMap<UUID, Boolean> onlineMinecraftUuids = new ConcurrentHashMap<UUID, Boolean>();
+    private final LegacyCompetitiveCombatGate combatGate = new LegacyCompetitiveCombatGate();
 
     private volatile LegacyRuntimeDatabase database;
     private String backendId;
@@ -65,7 +67,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         }
 
         getServer().getPluginManager().registerEvents(this, this);
-        getServer().getPluginManager().registerEvents(new LegacyCompetitiveIsolationListener(this), this);
+        getServer().getPluginManager().registerEvents(new LegacyCompetitiveIsolationListener(this, combatGate), this);
         pumpTask = getServer().getScheduler().runTaskTimer(
                 this,
                 new Runnable() {
@@ -86,7 +88,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             pumpTask.cancel();
             pumpTask = null;
         }
+        combatGate.clear();
         onlineMinecraftUuids.clear();
+        admittedPlayerExecutions.clear();
         activeExecutions.clear();
         pendingOutcomes.clear();
         LegacyRuntimeDatabase current = database;
@@ -130,6 +134,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             }
             requireSupportedManifest(execution);
             activeExecutions.put(execution.getExecutionId(), execution);
+            admittedPlayerExecutions.put(event.getUniqueId(), execution);
         } catch (SQLException | RuntimeException exception) {
             getLogger().log(Level.WARNING, "Competitive player admission lookup failed closed", exception);
             event.disallow(
@@ -147,7 +152,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        onlineMinecraftUuids.remove(event.getPlayer().getUniqueId());
+        UUID minecraftUuid = event.getPlayer().getUniqueId();
+        onlineMinecraftUuids.remove(minecraftUuid);
+        admittedPlayerExecutions.remove(minecraftUuid);
         schedulePoll(onlineMinecraftUuids.size());
     }
 
@@ -165,6 +172,10 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     }
 
     LegacyExecution findExecutionForPlayer(UUID minecraftUuid) {
+        LegacyExecution admitted = admittedPlayerExecutions.get(minecraftUuid);
+        if (admitted != null) {
+            return admitted;
+        }
         for (LegacyExecution execution : activeExecutions.values()) {
             if (execution.containsMinecraftUuid(minecraftUuid)) {
                 return execution;
@@ -182,6 +193,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         if (existing != null && !existing.sameAs(outcome)) {
             throw new IllegalStateException("Competitive execution already has a different local terminal outcome");
         }
+        combatGate.disable(execution.getExecutionId());
         activeExecutions.remove(execution.getExecutionId(), execution);
         schedulePoll(onlineMinecraftUuids.size());
     }
