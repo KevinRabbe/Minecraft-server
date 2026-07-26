@@ -360,10 +360,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                     refreshedClanWarLoadouts.put(execution.getExecutionId(), loadout);
                 }
 
-                if (LegacyRankedExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
-                        && !execution.allParticipantsOnline(onlineSnapshot)) {
-                    // Keep the still-live manifest locally for admission/isolation, but deliberately do not extend its
-                    // database lease. The trusted control worker will cancel it after the original lease expires.
+                if (!LegacyExecutionLeasePolicy.shouldRenew(execution, combatGate, onlineSnapshot)) {
+                    // Keep the live manifest locally for admission/materialization/isolation, but do not extend its lease.
+                    // The trusted control worker will recover it if the runtime never reaches executable local state.
                     refreshed.put(execution.getExecutionId(), execution);
                     continue;
                 }
