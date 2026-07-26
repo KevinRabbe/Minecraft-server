@@ -52,6 +52,8 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private LegacyRankedArenaMaterializer rankedArenaMaterializer;
     private LegacyRankedTimeoutTracker rankedTimeoutTracker;
     private LegacyClanWarRepresentationCatalog clanWarRepresentationCatalog;
+    private LegacyClanWarArenaSettings clanWarArenaSettings;
+    private LegacyClanWarArenaMaterializer clanWarArenaMaterializer;
     private LegacyClanWarObjectiveSettings clanWarObjectiveSettings;
     private LegacyClanWarObjectiveController clanWarObjectiveController;
 
@@ -60,6 +62,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         saveDefaultConfig();
         LegacyRankedArenaSettings rankedSettings = LegacyRankedArenaSettingsLoader.load(getConfig());
         clanWarRepresentationCatalog = LegacyClanWarRepresentationCatalogLoader.load(getConfig());
+        clanWarArenaSettings = LegacyClanWarArenaSettingsLoader.load(getConfig());
         clanWarObjectiveSettings = LegacyClanWarObjectiveSettingsLoader.load(getConfig());
         List<World> worlds = getServer().getWorlds();
         if (worlds.isEmpty()) {
@@ -72,6 +75,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 getConfig(),
                 clanWarObjectiveSettings
         );
+        LegacyClanWarArenaTopology.requireObjectiveInsideArena(clanWarArenaSettings, clanWarGeometry);
+        LegacyClanWarArenaTopology.requireDisjointFromRanked(clanWarArenaSettings, rankedSettings);
+        clanWarArenaMaterializer = new LegacyClanWarArenaMaterializer(competitiveWorld, clanWarArenaSettings);
         clanWarObjectiveController = new LegacyClanWarObjectiveController(
                 this,
                 combatGate,
@@ -110,6 +116,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                     public void run() {
                         expireTimedOutRankedExecutions();
                         materializeReadyRankedExecutions();
+                        materializeReadyClanWarExecutions();
                         schedulePoll(onlineMinecraftUuids.size());
                     }
                 },
@@ -147,8 +154,10 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             rankedTimeoutTracker.clear();
             rankedTimeoutTracker = null;
         }
+        clanWarArenaMaterializer = null;
         clanWarObjectiveController = null;
         clanWarRepresentationCatalog = null;
+        clanWarArenaSettings = null;
         clanWarObjectiveSettings = null;
         onlineMinecraftUuids.clear();
         admittedPlayerExecutions.clear();
@@ -169,8 +178,8 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
     /**
      * Fail-closed admission for the isolated runtime. An exact ACTIVE execution must exist for this Minecraft identity
-     * on this database principal's mapped backend. Clan War additionally requires its complete sealed V71/V74 loadout
-     * and a faithful currently-supported identity-free 1.8 representation before the player is admitted.
+     * on this database principal's mapped backend. Clan War additionally requires its complete sealed V71/V74 loadout,
+     * faithful currently-supported identity-free 1.8 representation and complete local materialization plan.
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onAsyncPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
@@ -180,8 +189,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
         LegacyRuntimeDatabase current = database;
         LegacyClanWarRepresentationCatalog representationCatalog = clanWarRepresentationCatalog;
+        LegacyClanWarArenaSettings arenaSettings = clanWarArenaSettings;
         LegacyClanWarObjectiveSettings objectiveSettings = clanWarObjectiveSettings;
-        if (current == null || representationCatalog == null || objectiveSettings == null) {
+        if (current == null || representationCatalog == null || arenaSettings == null || objectiveSettings == null) {
             event.disallow(
                     AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
                     "Competitive match admission is temporarily unavailable."
@@ -210,6 +220,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                         war,
                         loadout,
                         representationCatalog,
+                        arenaSettings,
                         objectiveSettings
                 );
                 clanWarLoadouts.put(execution.getExecutionId(), loadout);
@@ -231,6 +242,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
         onlineMinecraftUuids.put(event.getPlayer().getUniqueId(), Boolean.TRUE);
         expireTimedOutRankedExecutions();
         materializeReadyRankedExecutions();
+        materializeReadyClanWarExecutions();
         schedulePoll(onlineMinecraftUuids.size());
     }
 
@@ -341,12 +353,61 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                     getLogger().info("Materialized Ranked execution " + execution.getExecutionId());
                     return;
                 }
-                // The first V1 materializer owns only one arena. Another execution may wait without being treated as a loss.
+                // The first V1 materializer owns only one live combat slot. Another execution may wait safely.
                 return;
             } catch (RuntimeException exception) {
                 getLogger().log(
                         Level.SEVERE,
                         "Ranked arena materialization failed for " + execution.getExecutionId(),
+                        exception
+                );
+                safeRecordFailure(execution.getExecutionId());
+            }
+        }
+    }
+
+    private void materializeReadyClanWarExecutions() {
+        LegacyClanWarArenaMaterializer materializer = clanWarArenaMaterializer;
+        if (materializer == null) return;
+
+        ArrayList<LegacyClanWarRuntimeState> candidates = new ArrayList<LegacyClanWarRuntimeState>();
+        for (LegacyClanWarRuntimeState runtimeState : clanWarRuntimeStates.values()) {
+            UUID executionId = runtimeState.getWar().getExecution().getExecutionId();
+            if (!pendingOutcomes.containsKey(executionId)
+                    && activeExecutions.containsKey(executionId)
+                    && !combatGate.isEnabled(executionId)) {
+                candidates.add(runtimeState);
+            }
+        }
+        candidates.sort(Comparator.comparing(
+                runtimeState -> runtimeState.getWar().getExecution().getExecutionId().toString()
+        ));
+
+        for (LegacyClanWarRuntimeState runtimeState : candidates) {
+            LegacyExecution execution = runtimeState.getWar().getExecution();
+            LinkedHashMap<UUID, Player> players = new LinkedHashMap<UUID, Player>();
+            boolean completeOnlineRoster = true;
+            for (LegacyParticipant participant : execution.getParticipants()) {
+                Player player = getServer().getPlayer(participant.getMinecraftUuid());
+                if (player == null || !player.isOnline()) {
+                    completeOnlineRoster = false;
+                    break;
+                }
+                players.put(participant.getMinecraftUuid(), player);
+            }
+            if (!completeOnlineRoster) continue;
+
+            try {
+                if (materializer.materialize(runtimeState.getMaterializationPlan(), players, combatGate)) {
+                    getLogger().info("Materialized Clan-War execution " + execution.getExecutionId());
+                    return;
+                }
+                // The current runtime owns one live combat slot; wait without inventing a loss if it is occupied.
+                return;
+            } catch (RuntimeException exception) {
+                getLogger().log(
+                        Level.SEVERE,
+                        "Clan-War arena materialization failed for " + execution.getExecutionId(),
                         exception
                 );
                 safeRecordFailure(execution.getExecutionId());
@@ -409,8 +470,9 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
     private void pollOnce(int playerCount) {
         LegacyRuntimeDatabase current = database;
         LegacyClanWarRepresentationCatalog representationCatalog = clanWarRepresentationCatalog;
+        LegacyClanWarArenaSettings arenaSettings = clanWarArenaSettings;
         LegacyClanWarObjectiveSettings objectiveSettings = clanWarObjectiveSettings;
-        if (current == null || representationCatalog == null || objectiveSettings == null) return;
+        if (current == null || representationCatalog == null || arenaSettings == null || objectiveSettings == null) return;
         Set<UUID> onlineSnapshot = new HashSet<UUID>(onlineMinecraftUuids.keySet());
         try {
             requireMappedBackend(current.heartbeatBackend(playerCount));
@@ -451,6 +513,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                                     war,
                                     loadout,
                                     representationCatalog,
+                                    arenaSettings,
                                     objectiveSettings
                             );
                         }
@@ -465,7 +528,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                     } catch (IllegalArgumentException exception) {
                         getLogger().log(
                                 Level.SEVERE,
-                                "Clan-War frozen loadout is deterministically unrepresentable; aborting execution "
+                                "Clan-War frozen state is deterministically unrepresentable/unplaceable; aborting execution "
                                         + execution.getExecutionId(),
                                 exception
                         );
@@ -474,7 +537,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                         } catch (SQLException reportFailure) {
                             getLogger().log(
                                     Level.WARNING,
-                                    "Could not submit safe failure for unrepresentable Clan-War execution "
+                                    "Could not submit safe failure for invalid Clan-War execution "
                                             + execution.getExecutionId(),
                                     reportFailure
                             );
