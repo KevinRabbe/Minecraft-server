@@ -168,12 +168,12 @@ class MapEncounterHandoffRepositoryIntegrationTest {
     }
 
     @Test
-    void rejectsFabricatedTargetOrUnpinnedTransfer() throws Exception {
+    void rejectsTransferThatWasNotPinnedForReservedEncounter() throws Exception {
         PreparedRun prepared = prepareRun("HandoffReject");
-        TransferTicket unpinned = sessions.beginTransfer(
+        TransferTicket unrelated = sessions.beginTransfer(
                 prepared.sessionId(),
                 SOURCE_BACKEND,
-                MAP_ZONE,
+                "other_zone",
                 prepared.openedStateVersion(),
                 Duration.ofMinutes(1)
         );
@@ -183,7 +183,7 @@ class MapEncounterHandoffRepositoryIntegrationTest {
                 () -> handoffs.record(
                         prepared.runId(),
                         prepared.reservationId(),
-                        unpinned.transferId(),
+                        unrelated.transferId(),
                         prepared.playerId(),
                         prepared.targetInstanceId(),
                         TARGET_BACKEND
