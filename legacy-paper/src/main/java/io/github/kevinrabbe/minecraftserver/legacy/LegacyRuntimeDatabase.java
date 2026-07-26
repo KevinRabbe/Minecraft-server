@@ -6,7 +6,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -57,8 +56,8 @@ final class LegacyRuntimeDatabase {
     }
 
     List<LegacyExecution> pollActive(int executionLimit) throws SQLException {
-        if (executionLimit < 1 || executionLimit > 50) {
-            throw new IllegalArgumentException("executionLimit must be between 1 and 50");
+        if (executionLimit < 1 || executionLimit > 64) {
+            throw new IllegalArgumentException("executionLimit must be between 1 and 64");
         }
         LinkedHashMap<UUID, ExecutionBuilder> builders = new LinkedHashMap<UUID, ExecutionBuilder>();
         try (Connection connection = connect();
@@ -69,36 +68,12 @@ final class LegacyRuntimeDatabase {
                     UUID executionId = rows.getObject("execution_id", UUID.class);
                     ExecutionBuilder builder = builders.get(executionId);
                     if (builder == null) {
-                        builder = new ExecutionBuilder(
-                                executionId,
-                                rows.getString("activity_kind"),
-                                rows.getObject("activity_id", UUID.class),
-                                rows.getLong("state_version"),
-                                rows.getTimestamp("lease_expires_at").toInstant(),
-                                rows.getString("ruleset_id"),
-                                rows.getInt("ruleset_version"),
-                                rows.getInt("team_size")
-                        );
+                        builder = builderFrom(rows);
                         builders.put(executionId, builder);
                     } else {
-                        builder.requireSameHeader(
-                                rows.getString("activity_kind"),
-                                rows.getObject("activity_id", UUID.class),
-                                rows.getLong("state_version"),
-                                rows.getTimestamp("lease_expires_at").toInstant(),
-                                rows.getString("ruleset_id"),
-                                rows.getInt("ruleset_version"),
-                                rows.getInt("team_size")
-                        );
+                        requireSameHeader(builder, rows);
                     }
-                    builder.addParticipant(new LegacyParticipant(
-                            rows.getInt("participant_index"),
-                            rows.getString("side_key"),
-                            rows.getObject("side_id", UUID.class),
-                            rows.getObject("player_id", UUID.class),
-                            rows.getObject("minecraft_uuid", UUID.class),
-                            rows.getString("player_name")
-                    ));
+                    builder.addParticipant(participantFrom(rows));
                 }
             }
         }
@@ -108,6 +83,32 @@ final class LegacyRuntimeDatabase {
             executions.add(builder.build());
         }
         return executions;
+    }
+
+    /**
+     * Exact admission lookup for one joining Minecraft identity. PostgreSQL scopes the query to this runtime
+     * principal's backend and returns only the sanitized execution manifest.
+     */
+    LegacyExecution findPlayerExecution(UUID minecraftUuid) throws SQLException {
+        Objects.requireNonNull(minecraftUuid, "minecraftUuid");
+        try (Connection connection = connect();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT * FROM competitive_runtime_find_player_execution(?)"
+             )) {
+            statement.setObject(1, minecraftUuid);
+            try (ResultSet rows = statement.executeQuery()) {
+                ExecutionBuilder builder = null;
+                while (rows.next()) {
+                    if (builder == null) {
+                        builder = builderFrom(rows);
+                    } else {
+                        requireSameHeader(builder, rows);
+                    }
+                    builder.addParticipant(participantFrom(rows));
+                }
+                return builder == null ? null : builder.build();
+            }
+        }
     }
 
     LegacyExecution heartbeatExecution(LegacyExecution execution, int requestedLeaseSeconds) throws SQLException {
@@ -163,6 +164,42 @@ final class LegacyRuntimeDatabase {
 
     private Connection connect() throws SQLException {
         return DriverManager.getConnection(jdbcUrl, username, password);
+    }
+
+    private static ExecutionBuilder builderFrom(ResultSet rows) throws SQLException {
+        return new ExecutionBuilder(
+                rows.getObject("execution_id", UUID.class),
+                rows.getString("activity_kind"),
+                rows.getObject("activity_id", UUID.class),
+                rows.getLong("state_version"),
+                rows.getTimestamp("lease_expires_at").toInstant(),
+                rows.getString("ruleset_id"),
+                rows.getInt("ruleset_version"),
+                rows.getInt("team_size")
+        );
+    }
+
+    private static void requireSameHeader(ExecutionBuilder builder, ResultSet rows) throws SQLException {
+        builder.requireSameHeader(
+                rows.getString("activity_kind"),
+                rows.getObject("activity_id", UUID.class),
+                rows.getLong("state_version"),
+                rows.getTimestamp("lease_expires_at").toInstant(),
+                rows.getString("ruleset_id"),
+                rows.getInt("ruleset_version"),
+                rows.getInt("team_size")
+        );
+    }
+
+    private static LegacyParticipant participantFrom(ResultSet rows) throws SQLException {
+        return new LegacyParticipant(
+                rows.getInt("participant_index"),
+                rows.getString("side_key"),
+                rows.getObject("side_id", UUID.class),
+                rows.getObject("player_id", UUID.class),
+                rows.getObject("minecraft_uuid", UUID.class),
+                rows.getString("player_name")
+        );
     }
 
     private static UUID deterministicReportOperation(String kind, UUID executionId, UUID winnerId) {
@@ -226,7 +263,7 @@ final class LegacyRuntimeDatabase {
                     || !rulesetId.equals(nextRulesetId)
                     || rulesetVersion != nextRulesetVersion
                     || teamSize != nextTeamSize) {
-                throw new SQLException("competitive runtime poll returned inconsistent rows for execution " + executionId);
+                throw new SQLException("competitive runtime query returned inconsistent rows for execution " + executionId);
             }
         }
 
