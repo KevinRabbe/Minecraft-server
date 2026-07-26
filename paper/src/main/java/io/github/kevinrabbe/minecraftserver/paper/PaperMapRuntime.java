@@ -164,6 +164,7 @@ final class PaperMapRuntime {
             gameplay.start();
         }
 
+        PaperLeaderboardRouterCommand.scheduleInstall(plugin, dataSource);
         return new PaperMapRuntime(openService, encounterController, recoveryTask);
     }
 
