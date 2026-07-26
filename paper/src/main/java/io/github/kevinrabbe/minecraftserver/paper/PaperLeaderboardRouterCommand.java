@@ -1,11 +1,14 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.pve.map.MapLeaderboardRepository;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.ArrayList;
+import javax.sql.DataSource;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -20,6 +23,38 @@ final class PaperLeaderboardRouterCommand implements CommandExecutor, TabComplet
     PaperLeaderboardRouterCommand(PaperSkillLeaderboardCommand skills, PaperMapLeaderboardCommand maps) {
         this.skills = Objects.requireNonNull(skills, "skills");
         this.maps = Objects.requireNonNull(maps, "maps");
+    }
+
+    /**
+     * The base skill leaderboard is registered near the end of plugin enable, after {@link PaperMapRuntime} is built.
+     * Queue this augmentation for the first server tick so it wraps that already-installed command instead of racing
+     * plugin bootstrap or duplicating the command declaration.
+     */
+    static void scheduleInstall(JavaPlugin plugin, DataSource dataSource) {
+        Objects.requireNonNull(plugin, "plugin");
+        Objects.requireNonNull(dataSource, "dataSource");
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            PluginCommand command = plugin.getCommand("leaderboard");
+            if (command == null) {
+                plugin.getLogger().severe("Could not install Map leaderboard router: leaderboard command is missing");
+                return;
+            }
+            if (command.getExecutor() instanceof PaperLeaderboardRouterCommand) {
+                return;
+            }
+            if (!(command.getExecutor() instanceof PaperSkillLeaderboardCommand skills)) {
+                plugin.getLogger().severe(
+                        "Could not install Map leaderboard router: leaderboard executor is not the MMO skill command"
+                );
+                return;
+            }
+            PaperLeaderboardRouterCommand router = new PaperLeaderboardRouterCommand(
+                    skills,
+                    new PaperMapLeaderboardCommand(plugin, new MapLeaderboardRepository(dataSource))
+            );
+            command.setExecutor(router);
+            command.setTabCompleter(router);
+        });
     }
 
     @Override
