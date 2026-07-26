@@ -44,8 +44,8 @@ commands:
     description: Create and settle exact-revision secure direct trades
     usage: /trade start <player> | view <id> | coin <id> <coins> | commodity <id> <commodity> <qty> | item <id> | confirm <id> <revision> | cancel <id>
   clan:
-    description: Manage persistent MMO clans, roster, invitations, treasury, and shared storage
-    usage: /clan [status|members|invites|cancel-invite|create|invite|accept|leave|kick|role|transfer|treasury|storage]
+    description: Manage persistent MMO clans and actor-authorized Clan War preparation
+    usage: /clan [status|members|invites|cancel-invite|create|invite|accept|leave|kick|role|transfer|treasury|storage|war]
   ranked:
     description: Join, leave, inspect, or view the separate Ranked 1v1 ladder
     usage: /ranked [status|join|leave|top]
