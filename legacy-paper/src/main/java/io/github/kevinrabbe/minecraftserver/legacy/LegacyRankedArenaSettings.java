@@ -16,6 +16,7 @@ final class LegacyRankedArenaSettings {
     private final int halfSize;
     private final int wallHeight;
     private final int spawnOffset;
+    private final int matchTimeoutSeconds;
     private final String floorMaterial;
     private final String borderMaterial;
     private final String wallMaterial;
@@ -28,6 +29,7 @@ final class LegacyRankedArenaSettings {
             int halfSize,
             int wallHeight,
             int spawnOffset,
+            int matchTimeoutSeconds,
             String floorMaterial,
             String borderMaterial,
             String wallMaterial,
@@ -45,12 +47,16 @@ final class LegacyRankedArenaSettings {
         if (spawnOffset < 1 || spawnOffset >= halfSize) {
             throw new IllegalArgumentException("ranked arena spawnOffset must be inside the arena");
         }
+        if (matchTimeoutSeconds < 1) {
+            throw new IllegalArgumentException("ranked matchTimeoutSeconds must be >= 1");
+        }
         this.originX = originX;
         this.floorY = floorY;
         this.originZ = originZ;
         this.halfSize = halfSize;
         this.wallHeight = wallHeight;
         this.spawnOffset = spawnOffset;
+        this.matchTimeoutSeconds = matchTimeoutSeconds;
         this.floorMaterial = requireText(floorMaterial, "floorMaterial");
         this.borderMaterial = requireText(borderMaterial, "borderMaterial");
         this.wallMaterial = requireText(wallMaterial, "wallMaterial");
@@ -93,6 +99,10 @@ final class LegacyRankedArenaSettings {
 
     int getSpawnOffset() {
         return spawnOffset;
+    }
+
+    int getMatchTimeoutSeconds() {
+        return matchTimeoutSeconds;
     }
 
     String getFloorMaterial() {
