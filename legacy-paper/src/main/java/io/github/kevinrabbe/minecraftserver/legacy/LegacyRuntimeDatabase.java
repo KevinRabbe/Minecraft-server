@@ -111,6 +111,57 @@ final class LegacyRuntimeDatabase {
         }
     }
 
+    /**
+     * Reads one bounded keyset page from V71's execution-scoped loadout projection. The caller can continue paging
+     * until an empty page is returned, so the transport bound never becomes an invented gameplay kit-size limit.
+     */
+    List<LegacyLoadoutItem> pageExecutionLoadout(
+            UUID executionId,
+            Integer afterParticipantIndex,
+            Integer afterLoadoutItemIndex,
+            int itemLimit
+    ) throws SQLException {
+        Objects.requireNonNull(executionId, "executionId");
+        if (itemLimit < 1 || itemLimit > 500) {
+            throw new IllegalArgumentException("itemLimit must be between 1 and 500");
+        }
+        if ((afterParticipantIndex == null) != (afterLoadoutItemIndex == null)) {
+            throw new IllegalArgumentException("loadout cursor fields must both be null or both be present");
+        }
+        if (afterParticipantIndex != null && (afterParticipantIndex < 0 || afterLoadoutItemIndex < 0)) {
+            throw new IllegalArgumentException("loadout cursor values must be >= 0");
+        }
+
+        try (Connection connection = connect();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT * FROM competitive_runtime_page_loadout(?, ?, ?, ?)"
+             )) {
+            statement.setObject(1, executionId);
+            if (afterParticipantIndex == null) {
+                statement.setNull(2, java.sql.Types.INTEGER);
+                statement.setNull(3, java.sql.Types.INTEGER);
+            } else {
+                statement.setInt(2, afterParticipantIndex);
+                statement.setInt(3, afterLoadoutItemIndex);
+            }
+            statement.setInt(4, itemLimit);
+
+            try (ResultSet rows = statement.executeQuery()) {
+                ArrayList<LegacyLoadoutItem> result = new ArrayList<LegacyLoadoutItem>();
+                while (rows.next()) {
+                    result.add(new LegacyLoadoutItem(
+                            rows.getInt("participant_index"),
+                            rows.getInt("loadout_item_index"),
+                            rows.getString("definition_id"),
+                            rows.getString("roll_state_json"),
+                            rows.getInt("upgrade_level")
+                    ));
+                }
+                return result;
+            }
+        }
+    }
+
     LegacyExecution heartbeatExecution(LegacyExecution execution, int requestedLeaseSeconds) throws SQLException {
         Objects.requireNonNull(execution, "execution");
         if (requestedLeaseSeconds < 1) {
