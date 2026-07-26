@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -53,7 +54,13 @@ final class LegacyClanWarObjectiveController {
 
     private boolean isInside(UUID minecraftUuid) {
         Player player = plugin.getServer().getPlayer(minecraftUuid);
-        if (player == null || !player.isOnline() || !world.equals(player.getWorld())) return false;
+        if (player == null
+                || !player.isOnline()
+                || player.isDead()
+                || player.getGameMode() == GameMode.SPECTATOR
+                || !world.equals(player.getWorld())) {
+            return false;
+        }
         Location location = player.getLocation();
         return geometry.contains(location.getX(), location.getY(), location.getZ());
     }
