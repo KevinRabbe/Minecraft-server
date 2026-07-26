@@ -123,6 +123,16 @@ final class LegacyExecution {
         return false;
     }
 
+    boolean hasSideId(UUID sideId) {
+        Objects.requireNonNull(sideId, "sideId");
+        for (LegacyParticipant participant : participants) {
+            if (participant.getSideId().equals(sideId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Pure manifest/presence check so the asynchronous runtime pump never needs to query Bukkit player state. */
     boolean allParticipantsOnline(Set<UUID> onlineMinecraftUuids) {
         Objects.requireNonNull(onlineMinecraftUuids, "onlineMinecraftUuids");
