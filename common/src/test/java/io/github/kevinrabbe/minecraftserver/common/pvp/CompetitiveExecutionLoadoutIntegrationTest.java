@@ -211,7 +211,6 @@ class CompetitiveExecutionLoadoutIntegrationTest {
         assertThrows(SQLException.class, () -> updateSnapshotDefinition(assigned.executionId()));
         assertThrows(SQLException.class, () -> deleteSnapshot(assigned.executionId()));
 
-        // Persistent custody still owns these UUIDs; none of them are present in the execution snapshot schema/data.
         assertTrue(itemStillInWarCustody(challengerSword.itemInstanceId(), fixture.war().warId()));
         assertTrue(itemStillInWarCustody(challengerBow.itemInstanceId(), fixture.war().warId()));
         assertTrue(itemStillInWarCustody(defenderSword.itemInstanceId(), fixture.war().warId()));
@@ -293,6 +292,7 @@ class CompetitiveExecutionLoadoutIntegrationTest {
                 player.session().sessionId(),
                 player.playerId(),
                 PAPER_BACKEND,
+                player.session().ownerInstanceId(),
                 deposit.playerStateVersion(),
                 player.session().status(),
                 player.session().leaseExpiresAt()
