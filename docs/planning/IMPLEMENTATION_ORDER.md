@@ -1,8 +1,22 @@
 # Implementation Order
 
-Status: **Architecture-alignment phase active.** The repository already contains substantial authority/economy implementation; do not discard proven work. First reconcile the architecture contracts with the current canonical V1 scope and master roadmap, then continue implementation in dependency order.
+Status: **V1 vertical implementation active.** The architecture-alignment gate is established for the implemented authorities. Continue outward from proven systems; do not reopen or rebuild settled contracts merely because the milestone list below is chronological.
 
 See [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) for the complete milestone map.
+
+## Current implementation checkpoint — 2026-07-26
+
+The active branch has moved materially beyond the original architecture-only checkpoint:
+
+- economy/value Paper surfaces are live for Bank Manager, Bazaar, Auction House, secure direct trade, salvage, personal crafting, and crafting commissions;
+- persistent MMO clans expose membership/roles, treasury, and shared commodity/unique-item storage using the existing custody/delivery authorities;
+- starter gathering and ordinary managed PvE feed authoritative commodity/XP progression; the first Bounty family has contract, kill-progress, summon/boss, reward, and pouch gameplay bridges;
+- Portal/Maps now have individualized persistent Map identity, exact open consumption, disposable-instance reservation/handoff, auto-pinned transfer evidence, managed Forest/Spider Extermination gameplay, exactly-once successor-Map rewards, persisted return routing, abandoned/completed recovery, `/map open`, and Persistent-MMO Map leaderboards;
+- the first-Map acquisition source remains intentionally unresolved in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md); do not create a hidden mandatory Bounty/crafting/vendor route just to make the first Map appear;
+- player-directed expansion voting already has authoritative schedule/open/ballot/resolve, feature/world-era consequences, historical evidence, a bounded player read projection, and `/vote` ballot access. Candidate scheduling/content remains a separate configuration/operations decision;
+- Ranked Arena and Clan-War authority remain isolated from the 1.21 MMO Paper work until the dedicated 1.8.9 transport/runtime boundary is implemented.
+
+Treat this checkpoint as the execution state, while the numbered sections below remain the dependency/reference order.
 
 ## 0 — Planning consistency gate
 
