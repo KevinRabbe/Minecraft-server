@@ -13,14 +13,12 @@ import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.scheduler.ScheduledTask;
-import io.github.kevinrabbe.minecraftserver.common.control.ZoneRoute;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRouter;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRoute;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRouteRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveRuntimeTopologyRepository;
-import io.github.kevinrabbe.minecraftserver.common.session.PlayerZoneRoutingRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.RoutedTransfer;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRoutingRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
@@ -46,6 +44,12 @@ public final class MinecraftNetworkPlugin {
     private static final Duration INSTANCE_HEARTBEAT_FRESHNESS = Duration.ofSeconds(15);
     private static final Duration COMPETITIVE_BACKEND_HEARTBEAT_FRESHNESS = Duration.ofSeconds(30);
     private static final Duration COMPETITIVE_ROUTE_RECONCILE_PERIOD = Duration.ofSeconds(2);
+    private static final Component LEGACY_COMPETITIVE_CLIENT_REQUIRED = Component.text(
+            "Competitive PvP requires Minecraft 1.8.9. Reconnect using 1.8.9."
+    );
+    private static final Component PERSISTENT_MMO_CLIENT_REQUIRED = Component.text(
+            "Competitive play ended. Reconnect with the supported modern Minecraft client to return to the persistent MMO."
+    );
     private static final MinecraftChannelIdentifier TRANSFER_CHANNEL = MinecraftChannelIdentifier.from(
             TransferPluginMessage.CHANNEL
     );
@@ -53,14 +57,12 @@ public final class MinecraftNetworkPlugin {
     private final ProxyServer proxy;
     private final ConcurrentHashMap<UUID, String> routeConnectionsInFlight = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Boolean> missingProxyBackends = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, String> blockedCompetitiveReturns = new ConcurrentHashMap<>();
 
     private Database database;
     private ZoneRouter zoneRouter;
     private TransferRoutingRepository transferRouting;
     private CompetitiveEntryRouteRepository competitiveEntryRoutes;
     private CompetitiveRuntimeTopologyRepository competitiveRuntimeTopology;
-    private PlayerZoneRoutingRepository playerZoneRouting;
     private ScheduledTask competitiveRouteTask;
 
     @Inject
@@ -80,7 +82,6 @@ public final class MinecraftNetworkPlugin {
                     COMPETITIVE_BACKEND_HEARTBEAT_FRESHNESS
             );
             competitiveRuntimeTopology = new CompetitiveRuntimeTopologyRepository(database.dataSource());
-            playerZoneRouting = new PlayerZoneRoutingRepository(database.dataSource());
             proxy.getChannelRegistrar().register(TRANSFER_CHANNEL);
             competitiveRouteTask = proxy.getScheduler()
                     .buildTask(this, this::reconcileCompetitiveRoutes)
@@ -96,8 +97,9 @@ public final class MinecraftNetworkPlugin {
     }
 
     /**
-     * Keeps any player with one exact ACTIVE competitive execution pinned to its assigned legacy backend.
-     * The proxy consumes only the routing projection; it never receives MMO inventory, economy, or custody state.
+     * Keeps any player with one exact ACTIVE competitive execution pinned to its assigned legacy backend. Category
+     * transitions are reconnect boundaries: protocol-47 clients cannot fall through into the modern MMO, and modern
+     * clients are never silently forwarded into the 1.8.9 competitive category.
      */
     @Subscribe
     public void onServerPreConnect(ServerPreConnectEvent event) {
@@ -109,6 +111,18 @@ public final class MinecraftNetworkPlugin {
         try {
             Optional<CompetitiveEntryRoute> routeResult = competitiveEntryRoutes.findByMinecraftUuid(player.getUniqueId());
             if (routeResult.isEmpty()) {
+                if (isLegacyCompetitiveClient(player)) {
+                    event.setResult(ServerPreConnectEvent.ServerResult.denied());
+                    routeConnectionsInFlight.remove(player.getUniqueId());
+                    player.disconnect(PERSISTENT_MMO_CLIENT_REQUIRED);
+                }
+                return;
+            }
+
+            if (!isLegacyCompetitiveClient(player)) {
+                event.setResult(ServerPreConnectEvent.ServerResult.denied());
+                routeConnectionsInFlight.remove(player.getUniqueId());
+                player.disconnect(LEGACY_COMPETITIVE_CLIENT_REQUIRED);
                 return;
             }
 
@@ -131,9 +145,9 @@ public final class MinecraftNetworkPlugin {
     }
 
     /**
-     * Reconciles both directions of the competitive boundary without adding another wire protocol. ACTIVE routes move
-     * players to their exact legacy backend. Once that route disappears, a player still on a configured legacy backend
-     * is sent back through the durable logical-zone projection and the normal healthy-instance router.
+     * Reconciles the competitive boundary without adding another wire protocol. ACTIVE routes move protocol-47 players
+     * to their exact legacy backend. When a route disappears, a player still on a legacy backend is disconnected so a
+     * fresh supported modern-client connection is required before persistent-MMO routing resumes.
      */
     private void reconcileCompetitiveRoutes() {
         CompetitiveEntryRouteRepository routes = competitiveEntryRoutes;
@@ -155,53 +169,27 @@ public final class MinecraftNetworkPlugin {
         Set<UUID> activePlayers = new HashSet<>();
         for (CompetitiveEntryRoute route : activeRoutes) {
             activePlayers.add(route.minecraftUuid());
-            proxy.getPlayer(route.minecraftUuid()).ifPresent(player -> connectToBackend(
-                    player,
-                    route.backendId(),
-                    "Competitive"
-            ));
+            proxy.getPlayer(route.minecraftUuid()).ifPresent(player -> {
+                if (!isLegacyCompetitiveClient(player)) {
+                    routeConnectionsInFlight.remove(player.getUniqueId());
+                    player.disconnect(LEGACY_COMPETITIVE_CLIENT_REQUIRED);
+                    return;
+                }
+                connectToBackend(player, route.backendId(), "Competitive");
+            });
         }
 
         for (Player player : proxy.getAllPlayers()) {
             if (activePlayers.contains(player.getUniqueId())) {
-                blockedCompetitiveReturns.remove(player.getUniqueId());
                 continue;
             }
             Optional<ServerConnection> currentServer = player.getCurrentServer();
             if (currentServer.isEmpty()
                     || !runtimeBackendIds.contains(currentServer.orElseThrow().getServerInfo().getName())) {
-                blockedCompetitiveReturns.remove(player.getUniqueId());
                 continue;
             }
-            returnToPersistentZone(player);
-        }
-    }
-
-    private void returnToPersistentZone(Player player) {
-        PlayerZoneRoutingRepository playerZones = playerZoneRouting;
-        ZoneRouter router = zoneRouter;
-        if (playerZones == null || router == null) {
-            return;
-        }
-
-        try {
-            Optional<String> logicalZoneResult = playerZones.findLogicalZone(player.getUniqueId());
-            if (logicalZoneResult.isEmpty()) {
-                logBlockedCompetitiveReturn(player, "no durable logical zone is available");
-                return;
-            }
-
-            String logicalZoneId = logicalZoneResult.orElseThrow();
-            Optional<ZoneRoute> routeResult = router.findPreferredActiveInstance(logicalZoneId);
-            if (routeResult.isEmpty()) {
-                logBlockedCompetitiveReturn(player, "no healthy instance is available for zone " + logicalZoneId);
-                return;
-            }
-
-            blockedCompetitiveReturns.remove(player.getUniqueId());
-            connectToBackend(player, routeResult.orElseThrow().backendId(), "Persistent return");
-        } catch (SQLException | RuntimeException exception) {
-            LOGGER.log(System.Logger.Level.ERROR, "Could not resolve persistent return route after competitive play", exception);
+            routeConnectionsInFlight.remove(player.getUniqueId());
+            player.disconnect(PERSISTENT_MMO_CLIENT_REQUIRED);
         }
     }
 
@@ -236,21 +224,15 @@ public final class MinecraftNetworkPlugin {
         });
     }
 
+    private static boolean isLegacyCompetitiveClient(Player player) {
+        return CompetitiveClientProtocolPolicy.accepts(player.getProtocolVersion().getProtocol());
+    }
+
     private void logMissingProxyBackend(String backendId, String routeKind) {
         if (missingProxyBackends.putIfAbsent(backendId, Boolean.TRUE) == null) {
             LOGGER.log(
                     System.Logger.Level.ERROR,
                     routeKind + " backend is not registered in Velocity: " + backendId
-            );
-        }
-    }
-
-    private void logBlockedCompetitiveReturn(Player player, String reason) {
-        String previousReason = blockedCompetitiveReturns.put(player.getUniqueId(), reason);
-        if (!reason.equals(previousReason)) {
-            LOGGER.log(
-                    System.Logger.Level.WARNING,
-                    "Competitive return is blocked for " + player.getUniqueId() + ": " + reason
             );
         }
     }
@@ -329,8 +311,6 @@ public final class MinecraftNetworkPlugin {
         proxy.getChannelRegistrar().unregister(TRANSFER_CHANNEL);
         routeConnectionsInFlight.clear();
         missingProxyBackends.clear();
-        blockedCompetitiveReturns.clear();
-        playerZoneRouting = null;
         competitiveRuntimeTopology = null;
         competitiveEntryRoutes = null;
         transferRouting = null;
