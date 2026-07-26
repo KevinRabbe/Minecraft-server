@@ -215,7 +215,7 @@ class RankedMatchmakingRepositoryIntegrationTest {
     @Test
     void expiredSessionQueueEntryIsPurgedBeforeAnotherPlayerCanPairWithIt() throws Exception {
         Player expired = player("QueueExpired");
-        Player joining = player("QueueAfterExpired");
+        Player joining = player("QueuePostExpire");
         assertTrue(matchmaking.join(expired.playerId()).isEmpty());
         expireSession(expired.sessionId());
 
