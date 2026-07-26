@@ -1,9 +1,8 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
-import org.bukkit.Material;
-
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -17,30 +16,30 @@ import java.util.regex.Pattern;
  */
 final class LegacyClanWarRepresentationCatalog {
     private static final Pattern DEFINITION_ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
+    private static final Pattern MATERIAL_ID = Pattern.compile("[A-Z0-9_]{1,128}");
 
-    private final Map<String, Material> materialsByDefinition;
+    private final Map<String, String> materialsByDefinition;
 
     LegacyClanWarRepresentationCatalog(Map<String, String> configuredMaterials) {
         Objects.requireNonNull(configuredMaterials, "configuredMaterials");
-        LinkedHashMap<String, Material> resolved = new LinkedHashMap<String, Material>();
+        LinkedHashMap<String, String> resolved = new LinkedHashMap<String, String>();
         for (Map.Entry<String, String> entry : configuredMaterials.entrySet()) {
             String definitionId = requireDefinitionId(entry.getKey());
-            String materialName = requireText(entry.getValue(), "legacy material").toUpperCase(java.util.Locale.ROOT);
-            Material material = Material.matchMaterial(materialName);
-            if (material == null || material == Material.AIR) {
+            String materialName = requireText(entry.getValue(), "legacy material").toUpperCase(Locale.ROOT);
+            if (!MATERIAL_ID.matcher(materialName).matches() || "AIR".equals(materialName)) {
                 throw new IllegalArgumentException(
-                        "Clan-War legacy representation uses unknown/invalid 1.8 material " + materialName
+                        "Clan-War legacy representation uses invalid material id " + materialName
                                 + " for " + definitionId
                 );
             }
-            if (resolved.put(definitionId, material) != null) {
+            if (resolved.put(definitionId, materialName) != null) {
                 throw new IllegalArgumentException("duplicate Clan-War representation definition " + definitionId);
             }
         }
         this.materialsByDefinition = Collections.unmodifiableMap(resolved);
     }
 
-    Material requireBaselineMaterial(LegacyLoadoutItem item) {
+    String requireBaselineMaterial(LegacyLoadoutItem item) {
         Objects.requireNonNull(item, "item");
         if (!isEmptyRollState(item.getRollStateJson()) || item.getUpgradeLevel() != 0) {
             throw new IllegalArgumentException(
@@ -48,7 +47,7 @@ final class LegacyClanWarRepresentationCatalog {
                             + item.getDefinitionId()
             );
         }
-        Material material = materialsByDefinition.get(item.getDefinitionId());
+        String material = materialsByDefinition.get(item.getDefinitionId());
         if (material == null) {
             throw new IllegalArgumentException(
                     "Clan-War legacy representation is not configured for " + item.getDefinitionId()
