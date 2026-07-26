@@ -9,14 +9,13 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityException;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRunDefinition;
-import org.bukkit.NamespacedKey;
-import org.bukkit.Registry;
 import org.bukkit.entity.EntityType;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -120,8 +119,13 @@ final class PaperMapEncounterContentCatalog {
         if (raw == null || !raw.matches("[a-z0-9][a-z0-9_]{0,63}")) {
             throw new IllegalStateException("Map encounter entity_type must be a lowercase Minecraft entity ID");
         }
-        EntityType type = Registry.ENTITY_TYPE.get(NamespacedKey.minecraft(raw));
-        if (type == null || !type.isAlive() || !type.isSpawnable()) {
+        final EntityType type;
+        try {
+            type = EntityType.valueOf(raw.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalStateException("Unknown Map encounter entity_type: " + raw, exception);
+        }
+        if (!type.isAlive() || !type.isSpawnable()) {
             throw new IllegalStateException("Map encounter entity_type is not a spawnable living entity: " + raw);
         }
         return type;
