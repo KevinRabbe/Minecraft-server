@@ -197,7 +197,7 @@ class CompetitiveDispatchRepositoryIntegrationTest {
     @Test
     void lockedClanWarUsesSameDispatchAndSanitizedManifestBoundary() throws Exception {
         backends.registerOnline(BACKEND_A, 0);
-        principal("runtime-war-a", BACKEND_A, true, 1);
+        principal("runtime-war-a", BACKEND_A, true, 1, true);
 
         UUID challengerLeader = player("WarDispatchA");
         UUID defenderLeader = player("WarDispatchB");
@@ -265,6 +265,16 @@ class CompetitiveDispatchRepositoryIntegrationTest {
     }
 
     private void principal(String databaseRole, String backendId, boolean enabled, int capacity) throws SQLException {
+        principal(databaseRole, backendId, enabled, capacity, false);
+    }
+
+    private void principal(
+            String databaseRole,
+            String backendId,
+            boolean enabled,
+            int capacity,
+            boolean supportsClanWar
+    ) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
                      INSERT INTO competitive_runtime_principals(
@@ -272,13 +282,16 @@ class CompetitiveDispatchRepositoryIntegrationTest {
                          backend_id,
                          max_execution_lease_seconds,
                          dispatch_enabled,
-                         max_active_executions
-                     ) VALUES (?, ?, 120, ?, ?)
+                         max_active_executions,
+                         supports_ranked_arena,
+                         supports_clan_war
+                     ) VALUES (?, ?, 120, ?, ?, TRUE, ?)
                      """)) {
             statement.setString(1, databaseRole);
             statement.setString(2, backendId);
             statement.setBoolean(3, enabled);
             statement.setInt(4, capacity);
+            statement.setBoolean(5, supportsClanWar);
             statement.executeUpdate();
         }
     }
