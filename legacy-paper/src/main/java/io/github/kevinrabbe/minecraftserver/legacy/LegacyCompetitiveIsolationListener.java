@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
+import org.bukkit.GameMode;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -17,6 +18,7 @@ import org.bukkit.event.entity.PotionSplashEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerPickupItemEvent;
 import org.bukkit.projectiles.ProjectileSource;
 
@@ -37,6 +39,15 @@ final class LegacyCompetitiveIsolationListener implements Listener {
     LegacyCompetitiveIsolationListener(LegacyCompetitivePlugin plugin, LegacyCompetitiveCombatGate combatGate) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.combatGate = Objects.requireNonNull(combatGate, "combatGate");
+    }
+
+    /** An admitted player that does not yet own executable temporary state cannot interfere with the active arena. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(PlayerJoinEvent event) {
+        LegacyExecution execution = plugin.findExecutionForPlayer(event.getPlayer().getUniqueId());
+        if (execution != null && !combatGate.isEnabled(execution.getExecutionId())) {
+            event.getPlayer().setGameMode(GameMode.SPECTATOR);
+        }
     }
 
     /** Environmental damage is blocked while the execution is not currently runnable. */
