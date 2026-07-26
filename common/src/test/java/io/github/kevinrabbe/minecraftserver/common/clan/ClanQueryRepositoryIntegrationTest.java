@@ -22,6 +22,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
@@ -96,6 +97,26 @@ class ClanQueryRepositoryIntegrationTest {
     }
 
     @Test
+    void currentMemberNameResolutionIsClanScopedCaseInsensitiveAndIgnoresHistoricalNames() throws Exception {
+        UUID leader = player("ResolveLeader");
+        UUID memberMinecraft = UUID.randomUUID();
+        UUID member = identities.ensurePlayer(memberMinecraft, "ResolveOld");
+        UUID outsider = player("ResolveOutside");
+        ClanSnapshot clan = memberships.createClan(UUID.randomUUID(), leader, "Resolvers", "RSLV");
+        addMember(clan.clanId(), member, ClanRole.MEMBER);
+        identities.ensurePlayer(memberMinecraft, "ResolveNew");
+
+        ClanMemberView resolved = queries.findMemberByCurrentName(clan.clanId(), "resolvenew").orElseThrow();
+        assertEquals(member, resolved.playerId());
+        assertEquals("ResolveNew", resolved.playerName());
+        assertTrue(queries.findMemberByCurrentName(clan.clanId(), "ResolveOld").isEmpty());
+        assertTrue(queries.findMemberByCurrentName(clan.clanId(), "ResolveOutside").isEmpty());
+
+        ClanSnapshot outsiderClan = memberships.createClan(UUID.randomUUID(), outsider, "Outsiders", "OUTS");
+        assertTrue(queries.findMemberByCurrentName(outsiderClan.clanId(), "ResolveNew").isEmpty());
+    }
+
+    @Test
     void pendingInvitesExcludeCancelledAndExpiredRowsAndAreBounded() throws Exception {
         UUID leader = player("InviteLead");
         UUID targetA = player("InviteA");
@@ -134,6 +155,8 @@ class ClanQueryRepositoryIntegrationTest {
         assertThrows(IllegalArgumentException.class, () -> queries.listMembers(clanId, 101));
         assertThrows(IllegalArgumentException.class, () -> queries.listPendingInvitations(clanId, 0));
         assertThrows(IllegalArgumentException.class, () -> queries.listPendingInvitations(clanId, 101));
+        assertThrows(IllegalArgumentException.class, () -> queries.findMemberByCurrentName(clanId, ""));
+        assertThrows(IllegalArgumentException.class, () -> queries.findMemberByCurrentName(clanId, "abcdefghijklmnopq"));
     }
 
     private UUID player(String name) throws SQLException {
