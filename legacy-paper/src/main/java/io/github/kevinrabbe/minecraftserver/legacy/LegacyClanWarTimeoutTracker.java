@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.legacy;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 
@@ -40,6 +41,11 @@ final class LegacyClanWarTimeoutTracker {
 
     void clear(UUID executionId) {
         startedAt.remove(Objects.requireNonNull(executionId, "executionId"));
+    }
+
+    void retain(Set<UUID> liveExecutionIds) {
+        Objects.requireNonNull(liveExecutionIds, "liveExecutionIds");
+        startedAt.keySet().retainAll(liveExecutionIds);
     }
 
     void clear() {
