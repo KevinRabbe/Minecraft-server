@@ -55,7 +55,9 @@ Do not grant the runtime role direct `SELECT`, `INSERT`, `UPDATE`, or `DELETE` p
 
 The trusted operator/application authority creates the matching principal row. Activity capabilities are explicit dispatch authority, not descriptive metadata.
 
-The current legacy runtime has a qualified Ranked materializer but Clan-War materialization is still fail-closed. Therefore production principals remain Ranked-only:
+Ranked has a qualified disposable 1.8.9 materializer. Clan War now has a structurally qualified control-point path for the **currently explicit baseline representation set**: sealed identity-free snapshots, exact roster/spawn coverage, exact non-truncating inventory projection, deterministic arena materialization, objective progress, death isolation, timeout/failure handling, and exactly-once winner reporting are wired and green in CI.
+
+That does **not** make Clan War production-enabled. The current legacy representation allowlist contains only baseline `equipment.starter_sword -> IRON_SWORD`; rolled/upgraded items remain fail-closed, broader equipment placement semantics are not yet defined, and real 1.8.9 client combat/objective behavior still requires empirical acceptance. Production principals therefore remain Ranked-only:
 
 ```sql
 INSERT INTO competitive_runtime_principals(
@@ -77,7 +79,9 @@ INSERT INTO competitive_runtime_principals(
 );
 ```
 
-Migration V79 also defaults `supports_clan_war` to `FALSE`, including existing principal rows. Do not set it to `TRUE` until the complete Clan-War arena/player/item/objective runtime path has passed CI and real-client acceptance.
+Migration V79 defaults `supports_clan_war` to `FALSE`, including existing principal rows, and dispatch tests require an explicit opt-in before a ready Clan War can be assigned. Do not set it to `TRUE` until the accepted V1 legacy representation set and real-client Clan-War behavior have both been proven.
+
+The current 36-slot projection is a Minecraft-1.8 representation feasibility boundary, **not** a player-facing Clan-War loadout cap. The persistent loadout authority remains unconstrained by that legacy client surface; a selection that cannot be represented faithfully fails closed rather than being truncated, merged, or silently reinterpreted.
 
 Capacity and lease values are deployment tuning. Activity capability flags control which execution kinds the trusted dispatcher may assign to that backend; they do not change persistent match/war authority.
 
@@ -112,6 +116,7 @@ The legacy runtime never owns persistent MMO value:
 - Clan-War gear remains in PostgreSQL `WAR_CUSTODY`.
 - Clan-War runtime snapshots contain no persistent item UUID.
 - A legacy process may only heartbeat its assigned execution and submit `WINNER`/`FAILURE` through the narrow API.
+- Unsupported or unrepresentable Clan-War state fails closed; it is never flattened into different combat value.
 - Runtime failure or lease expiry converges on trusted common-side settlement/recovery.
 
-Any deployment change that grants broader database authority than this document requires an explicit architecture/security review before production use.
+Any deployment change that grants broader database authority or enables an unaccepted activity capability requires an explicit architecture/security review before production use.
