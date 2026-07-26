@@ -30,4 +30,21 @@ class LegacyCompetitiveCombatGateTest {
         assertFalse(gate.isEnabled(executionA));
         assertFalse(gate.isEnabled(executionB));
     }
+
+    @Test
+    void firstV1ArenaCanReserveCombatForOnlyOneExecutionAtATime() {
+        LegacyCompetitiveCombatGate gate = new LegacyCompetitiveCombatGate();
+        UUID executionA = UUID.randomUUID();
+        UUID executionB = UUID.randomUUID();
+
+        assertTrue(gate.enableExclusive(executionA));
+        assertTrue(gate.isEnabled(executionA));
+        assertFalse(gate.enableExclusive(executionB));
+        assertFalse(gate.isEnabled(executionB));
+        assertTrue(gate.enableExclusive(executionA), "idempotent reservation of the same arena must succeed");
+
+        gate.disable(executionA);
+        assertTrue(gate.enableExclusive(executionB));
+        assertTrue(gate.isEnabled(executionB));
+    }
 }
