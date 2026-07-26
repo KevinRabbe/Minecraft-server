@@ -91,7 +91,6 @@ class MapCompletedEncounterRecoveryRepositoryIntegrationTest {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
-                        map_reward_fulfillments,
                         map_reward_grants,
                         map_reward_settlements,
                         map_encounter_handoffs,
