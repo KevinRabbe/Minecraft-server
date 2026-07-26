@@ -53,7 +53,9 @@ Do not grant the runtime role direct `SELECT`, `INSERT`, `UPDATE`, or `DELETE` p
 
 ## Principal registration
 
-The trusted operator/application authority creates the matching principal row, for example:
+The trusted operator/application authority creates the matching principal row. Activity capabilities are explicit dispatch authority, not descriptive metadata.
+
+The current legacy runtime has a qualified Ranked materializer but Clan-War materialization is still fail-closed. Therefore production principals remain Ranked-only:
 
 ```sql
 INSERT INTO competitive_runtime_principals(
@@ -61,17 +63,23 @@ INSERT INTO competitive_runtime_principals(
     backend_id,
     max_execution_lease_seconds,
     dispatch_enabled,
-    max_active_executions
+    max_active_executions,
+    supports_ranked_arena,
+    supports_clan_war
 ) VALUES (
     'legacy_competitive_01',
     'legacy-competitive-01',
     120,
     TRUE,
-    1
+    1,
+    TRUE,
+    FALSE
 );
 ```
 
-Capacity and lease values are deployment tuning. They do not change persistent match/war authority.
+Migration V79 also defaults `supports_clan_war` to `FALSE`, including existing principal rows. Do not set it to `TRUE` until the complete Clan-War arena/player/item/objective runtime path has passed CI and real-client acceptance.
+
+Capacity and lease values are deployment tuning. Activity capability flags control which execution kinds the trusted dispatcher may assign to that backend; they do not change persistent match/war authority.
 
 ## Runtime environment
 
