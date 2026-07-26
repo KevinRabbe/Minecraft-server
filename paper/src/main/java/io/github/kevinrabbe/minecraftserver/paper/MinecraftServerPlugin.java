@@ -109,6 +109,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
     private PaperBountyProgressService bountyProgressService;
     private PaperBountyBossController bountyBossController;
     private PaperArtifactDiscoveryListener artifactDiscoveryListener;
+    private PaperMapRuntime mapRuntime;
     private BukkitTask heartbeatTask;
     private BukkitTask checkpointTask;
     private BukkitTask deliveryPumpTask;
@@ -252,6 +253,15 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     itemCatalog
             );
             PaperUniqueItemStateRemovalMutator uniqueItemRemoval = new PaperUniqueItemStateRemovalMutator(this);
+            mapRuntime = PaperMapRuntime.start(
+                    this,
+                    bootstrapZoneInstance,
+                    database.dataSource(),
+                    sessionController,
+                    playerIdentities,
+                    itemCatalog,
+                    uniqueItemRemoval
+            );
             SecureTradeRepository secureTrades = new SecureTradeRepository(database.dataSource());
             tradeCommand = new PaperTradeCommand(
                     this,
@@ -463,6 +473,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 );
             }
         } catch (RuntimeException | SQLException exception) {
+            stopMapRuntime();
             stopBountyBossController();
             stopBountyProgressService();
             stopResourceEntityController();
@@ -608,6 +619,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             heartbeatTask = null;
         }
 
+        stopMapRuntime();
         stopBountyBossController();
         stopBountyProgressService();
         stopResourceEntityController();
@@ -675,6 +687,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperSessionController controller = sessionController;
         if (controller != null) {
             controller.heartbeat();
+        }
+    }
+
+    private void stopMapRuntime() {
+        if (mapRuntime != null) {
+            mapRuntime.shutdown();
+            mapRuntime = null;
         }
     }
 
