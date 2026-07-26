@@ -18,7 +18,14 @@ application {
 // Keep the normal application jar for Gradle distribution tasks and emit a separate self-contained control-plane jar.
 tasks.shadowJar {
     archiveClassifier.set("all")
+    duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.INCLUDE
     mergeServiceFiles()
+}
+
+// Both projects exercise the same disposable PostgreSQL CI database and use TRUNCATE-based integration fixtures.
+// Prevent cross-project fixture races while preserving parallelism for non-database work.
+tasks.test {
+    dependsOn(":common:test")
 }
 
 tasks.build {
