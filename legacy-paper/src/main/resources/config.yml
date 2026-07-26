@@ -33,3 +33,10 @@ ranked:
     - slot: boots
       material: IRON_BOOTS
       amount: 1
+
+# Clan-War runtime representations are an explicit positive allowlist. This first slice only represents baseline
+# roll_state={} / upgrade_level=0 items. Rolled/upgraded gear remains fail-closed until its exact 1.8 combat translation
+# is implemented; it is never silently flattened into weaker/different vanilla stats.
+clan-war:
+  representations:
+    equipment.starter_sword: IRON_SWORD
