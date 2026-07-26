@@ -36,7 +36,8 @@ public final class CompetitiveEntryRouteRepository {
     /**
      * Resolves at most one exact live route by Minecraft identity. Any impossible duplicate fails closed rather than
      * choosing an arbitrary backend. A submitted terminal report makes the execution non-routable immediately, even
-     * before the trusted control worker completes durable settlement.
+     * before the trusted control worker completes durable settlement. Clan Wars are routable only while their frozen
+     * execution loadout remains sealed.
      */
     public Optional<CompetitiveEntryRoute> findByMinecraftUuid(UUID minecraftUuid) throws SQLException {
         Objects.requireNonNull(minecraftUuid, "minecraftUuid");
@@ -72,6 +73,14 @@ public final class CompetitiveEntryRouteRepository {
                            FROM competitive_result_reports report
                            WHERE report.execution_id = e.execution_id
                        )
+                       AND (
+                           e.activity_kind <> 'CLAN_WAR'
+                           OR EXISTS (
+                               SELECT 1
+                               FROM competitive_execution_loadout_seals seal
+                               WHERE seal.execution_id = e.execution_id
+                           )
+                       )
                      ORDER BY e.execution_id ASC
                      LIMIT 2
                      """)) {
@@ -95,6 +104,7 @@ public final class CompetitiveEntryRouteRepository {
      * Reads the complete current routing projection in one query for proxy-side reconciliation. The result contains
      * routing/identity only and fails closed if an impossible duplicate Minecraft identity is observed. Executions with
      * any submitted terminal report are omitted immediately, before trusted settlement closes the execution row.
+     * Clan-War routes additionally require the immutable execution-loadout seal.
      */
     public List<CompetitiveEntryRoute> findAllActive() throws SQLException {
         Instant now = clock.instant();
@@ -127,6 +137,14 @@ public final class CompetitiveEntryRouteRepository {
                            SELECT 1
                            FROM competitive_result_reports report
                            WHERE report.execution_id = e.execution_id
+                       )
+                       AND (
+                           e.activity_kind <> 'CLAN_WAR'
+                           OR EXISTS (
+                               SELECT 1
+                               FROM competitive_execution_loadout_seals seal
+                               WHERE seal.execution_id = e.execution_id
+                           )
                        )
                      ORDER BY p.minecraft_uuid ASC, e.execution_id ASC
                      """)) {
