@@ -65,7 +65,7 @@ final class LegacyCompetitiveIsolationListener implements Listener {
             }
             eliminatedClanWarExecutionByPlayer.remove(player.getUniqueId(), eliminatedExecution);
         }
-        if (!combatGate.isEnabled(execution.getExecutionId())) {
+        if (!combatEnabled(execution)) {
             player.setGameMode(GameMode.SPECTATOR);
         }
     }
@@ -161,7 +161,7 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         event.getDrops().clear();
         event.setDroppedExp(0);
         if (LegacyClanWarExecution.ACTIVITY_KIND.equals(execution.getActivityKind())
-                && combatGate.isEnabled(execution.getExecutionId())) {
+                && combatEnabled(execution)) {
             eliminatedClanWarExecutionByPlayer.put(player.getUniqueId(), execution.getExecutionId());
         }
     }
@@ -187,6 +187,9 @@ final class LegacyCompetitiveIsolationListener implements Listener {
     }
 
     private boolean combatEnabled(LegacyExecution execution) {
+        if (!plugin.snapshotActiveExecutions().containsKey(execution.getExecutionId())) {
+            return false;
+        }
         return LegacyCombatAvailability.isEnabled(execution, combatGate, this::isOnline);
     }
 
