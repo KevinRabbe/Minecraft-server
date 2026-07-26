@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -66,14 +67,16 @@ class LegacyExecutionTest {
                 )
         );
 
-        assertFalse(execution.allParticipantsOnline(Set.of()));
-        assertFalse(execution.allParticipantsOnline(Set.of(minecraftA)));
-        assertFalse(execution.allParticipantsOnline(Set.of(minecraftB)));
-        assertTrue(execution.allParticipantsOnline(Set.of(minecraftA, minecraftB)));
+        assertFalse(execution.allParticipantsOnline(Collections.<UUID>emptySet()));
+        assertFalse(execution.allParticipantsOnline(Collections.singleton(minecraftA)));
+        assertFalse(execution.allParticipantsOnline(Collections.singleton(minecraftB)));
 
-        HashSet<UUID> withUnrelatedPlayer = new HashSet<UUID>();
-        withUnrelatedPlayer.add(minecraftA);
-        withUnrelatedPlayer.add(minecraftB);
+        HashSet<UUID> bothPlayers = new HashSet<UUID>();
+        bothPlayers.add(minecraftA);
+        bothPlayers.add(minecraftB);
+        assertTrue(execution.allParticipantsOnline(bothPlayers));
+
+        Set<UUID> withUnrelatedPlayer = new HashSet<UUID>(bothPlayers);
         withUnrelatedPlayer.add(UUID.randomUUID());
         assertTrue(execution.allParticipantsOnline(withUnrelatedPlayer));
     }
