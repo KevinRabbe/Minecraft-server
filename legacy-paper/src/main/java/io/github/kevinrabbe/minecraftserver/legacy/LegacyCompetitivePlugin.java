@@ -108,7 +108,8 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
     /**
      * Fail-closed admission for the isolated runtime. An exact ACTIVE execution must exist for this Minecraft identity
-     * on this database principal's mapped backend; the returned data is the same sanitized manifest used by polling.
+     * on this database principal's mapped backend. Clan War additionally requires its complete sealed V71/V74 loadout
+     * before the player is admitted.
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onAsyncPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
@@ -134,7 +135,14 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                 );
                 return;
             }
-            requireSupportedManifest(execution);
+
+            LegacyClanWarLoadout loadout = LegacyExecutionAdmission.prepare(
+                    execution,
+                    current::pageExecutionLoadout
+            );
+            if (loadout != null) {
+                clanWarLoadouts.put(execution.getExecutionId(), loadout);
+            }
             activeExecutions.put(execution.getExecutionId(), execution);
             admittedPlayerExecutions.put(event.getUniqueId(), execution);
         } catch (SQLException | RuntimeException exception) {
@@ -258,19 +266,23 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
 
                 if (LegacyClanWarExecution.ACTIVITY_KIND.equals(execution.getActivityKind())) {
                     LegacyClanWarLoadout loadout = clanWarLoadouts.get(execution.getExecutionId());
-                    if (loadout == null) {
-                        try {
+                    try {
+                        if (loadout == null) {
                             LegacyClanWarExecution war = LegacyClanWarExecution.requireSupported(execution);
                             loadout = LegacyClanWarLoadoutLoader.load(war, current::pageExecutionLoadout);
-                        } catch (SQLException | RuntimeException exception) {
-                            getLogger().log(
-                                    Level.SEVERE,
-                                    "Refusing to renew Clan-War execution without a valid frozen loadout "
-                                            + execution.getExecutionId(),
-                                    exception
-                            );
-                            continue;
+                        } else {
+                            // The immutable loadout can stay cached, but V74 seal/ownership/liveness must still be checked
+                            // on every lease cycle so a corrupted/unsealed execution does not keep renewing from cache.
+                            current.pageExecutionLoadout(execution.getExecutionId(), null, null, 1);
                         }
+                    } catch (SQLException | RuntimeException exception) {
+                        getLogger().log(
+                                Level.SEVERE,
+                                "Refusing to renew Clan-War execution without a valid frozen loadout "
+                                        + execution.getExecutionId(),
+                                exception
+                        );
+                        continue;
                     }
                     refreshedClanWarLoadouts.put(execution.getExecutionId(), loadout);
                 }
