@@ -22,8 +22,8 @@ commands:
     description: Open the authoritative individualized Map in your main hand
     usage: /map open
   vote:
-    description: View and cast authoritative player-directed world-expansion ballots
-    usage: /vote [list] | /vote cast <vote-id> <candidate-id>
+    description: View canonical world progression and cast authoritative player-directed expansion ballots
+    usage: /vote [list] | /vote state | /vote cast <vote-id> <candidate-id>
   chronicle:
     description: View recent authoritative canonical world history
     usage: /chronicle [limit]
