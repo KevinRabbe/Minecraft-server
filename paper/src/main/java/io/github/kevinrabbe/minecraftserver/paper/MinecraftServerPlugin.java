@@ -53,6 +53,7 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRuleset;
+import io.github.kevinrabbe.minecraftserver.common.pvp.RankedLeaderboardRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedMatchmakingRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnRepository;
@@ -200,7 +201,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     this,
                     playerIdentities,
                     new RankedMatchmakingRepository(database.dataSource(), rankedRuleset),
-                    rankedArena
+                    rankedArena,
+                    new RankedLeaderboardRepository(database.dataSource(), rankedRuleset)
             );
             skillsCommand = new PaperSkillsCommand(
                     this,
