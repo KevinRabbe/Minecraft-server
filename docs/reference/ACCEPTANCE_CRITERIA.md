@@ -194,11 +194,16 @@ For one family/tier first, then the configured V1 families:
 
 ### Ranked 1v1
 
-1. explicit opt-in isolated match;
-2. standardized temporary loadout replaces persistent economic advantage;
-3. normal persistent inventory is not mutated by match inventory;
-4. result/rating applies exactly once;
-5. match instance can be discarded safely.
+1. explicit opt-in creates one isolated execution and routes only its two frozen participants to the assigned 1.8.9 backend;
+2. entering/leaving the competitive category requires the supported client reconnect boundary; the proxy does not silently protocol-translate the player between 1.8.9 and the persistent MMO;
+3. standardized disposable configuration supplies the temporary arena/loadout and normal persistent inventory is never match authority;
+4. combat stays closed until the exact execution is fully materialized; players waiting for materialization cannot interfere with another arena;
+5. a materialized execution renews its lease only while it is locally runnable, and Ranked combat/result handling pauses when either participant is offline;
+6. no-show/disconnect and runtime failure converge on bounded trusted recovery without inventing a winner;
+7. the configured match timeout aborts without assigning a winner or rating result;
+8. a valid death resolves the frozen opponent side through the narrow runtime report boundary and result/rating settlement applies exactly once;
+9. disposable arena/runtime restart or cleanup cannot create persistent inventory value, duplicate rating settlement, or require the arena world for authority recovery;
+10. real 1.8.9 client acceptance must still empirically verify the intended hit, knockback, movement, and combat feel before release.
 
 ### Clan war
 
@@ -222,7 +227,7 @@ For one family/tier first, then the configured V1 families:
 9. Chronicle/history can record Day 0, votes/results, feature unlocks, significant clears, and other authoritative events;
 10. historical recognition remains prestige/record, not required mechanical power.
 
-Generic community-project/contribution infrastructure may be accepted separately for explicitly defined projects, but it cannot become an undocumented mandatory progress bar for ordinary voted districts.
+Generic community-project/contribution/archive infrastructure may be accepted separately for explicitly defined projects, but it cannot become an undocumented mandatory progress bar for ordinary voted districts.
 
 ## P. Nether/End progression boundary
 
