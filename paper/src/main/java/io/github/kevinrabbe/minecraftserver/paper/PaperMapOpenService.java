@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
+import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityException;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapEncounterReservationRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapEncounterReservationSnapshot;
@@ -77,6 +78,11 @@ final class PaperMapOpenService {
         CompletableFuture<MapPlayerStateOpenResult> result = new CompletableFuture<>();
 
         sessions.mutateAuthoritativeState(player, context -> {
+            if (context.logicalZoneId() == null || context.logicalZoneId().isBlank()) {
+                throw new MapAuthorityException(
+                        "Map opening requires a persistent source logical zone for safe encounter return routing"
+                );
+            }
             MapItemProfile profile = mapAuthority.loadMapProfile(claim.itemInstanceId());
             PaperMapEncounterRoute route = routes.require(profile.runDefinition().environmentId());
             MapEncounterReservationSnapshot reservation = reservations.reserve(
