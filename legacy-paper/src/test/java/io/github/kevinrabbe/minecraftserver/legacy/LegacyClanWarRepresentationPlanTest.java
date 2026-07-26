@@ -1,6 +1,5 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
-import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -37,7 +36,7 @@ class LegacyClanWarRepresentationPlanTest {
         assertEquals(0, plan.getItems().get(0).getParticipantIndex());
         assertEquals(0, plan.getItems().get(0).getLoadoutItemIndex());
         assertEquals("equipment.starter_sword", plan.getItems().get(0).getDefinitionId());
-        assertEquals(Material.IRON_SWORD, plan.getItems().get(0).getMaterial());
+        assertEquals("IRON_SWORD", plan.getItems().get(0).getMaterialId());
         assertThrows(
                 UnsupportedOperationException.class,
                 () -> plan.getItems().add(plan.getItems().get(0))
