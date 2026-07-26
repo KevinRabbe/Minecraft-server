@@ -11,7 +11,6 @@ import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRuleset;
 
 import java.sql.SQLException;
-import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -43,7 +42,9 @@ public final class CompetitiveControlMain {
             return thread;
         });
 
-        try (Database database = Database.open(DatabaseConfig.fromEnvironment())) {
+        Database database = null;
+        try {
+            database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
 
             CompetitiveExecutionRepository executions = new CompetitiveExecutionRepository(
@@ -79,10 +80,9 @@ public final class CompetitiveControlMain {
             shutdown.await();
         } finally {
             stopping.set(true);
-            scheduler.shutdown();
-            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-                scheduler.awaitTermination(5, TimeUnit.SECONDS);
+            stopScheduler(scheduler);
+            if (database != null) {
+                database.close();
             }
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook);
@@ -90,6 +90,14 @@ public final class CompetitiveControlMain {
                 // JVM shutdown is already in progress.
             }
             LOGGER.info("Competitive control worker stopped");
+        }
+    }
+
+    private static void stopScheduler(ScheduledExecutorService scheduler) throws InterruptedException {
+        scheduler.shutdown();
+        if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+            scheduler.shutdownNow();
+            scheduler.awaitTermination(5, TimeUnit.SECONDS);
         }
     }
 
