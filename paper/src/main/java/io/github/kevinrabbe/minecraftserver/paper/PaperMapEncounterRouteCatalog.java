@@ -85,6 +85,16 @@ final class PaperMapEncounterRouteCatalog {
         return route;
     }
 
+    boolean containsTarget(String zoneId, String templateVersion) {
+        if (zoneId == null || templateVersion == null) {
+            return false;
+        }
+        String zone = zoneId.trim();
+        String template = templateVersion.trim();
+        return byEnvironment.values().stream()
+                .anyMatch(route -> route.zoneId().equals(zone) && route.templateVersion().equals(template));
+    }
+
     private record RawCatalog(
             @JsonProperty("schema_version") int schemaVersion,
             @JsonProperty("routes") List<RawRoute> routes
