@@ -293,7 +293,8 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
             LegacyRankedExecution.requireSupported(execution);
             return;
         }
-        if ("CLAN_WAR".equals(execution.getActivityKind())) {
+        if (LegacyClanWarExecution.ACTIVITY_KIND.equals(execution.getActivityKind())) {
+            LegacyClanWarExecution.requireSupported(execution);
             return;
         }
         throw new IllegalArgumentException("Unsupported competitive activity kind: " + execution.getActivityKind());
