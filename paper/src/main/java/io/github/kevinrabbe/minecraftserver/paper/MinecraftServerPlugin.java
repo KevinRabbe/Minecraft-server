@@ -51,6 +51,9 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyKillProgress
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRuleset;
+import io.github.kevinrabbe.minecraftserver.common.pvp.RankedMatchmakingRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGatheringService;
@@ -126,6 +129,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperAuctionHouseCommand auctionHouseCommand;
         PaperTradeCommand tradeCommand;
         PaperClanRouterCommand clanCommand;
+        PaperRankedCommand rankedCommand;
         PaperCraftingCommissionCommand commissionCommand;
         PaperBountyCommand bountyCommand;
         PaperSalvageCommand salvageCommand;
@@ -190,6 +194,14 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     database.dataSource()
             );
             PaperPlayerIdentityResolver playerIdentities = new PaperPlayerIdentityResolver(database.dataSource());
+            RankedArenaRuleset rankedRuleset = RankedArenaRuleset.legacy189V1();
+            RankedArenaRepository rankedArena = new RankedArenaRepository(database.dataSource(), rankedRuleset);
+            rankedCommand = new PaperRankedCommand(
+                    this,
+                    playerIdentities,
+                    new RankedMatchmakingRepository(database.dataSource(), rankedRuleset),
+                    rankedArena
+            );
             skillsCommand = new PaperSkillsCommand(
                     this,
                     playerIdentities,
@@ -494,6 +506,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         getServer().getPluginManager().registerEvents(sessionController, this);
         getServer().getPluginManager().registerEvents(commodityDeliveryController, this);
         getServer().getPluginManager().registerEvents(uniqueDeliveryController, this);
+        getServer().getPluginManager().registerEvents(rankedCommand, this);
         getServer().getPluginManager().registerEvents(artifactDiscoveryListener, this);
         getServer().getPluginManager().registerEvents(
                 new PaperItemRepresentationGate(this, itemRepresentationValidator),
@@ -544,6 +557,9 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PluginCommand clan = Objects.requireNonNull(getCommand("clan"), "clan command missing from plugin.yml");
         clan.setExecutor(clanCommand);
         clan.setTabCompleter(clanCommand);
+        PluginCommand ranked = Objects.requireNonNull(getCommand("ranked"), "ranked command missing from plugin.yml");
+        ranked.setExecutor(rankedCommand);
+        ranked.setTabCompleter(rankedCommand);
         PluginCommand commission = Objects.requireNonNull(
                 getCommand("commission"),
                 "commission command missing from plugin.yml"
