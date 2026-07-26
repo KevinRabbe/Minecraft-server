@@ -27,7 +27,7 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
 
-    IF item_limit < 1 OR item_limit > 500 THEN
+    IF item_limit IS NULL OR item_limit < 1 OR item_limit > 500 THEN
         RAISE EXCEPTION 'item_limit must be between 1 and 500'
             USING ERRCODE = 'check_violation';
     END IF;
