@@ -51,6 +51,10 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyKillProgress
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLifecycleRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarQueryRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarResolutionRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarRuleset;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRuleset;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedLeaderboardRepository;
@@ -299,6 +303,11 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     uniqueItemRemoval
             );
             ClanMembershipRepository clanMemberships = new ClanMembershipRepository(database.dataSource());
+            ClanQueryRepository clanQueries = new ClanQueryRepository(database.dataSource());
+            ClanWarLifecycleRepository clanWars = new ClanWarLifecycleRepository(
+                    database.dataSource(),
+                    ClanWarRuleset.legacy189V1()
+            );
             PaperClanCommand baseClanCommand = new PaperClanCommand(
                     this,
                     sessionController,
@@ -318,12 +327,22 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     commodityMutator,
                     uniqueItemRemoval
             );
+            PaperClanWarCommand clanWarCommand = new PaperClanWarCommand(
+                    this,
+                    playerIdentities,
+                    clanMemberships,
+                    clanQueries,
+                    clanWars,
+                    new ClanWarQueryRepository(database.dataSource()),
+                    new ClanWarResolutionRepository(database.dataSource())
+            );
             clanCommand = new PaperClanRouterCommand(
                     this,
                     baseClanCommand,
+                    clanWarCommand,
                     playerIdentities,
                     clanMemberships,
-                    new ClanQueryRepository(database.dataSource())
+                    clanQueries
             );
             BountyRepository bountyRepository = new BountyRepository(
                     database.dataSource(),
