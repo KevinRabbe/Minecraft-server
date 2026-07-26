@@ -1,9 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
 import java.sql.SQLException;
-import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * Fail-closed admission preparation independent of Bukkit event plumbing.
@@ -28,5 +26,24 @@ final class LegacyExecutionAdmission {
             return LegacyClanWarLoadoutLoader.load(war, loadoutSource);
         }
         throw new IllegalArgumentException("Unsupported competitive activity kind: " + execution.getActivityKind());
+    }
+
+    /**
+     * Clan-War admission additionally proves that every frozen item has a faithful currently-supported 1.8
+     * representation. The representation plan is deliberately discarded here; the eventual combat materializer will
+     * rebuild it from the same immutable loadout when it becomes ready to open combat.
+     */
+    static LegacyClanWarLoadout prepare(
+            LegacyExecution execution,
+            LegacyClanWarLoadoutLoader.LoadoutPageSource loadoutSource,
+            LegacyClanWarRepresentationCatalog representationCatalog
+    ) throws SQLException {
+        Objects.requireNonNull(representationCatalog, "representationCatalog");
+        LegacyClanWarLoadout loadout = prepare(execution, loadoutSource);
+        if (loadout != null) {
+            LegacyClanWarExecution war = LegacyClanWarExecution.requireSupported(execution);
+            LegacyClanWarRepresentationPlan.build(war, loadout, representationCatalog);
+        }
+        return loadout;
     }
 }
