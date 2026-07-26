@@ -41,8 +41,8 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         this.combatGate = Objects.requireNonNull(combatGate, "combatGate");
     }
 
-    /** An admitted player that does not yet own executable temporary state cannot interfere with the active arena. */
-    @EventHandler(priority = EventPriority.MONITOR)
+    /** Runs after the plugin's normal join materialization attempt; only still-unmaterialized players become spectators. */
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onJoin(PlayerJoinEvent event) {
         LegacyExecution execution = plugin.findExecutionForPlayer(event.getPlayer().getUniqueId());
         if (execution != null && !combatGate.isEnabled(execution.getExecutionId())) {
