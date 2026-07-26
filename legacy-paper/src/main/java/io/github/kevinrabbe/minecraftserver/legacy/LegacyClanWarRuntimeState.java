@@ -8,18 +8,18 @@ import java.util.Objects;
  */
 final class LegacyClanWarRuntimeState {
     private final LegacyClanWarExecution war;
-    private final LegacyClanWarRepresentationPlan representationPlan;
+    private final LegacyClanWarMaterializationPlan materializationPlan;
     private final LegacyClanWarObjective objective;
     private final LegacyClanWarObjectiveSettings objectiveSettings;
 
     private LegacyClanWarRuntimeState(
             LegacyClanWarExecution war,
-            LegacyClanWarRepresentationPlan representationPlan,
+            LegacyClanWarMaterializationPlan materializationPlan,
             LegacyClanWarObjective objective,
             LegacyClanWarObjectiveSettings objectiveSettings
     ) {
         this.war = war;
-        this.representationPlan = representationPlan;
+        this.materializationPlan = materializationPlan;
         this.objective = objective;
         this.objectiveSettings = objectiveSettings;
     }
@@ -28,21 +28,24 @@ final class LegacyClanWarRuntimeState {
             LegacyClanWarExecution war,
             LegacyClanWarLoadout loadout,
             LegacyClanWarRepresentationCatalog representationCatalog,
+            LegacyClanWarArenaSettings arenaSettings,
             LegacyClanWarObjectiveSettings objectiveSettings
     ) {
         Objects.requireNonNull(war, "war");
         Objects.requireNonNull(loadout, "loadout");
         Objects.requireNonNull(representationCatalog, "representationCatalog");
+        Objects.requireNonNull(arenaSettings, "arenaSettings");
         Objects.requireNonNull(objectiveSettings, "objectiveSettings");
 
-        LegacyClanWarRepresentationPlan plan = LegacyClanWarRepresentationPlan.build(
+        LegacyClanWarMaterializationPlan materializationPlan = LegacyClanWarMaterializationPlan.build(
                 war,
                 loadout,
-                representationCatalog
+                representationCatalog,
+                arenaSettings
         );
         return new LegacyClanWarRuntimeState(
                 war,
-                plan,
+                materializationPlan,
                 new LegacyClanWarObjective(war, objectiveSettings),
                 objectiveSettings
         );
@@ -52,8 +55,12 @@ final class LegacyClanWarRuntimeState {
         return war;
     }
 
+    LegacyClanWarMaterializationPlan getMaterializationPlan() {
+        return materializationPlan;
+    }
+
     LegacyClanWarRepresentationPlan getRepresentationPlan() {
-        return representationPlan;
+        return materializationPlan.getRepresentationPlan();
     }
 
     LegacyClanWarObjective getObjective() {
