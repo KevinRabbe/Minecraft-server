@@ -73,8 +73,8 @@ final class LegacyRankedArenaMaterializer {
             rebuildArena();
             resetPlayer(playerA);
             resetPlayer(playerB);
-            playerA.teleport(spawnA());
-            playerB.teleport(spawnB());
+            requireTeleport(playerA, spawnA());
+            requireTeleport(playerB, spawnB());
             return true;
         } catch (RuntimeException exception) {
             combatGate.disable(executionId);
@@ -132,6 +132,12 @@ final class LegacyRankedArenaMaterializer {
     private void requireGameRule(String rule, String value) {
         if (!world.setGameRuleValue(rule, value)) {
             throw new IllegalStateException("legacy Ranked world does not support required gamerule " + rule);
+        }
+    }
+
+    private static void requireTeleport(Player player, Location location) {
+        if (!player.teleport(location)) {
+            throw new IllegalStateException("Ranked player teleport was rejected for " + player.getUniqueId());
         }
     }
 
