@@ -103,7 +103,6 @@ class CompetitiveLeaderboardRepositoryIntegrationTest {
         assertEquals(2L, entries.get(0).wins());
         assertEquals(0L, entries.get(0).losses());
         assertEquals(1, entries.get(0).rank());
-        assertEquals(1L, entries.get(1).losses() + entries.get(2).losses());
         assertEquals(2L, entries.get(1).losses() + entries.get(2).losses());
     }
 
