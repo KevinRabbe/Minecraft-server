@@ -107,7 +107,7 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         if (isCompetitive(event.getPlayer())) event.setCancelled(true);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onDeath(PlayerDeathEvent event) {
         if (!isCompetitive(event.getEntity())) return;
         event.getDrops().clear();
