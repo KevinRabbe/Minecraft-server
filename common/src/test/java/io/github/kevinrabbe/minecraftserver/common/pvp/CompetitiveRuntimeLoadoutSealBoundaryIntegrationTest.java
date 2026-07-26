@@ -142,7 +142,7 @@ class CompetitiveRuntimeLoadoutSealBoundaryIntegrationTest {
     @Test
     void missingSealOnAnotherBackendRemainsIndistinguishableFromNotFound() throws Exception {
         CompetitiveExecutionSnapshot active = activeEmptyWar(
-                "RuntimeSealOtherA", "RuntimeSealOtherB", OTHER_BACKEND
+                "SealOtherA", "SealOtherB", OTHER_BACKEND
         );
         deleteSeal(active.executionId());
 
