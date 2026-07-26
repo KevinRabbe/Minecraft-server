@@ -8,9 +8,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Ephemeral local permission to execute combat for a fully materialized competitive execution.
  *
- * <p>The gate is intentionally closed by default. Routing/admission alone never enables combat. A future arena/loadout
- * materializer must explicitly enable one execution only after its temporary state is ready, and must disable it again
- * on teardown. No persistent value or rating authority lives here.</p>
+ * <p>The gate is intentionally closed by default. Routing/admission alone never enables combat. A materializer must
+ * explicitly enable an execution only after its temporary state is ready, and must disable it again on teardown. No
+ * persistent value or rating authority lives here.</p>
  */
 final class LegacyCompetitiveCombatGate {
     private final Set<UUID> enabledExecutions = ConcurrentHashMap.newKeySet();
@@ -21,6 +21,19 @@ final class LegacyCompetitiveCombatGate {
 
     void enable(UUID executionId) {
         enabledExecutions.add(Objects.requireNonNull(executionId, "executionId"));
+    }
+
+    /**
+     * Reserves the current single-arena V1 runtime for exactly one execution. This does not define a permanent backend
+     * capacity rule; a future multi-arena materializer may use independent arena slots and the ordinary enable method.
+     */
+    synchronized boolean enableExclusive(UUID executionId) {
+        Objects.requireNonNull(executionId, "executionId");
+        if (enabledExecutions.isEmpty()) {
+            enabledExecutions.add(executionId);
+            return true;
+        }
+        return enabledExecutions.size() == 1 && enabledExecutions.contains(executionId);
     }
 
     void disable(UUID executionId) {
