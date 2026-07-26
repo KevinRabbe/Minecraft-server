@@ -18,11 +18,26 @@ CREATE OR REPLACE FUNCTION invalidate_clan_war_loadout_confirmation_on_item_chan
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    target_war_id UUID;
+    target_player_id UUID;
 BEGIN
+    IF TG_OP = 'DELETE' THEN
+        target_war_id := OLD.war_id;
+        target_player_id := OLD.player_id;
+    ELSE
+        target_war_id := NEW.war_id;
+        target_player_id := NEW.player_id;
+    END IF;
+
     DELETE FROM clan_war_loadout_confirmations
-    WHERE war_id = COALESCE(NEW.war_id, OLD.war_id)
-      AND player_id = COALESCE(NEW.player_id, OLD.player_id);
-    RETURN COALESCE(NEW, OLD);
+    WHERE war_id = target_war_id
+      AND player_id = target_player_id;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
 END;
 $$;
 
