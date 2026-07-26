@@ -21,14 +21,14 @@ import org.bukkit.event.player.PlayerPickupItemEvent;
 import org.bukkit.projectiles.ProjectileSource;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Execution-isolation guard for the disposable 1.8.9 competitive tier.
  *
- * <p>This is deliberately independent of the eventual arena geometry/loadout. It prevents players assigned to one
- * logical execution from interacting with another execution, prevents temporary match inventory/world mutation from
- * leaking through shared backend infrastructure, and keeps combat closed until a materializer explicitly enables the
- * exact execution.</p>
+ * <p>This is deliberately independent of arena geometry/loadout. It prevents players assigned to one logical execution
+ * from interacting with another execution, prevents temporary match inventory/world mutation from leaking through
+ * shared backend infrastructure, and keeps combat closed until the materialized execution is currently runnable.</p>
  */
 final class LegacyCompetitiveIsolationListener implements Listener {
     private final LegacyCompetitivePlugin plugin;
@@ -39,12 +39,12 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         this.combatGate = Objects.requireNonNull(combatGate, "combatGate");
     }
 
-    /** Environmental damage is also blocked until the exact execution has been fully materialized. */
+    /** Environmental damage is blocked while the execution is not currently runnable. */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player)) return;
         LegacyExecution execution = plugin.findExecutionForPlayer(((Player) event.getEntity()).getUniqueId());
-        if (execution != null && !combatGate.isEnabled(execution.getExecutionId())) {
+        if (execution != null && !combatEnabled(execution)) {
             event.setCancelled(true);
         }
     }
@@ -134,7 +134,16 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         if (firstExecution == null && secondExecution == null) return true;
         if (firstExecution == null || secondExecution == null) return false;
         if (!firstExecution.getExecutionId().equals(secondExecution.getExecutionId())) return false;
-        return combatGate.isEnabled(firstExecution.getExecutionId());
+        return combatEnabled(firstExecution);
+    }
+
+    private boolean combatEnabled(LegacyExecution execution) {
+        return LegacyCombatAvailability.isEnabled(execution, combatGate, this::isOnline);
+    }
+
+    private boolean isOnline(UUID minecraftUuid) {
+        Player player = plugin.getServer().getPlayer(minecraftUuid);
+        return player != null && player.isOnline();
     }
 
     private boolean isCompetitive(Player player) {
