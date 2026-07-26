@@ -6,6 +6,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -50,6 +51,44 @@ class LegacyExecutionAdmissionTest {
 
         assertEquals(1, pageCalls.get());
         assertEquals(1, loadout.getItems().size());
+    }
+
+    @Test
+    void clanWarAdmissionCanRequireFaithfulLegacyRepresentation() throws Exception {
+        LegacyExecution war = clanWarExecution();
+        LinkedHashMap<String, String> configured = new LinkedHashMap<String, String>();
+        configured.put("equipment.starter_sword", "IRON_SWORD");
+        LegacyClanWarRepresentationCatalog catalog = new LegacyClanWarRepresentationCatalog(configured);
+
+        LegacyClanWarLoadout loadout = LegacyExecutionAdmission.prepare(
+                war,
+                (executionId, afterParticipant, afterItem, limit) -> Collections.singletonList(
+                        new LegacyLoadoutItem(0, 0, "equipment.starter_sword", "{}", 0)
+                ),
+                catalog
+        );
+        assertEquals(1, loadout.getItems().size());
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LegacyExecutionAdmission.prepare(
+                        war,
+                        (executionId, afterParticipant, afterItem, limit) -> Collections.singletonList(
+                                new LegacyLoadoutItem(0, 0, "equipment.starter_sword", "{\"damage\":9000}", 0)
+                        ),
+                        catalog
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LegacyExecutionAdmission.prepare(
+                        war,
+                        (executionId, afterParticipant, afterItem, limit) -> Collections.singletonList(
+                                new LegacyLoadoutItem(0, 0, "equipment.unknown", "{}", 0)
+                        ),
+                        catalog
+                )
+        );
     }
 
     @Test
