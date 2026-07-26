@@ -9,6 +9,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityCombustByEntityEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.PotionSplashEvent;
@@ -42,13 +43,20 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         Player attacker = attackingPlayer(event.getDamager());
         if (attacker == null) return;
 
-        LegacyExecution victimExecution = plugin.findExecutionForPlayer(victim.getUniqueId());
-        LegacyExecution attackerExecution = plugin.findExecutionForPlayer(attacker.getUniqueId());
-        if (victimExecution == null && attackerExecution == null) return;
+        if (!sameExecutionOrUnrelated(attacker, victim)) {
+            event.setCancelled(true);
+        }
+    }
 
-        if (victimExecution == null
-                || attackerExecution == null
-                || !victimExecution.getExecutionId().equals(attackerExecution.getExecutionId())) {
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityCombustPlayer(EntityCombustByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+
+        Player victim = (Player) event.getEntity();
+        Player attacker = attackingPlayer(event.getCombuster());
+        if (attacker == null) return;
+
+        if (!sameExecutionOrUnrelated(attacker, victim)) {
             event.setCancelled(true);
         }
     }
@@ -59,15 +67,10 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         if (!(shooter instanceof Player)) return;
 
         Player attacker = (Player) shooter;
-        LegacyExecution attackerExecution = plugin.findExecutionForPlayer(attacker.getUniqueId());
-        if (attackerExecution == null) return;
-
         for (LivingEntity affected : event.getAffectedEntities()) {
             if (!(affected instanceof Player)) continue;
-            Player player = (Player) affected;
-            LegacyExecution affectedExecution = plugin.findExecutionForPlayer(player.getUniqueId());
-            if (affectedExecution == null
-                    || !attackerExecution.getExecutionId().equals(affectedExecution.getExecutionId())) {
+            Player victim = (Player) affected;
+            if (!sameExecutionOrUnrelated(attacker, victim)) {
                 event.setIntensity(affected, 0.0D);
             }
         }
@@ -109,6 +112,15 @@ final class LegacyCompetitiveIsolationListener implements Listener {
         if (!isCompetitive(event.getEntity())) return;
         event.getDrops().clear();
         event.setDroppedExp(0);
+    }
+
+    private boolean sameExecutionOrUnrelated(Player first, Player second) {
+        LegacyExecution firstExecution = plugin.findExecutionForPlayer(first.getUniqueId());
+        LegacyExecution secondExecution = plugin.findExecutionForPlayer(second.getUniqueId());
+        if (firstExecution == null && secondExecution == null) return true;
+        return firstExecution != null
+                && secondExecution != null
+                && firstExecution.getExecutionId().equals(secondExecution.getExecutionId());
     }
 
     private boolean isCompetitive(Player player) {
