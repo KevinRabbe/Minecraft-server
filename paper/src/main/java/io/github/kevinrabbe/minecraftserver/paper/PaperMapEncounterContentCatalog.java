@@ -84,7 +84,9 @@ final class PaperMapEncounterContentCatalog {
                         value.damagePerDifficulty(),
                         value.maxDamageMultiplier(),
                         value.spawnRadius(),
-                        rewardMap.definitionId()
+                        rewardMap.definitionId(),
+                        value.successorDifficultyDelta(),
+                        value.maxSuccessorDifficulty()
                 );
                 Key key = new Key(
                         definition.environmentId(),
@@ -157,6 +159,8 @@ final class PaperMapEncounterContentCatalog {
             @JsonProperty("damage_per_difficulty") double damagePerDifficulty,
             @JsonProperty("max_damage_multiplier") double maxDamageMultiplier,
             @JsonProperty("spawn_radius") double spawnRadius,
-            @JsonProperty("reward_map_definition_id") String rewardMapDefinitionId
+            @JsonProperty("reward_map_definition_id") String rewardMapDefinitionId,
+            @JsonProperty("successor_difficulty_delta") int successorDifficultyDelta,
+            @JsonProperty("max_successor_difficulty") int maxSuccessorDifficulty
     ) { }
 }
