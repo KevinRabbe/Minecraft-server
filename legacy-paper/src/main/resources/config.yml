@@ -38,6 +38,14 @@ ranked:
 # roll_state={} / upgrade_level=0 items. Rolled/upgraded gear remains fail-closed until its exact 1.8 combat translation
 # is implemented; it is never silently flattened into weaker/different vanilla stats.
 clan-war:
+  objective:
+    # Simple control-point mode: uncontested presence adds one progress step per evaluation; contested/empty pauses.
+    radius-blocks: 3.0
+    evaluation-period-ticks: 20
+    uncontested-evaluations-to-win: 60
+    # Timeout aborts safely without inventing a winning clan.
+    match-timeout-seconds: 900
+
   representations:
     - definition-id: equipment.starter_sword
       material: IRON_SWORD
