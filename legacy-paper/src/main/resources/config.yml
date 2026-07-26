@@ -34,9 +34,9 @@ ranked:
       material: IRON_BOOTS
       amount: 1
 
-# Clan-War runtime representations are an explicit positive allowlist. This first slice only represents baseline
-# roll_state={} / upgrade_level=0 items. Rolled/upgraded gear remains fail-closed until its exact 1.8 combat translation
-# is implemented; it is never silently flattened into weaker/different vanilla stats.
+# Clan-War arena/objective values below are local disposable-runtime tuning. Item -> Minecraft-1.8 combat
+# representation is deliberately NOT configurable here: it is frozen in code with war.legacy_1_8_9@1. Unsupported
+# definitions, rolled items, and upgraded items fail closed rather than being silently flattened.
 clan-war:
   # Separate disposable region from Ranked. This is local runtime geometry, never persistent war identity.
   arena:
@@ -62,7 +62,3 @@ clan-war:
     uncontested-evaluations-to-win: 60
     # Timeout aborts safely without inventing a winning clan.
     match-timeout-seconds: 900
-
-  representations:
-    - definition-id: equipment.starter_sword
-      material: IRON_SWORD
