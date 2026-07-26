@@ -4,11 +4,6 @@ import io.github.kevinrabbe.minecraftserver.common.pvp.RankedLeaderboardEntry;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -19,7 +14,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Read-only anywhere UI for the separate 1.8.9 Ranked leaderboard. */
-final class PaperRankedLeaderboardView implements Listener {
+final class PaperRankedLeaderboardView {
     static final int MAX_ENTRIES = 45;
     private static final int INVENTORY_SIZE = 54;
 
@@ -57,21 +52,7 @@ final class PaperRankedLeaderboardView implements Listener {
         });
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onInventoryClick(InventoryClickEvent event) {
-        if (isRankedLeaderboard(event.getView().getTopInventory())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onInventoryDrag(InventoryDragEvent event) {
-        if (isRankedLeaderboard(event.getView().getTopInventory())) {
-            event.setCancelled(true);
-        }
-    }
-
-    private static boolean isRankedLeaderboard(Inventory inventory) {
+    static boolean isRankedLeaderboard(Inventory inventory) {
         return inventory.getHolder() instanceof RankedLeaderboardHolder;
     }
 
