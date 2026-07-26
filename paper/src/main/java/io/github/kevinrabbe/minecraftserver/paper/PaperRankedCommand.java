@@ -2,6 +2,8 @@ package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaException;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedArenaRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.RankedLeaderboardEntry;
+import io.github.kevinrabbe.minecraftserver.common.pvp.RankedLeaderboardRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedMatchSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedMatchmakingRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.RankedRatingSnapshot;
@@ -25,23 +27,29 @@ import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 
-/** Modern-Paper entry surface for explicit opt-in 1v1 Ranked matchmaking. */
+/** Modern-Paper entry surface for explicit opt-in 1v1 Ranked matchmaking and its separate ladder. */
 final class PaperRankedCommand implements CommandExecutor, TabCompleter, Listener {
     private final MinecraftServerPlugin plugin;
     private final PaperPlayerIdentityResolver playerIdentities;
     private final RankedMatchmakingRepository matchmaking;
     private final RankedArenaRepository ranked;
+    private final RankedLeaderboardRepository leaderboard;
+    private final PaperRankedLeaderboardView leaderboardView;
 
     PaperRankedCommand(
             MinecraftServerPlugin plugin,
             PaperPlayerIdentityResolver playerIdentities,
             RankedMatchmakingRepository matchmaking,
-            RankedArenaRepository ranked
+            RankedArenaRepository ranked,
+            RankedLeaderboardRepository leaderboard,
+            PaperRankedLeaderboardView leaderboardView
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.matchmaking = Objects.requireNonNull(matchmaking, "matchmaking");
         this.ranked = Objects.requireNonNull(ranked, "ranked");
+        this.leaderboard = Objects.requireNonNull(leaderboard, "leaderboard");
+        this.leaderboardView = Objects.requireNonNull(leaderboardView, "leaderboardView");
     }
 
     @Override
@@ -61,6 +69,7 @@ final class PaperRankedCommand implements CommandExecutor, TabCompleter, Listene
             case "join" -> scheduleJoin(player.getUniqueId());
             case "leave" -> scheduleLeave(player.getUniqueId(), true);
             case "status" -> scheduleStatus(player.getUniqueId());
+            case "top" -> scheduleTop(player.getUniqueId());
             default -> usage(player);
         }
         return true;
@@ -70,7 +79,7 @@ final class PaperRankedCommand implements CommandExecutor, TabCompleter, Listene
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length != 1) return List.of();
         String prefix = args[0].toLowerCase(Locale.ROOT);
-        return List.of("status", "join", "leave").stream()
+        return List.of("status", "join", "leave", "top").stream()
                 .filter(value -> value.startsWith(prefix))
                 .toList();
     }
@@ -149,6 +158,17 @@ final class PaperRankedCommand implements CommandExecutor, TabCompleter, Listene
         });
     }
 
+    private void scheduleTop(UUID minecraftUuid) {
+        runAsync(() -> {
+            try {
+                List<RankedLeaderboardEntry> entries = leaderboard.top(PaperRankedLeaderboardView.MAX_ENTRIES);
+                leaderboardView.open(minecraftUuid, entries);
+            } catch (SQLException | RuntimeException exception) {
+                handleFailure(minecraftUuid, "Could not load the Ranked leaderboard.", exception);
+            }
+        });
+    }
+
     private void notifyMatch(RankedMatchSnapshot match) throws SQLException {
         UUID playerAMinecraftUuid = playerIdentities.resolveMinecraftUuid(match.playerAId()).orElseThrow(
                 () -> new RankedArenaException("Ranked participant A has no Minecraft identity")
@@ -206,6 +226,6 @@ final class PaperRankedCommand implements CommandExecutor, TabCompleter, Listene
     }
 
     private static void usage(Player player) {
-        player.sendMessage(Component.text("Ranked: /ranked [status] | join | leave"));
+        player.sendMessage(Component.text("Ranked: /ranked [status] | join | leave | top"));
     }
 }
