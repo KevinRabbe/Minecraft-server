@@ -46,6 +46,9 @@ commands:
   clan:
     description: Manage persistent MMO clans, roster, invitations, treasury, and shared storage
     usage: /clan [status|members|invites|cancel-invite|create|invite|accept|leave|kick|role|transfer|treasury|storage]
+  ranked:
+    description: Join, leave, or inspect the explicit opt-in Ranked 1v1 queue
+    usage: /ranked [status|join|leave]
   commission:
     description: Fund, browse, accept, complete, and cancel crafting commissions
     usage: /commission [browse [limit]] | view <id> | create <recipe> <payment-coins> | accept <id> | complete <id> | cancel <id>
