@@ -50,6 +50,7 @@ These are intentionally deferred to playtesting/configuration rather than archit
 ## Map/PvE decisions
 
 - exact initial environments, enemy-family count, modifier set, elite traits, and encounter layouts;
+- exact first-Map acquisition source before local successor-Map chains begin (for example ordinary PvE, crafting, a vendor/economic sink, or another established V1 loop); implementation must not silently create a mandatory Bounty or other forced progression gate;
 - exact Map material names and tier count;
 - exact conditions under which a Map objective displays detailed progress versus only state/goal information;
 - exact party-size limits and whether any Map types later permit late joining;
