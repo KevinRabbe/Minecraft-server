@@ -57,7 +57,7 @@ The trusted operator/application authority creates the matching principal row. A
 
 Ranked has a qualified disposable 1.8.9 materializer. Clan War now has a structurally qualified control-point path for the **currently explicit baseline representation set**: sealed identity-free snapshots, exact roster/spawn coverage, exact non-truncating inventory projection, deterministic arena materialization, objective progress, death isolation, timeout/failure handling, and exactly-once winner reporting are wired and green in CI.
 
-That does **not** make Clan War production-enabled. The current legacy representation allowlist contains only baseline `equipment.starter_sword -> IRON_SWORD`; rolled/upgraded items remain fail-closed, broader equipment placement semantics are not yet defined, and real 1.8.9 client combat/objective behavior still requires empirical acceptance. Production principals therefore remain Ranked-only:
+That does **not** make Clan War production-enabled. The `war.legacy_1_8_9@1` representation mapping is frozen in code and currently contains only baseline `equipment.starter_sword -> IRON_SWORD`. Operator YAML cannot override that mapping; stale `clan-war.representations` entries from older deployments are ignored. Rolled/upgraded items remain fail-closed, broader equipment placement semantics are not yet defined, and real 1.8.9 client combat/objective behavior still requires empirical acceptance. A change to combat representation requires an explicit code/ruleset compatibility review rather than a silent deployment edit. Production principals therefore remain Ranked-only:
 
 ```sql
 INSERT INTO competitive_runtime_principals(
