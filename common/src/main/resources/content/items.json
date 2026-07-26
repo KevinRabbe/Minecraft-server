@@ -48,6 +48,14 @@
       "max_stack_size": 1,
       "category": "EQUIPMENT",
       "identity_kind": "INDIVIDUAL"
+    },
+    {
+      "definition_id": "map.forest_extermination",
+      "minecraft_material": "MAP",
+      "display_name": "Forest Extermination Map",
+      "max_stack_size": 1,
+      "category": "PROGRESSION",
+      "identity_kind": "INDIVIDUAL"
     }
   ]
 }
