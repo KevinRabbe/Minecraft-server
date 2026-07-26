@@ -10,9 +10,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** Read-only exact backend route for players already assigned to an active 1.8.9 competitive execution. */
@@ -79,6 +81,58 @@ public final class CompetitiveEntryRouteRepository {
                     );
                 }
                 return routes.stream().findFirst();
+            }
+        }
+    }
+
+    /**
+     * Reads the complete current routing projection in one query for proxy-side reconciliation. The result contains
+     * routing/identity only and fails closed if an impossible duplicate Minecraft identity is observed.
+     */
+    public List<CompetitiveEntryRoute> findAllActive() throws SQLException {
+        Instant now = clock.instant();
+        Instant backendFreshAfter = now.minus(backendFreshness);
+
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT e.execution_id,
+                            e.activity_kind,
+                            e.activity_id,
+                            e.backend_id,
+                            e.lease_expires_at,
+                            p.player_id,
+                            p.minecraft_uuid,
+                            p.side_key,
+                            p.side_id
+                     FROM competitive_player_execution_reservations r
+                     JOIN competitive_executions e
+                       ON e.execution_id = r.execution_id
+                     JOIN competitive_execution_participants p
+                       ON p.execution_id = e.execution_id
+                      AND p.player_id = r.player_id
+                     JOIN backends b
+                       ON b.backend_id = e.backend_id
+                     WHERE e.status = 'ACTIVE'
+                       AND e.lease_expires_at > ?
+                       AND b.status = 'ONLINE'
+                       AND b.last_heartbeat_at >= ?
+                     ORDER BY p.minecraft_uuid ASC, e.execution_id ASC
+                     """)) {
+            statement.setTimestamp(1, Timestamp.from(now));
+            statement.setTimestamp(2, Timestamp.from(backendFreshAfter));
+            try (ResultSet rows = statement.executeQuery()) {
+                List<CompetitiveEntryRoute> routes = new ArrayList<>();
+                Set<UUID> minecraftUuids = new HashSet<>();
+                while (rows.next()) {
+                    CompetitiveEntryRoute route = readRoute(rows);
+                    if (!minecraftUuids.add(route.minecraftUuid())) {
+                        throw new CompetitiveExecutionException(
+                                "Minecraft UUID has multiple live competitive entry routes: " + route.minecraftUuid()
+                        );
+                    }
+                    routes.add(route);
+                }
+                return List.copyOf(routes);
             }
         }
     }
