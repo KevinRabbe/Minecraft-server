@@ -1,7 +1,11 @@
 package io.github.kevinrabbe.minecraftserver.legacy;
 
-import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.sql.SQLException;
 import java.util.Collections;
@@ -17,25 +21,24 @@ import java.util.logging.Level;
  * Minecraft 1.8.9 runtime shell. It sees only sanitized execution manifests and can emit only WINNER/FAILURE reports.
  * Persistent ratings, Coin, inventory, unique item identity and custody remain outside this JVM's API surface.
  */
-public final class LegacyCompetitivePlugin extends JavaPlugin {
+public final class LegacyCompetitivePlugin extends JavaPlugin implements Listener {
     private static final long INITIAL_POLL_DELAY_TICKS = 20L;
     private static final long POLL_PERIOD_TICKS = 100L;
+    private static final int MAX_ACTIVE_EXECUTIONS = 64;
 
     private final AtomicBoolean pollInFlight = new AtomicBoolean();
     private final ConcurrentMap<UUID, LegacyExecution> activeExecutions = new ConcurrentHashMap<UUID, LegacyExecution>();
     private final ConcurrentMap<UUID, PendingOutcome> pendingOutcomes = new ConcurrentHashMap<UUID, PendingOutcome>();
 
-    private LegacyRuntimeDatabase database;
+    private volatile LegacyRuntimeDatabase database;
     private String backendId;
     private int executionLeaseSeconds;
-    private int pollLimit;
     private BukkitTask pumpTask;
 
     @Override
     public void onEnable() {
         backendId = requireEnvironment("COMPETITIVE_BACKEND_ID");
         executionLeaseSeconds = optionalPositiveInt("COMPETITIVE_EXECUTION_LEASE_SECONDS", 60, 3600);
-        pollLimit = optionalPositiveInt("COMPETITIVE_POLL_LIMIT", 20, 50);
         database = new LegacyRuntimeDatabase(
                 requireEnvironment("COMPETITIVE_DATABASE_URL"),
                 requireEnvironment("COMPETITIVE_DATABASE_USER"),
@@ -50,6 +53,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin {
             throw new IllegalStateException("Could not initialize competitive runtime database boundary", exception);
         }
 
+        getServer().getPluginManager().registerEvents(this, this);
         pumpTask = getServer().getScheduler().runTaskTimer(
                 this,
                 new Runnable() {
@@ -80,6 +84,44 @@ public final class LegacyCompetitivePlugin extends JavaPlugin {
             } catch (SQLException | RuntimeException exception) {
                 getLogger().log(Level.WARNING, "Could not mark legacy competitive backend offline", exception);
             }
+        }
+    }
+
+    /**
+     * Fail-closed admission for the isolated runtime. An exact ACTIVE execution must exist for this Minecraft identity
+     * on this database principal's mapped backend; the returned data is the same sanitized manifest used by polling.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onAsyncPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
+        if (event.getLoginResult() != AsyncPlayerPreLoginEvent.Result.ALLOWED) {
+            return;
+        }
+
+        LegacyRuntimeDatabase current = database;
+        if (current == null) {
+            event.disallow(
+                    AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                    "Competitive match admission is temporarily unavailable."
+            );
+            return;
+        }
+
+        try {
+            LegacyExecution execution = current.findPlayerExecution(event.getUniqueId());
+            if (execution == null) {
+                event.disallow(
+                        AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                        "No active competitive match is assigned to this player on this backend."
+                );
+                return;
+            }
+            activeExecutions.put(execution.getExecutionId(), execution);
+        } catch (SQLException | RuntimeException exception) {
+            getLogger().log(Level.WARNING, "Competitive player admission lookup failed closed", exception);
+            event.disallow(
+                    AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                    "Competitive match admission is temporarily unavailable."
+            );
         }
     }
 
@@ -156,7 +198,7 @@ public final class LegacyCompetitivePlugin extends JavaPlugin {
             flushPendingOutcomes(current);
 
             Map<UUID, LegacyExecution> refreshed = new LinkedHashMap<UUID, LegacyExecution>();
-            for (LegacyExecution execution : current.pollActive(pollLimit)) {
+            for (LegacyExecution execution : current.pollActive(MAX_ACTIVE_EXECUTIONS)) {
                 if (pendingOutcomes.containsKey(execution.getExecutionId())) {
                     continue;
                 }
