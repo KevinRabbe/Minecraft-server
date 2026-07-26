@@ -34,6 +34,8 @@ class CompetitiveLeaderboardRepositoryIntegrationTest {
     private ClanWarResolutionRepository warResolutions;
     private RankedArenaLeaderboardRepository rankedLeaderboard;
     private ClanWarLeaderboardRepository warLeaderboard;
+    private RankedArenaHistoryRepository rankedHistory;
+    private ClanWarHistoryRepository warHistory;
 
     @BeforeAll
     void openDatabase() {
@@ -52,6 +54,8 @@ class CompetitiveLeaderboardRepositoryIntegrationTest {
         warResolutions = new ClanWarResolutionRepository(dataSource);
         rankedLeaderboard = new RankedArenaLeaderboardRepository(dataSource);
         warLeaderboard = new ClanWarLeaderboardRepository(dataSource);
+        rankedHistory = new RankedArenaHistoryRepository(dataSource);
+        warHistory = new ClanWarHistoryRepository(dataSource);
     }
 
     @BeforeEach
@@ -107,7 +111,29 @@ class CompetitiveLeaderboardRepositoryIntegrationTest {
     }
 
     @Test
-    void clanWarLeaderboardUsesOnlyAuthoritativeWarResults() throws SQLException {
+    void rankedArenaHistoryPreservesRulesetAndRatingContext() throws SQLException {
+        UUID a = player("HistRankA");
+        UUID b = player("HistRankB");
+        RankedMatchResult completed = completeRanked(a, b, a);
+
+        RankedArenaHistoryEntry entry = rankedHistory.recent(10).getFirst();
+        assertEquals(completed.match().matchId(), entry.matchId());
+        assertEquals(a, entry.winnerPlayerId());
+        assertEquals(b, entry.loserPlayerId());
+        assertEquals("HistRankA", entry.playerAName());
+        assertEquals("HistRankB", entry.playerBName());
+        assertEquals("arena.legacy_1_8_9", entry.rulesetId());
+        assertEquals(1, entry.rulesetVersion());
+        assertEquals(1, entry.ratingPolicyVersion());
+        assertEquals(32, entry.ratingKFactor());
+        assertEquals(1000, entry.playerARatingBefore());
+        assertEquals(1016, entry.playerARatingAfter());
+        assertEquals(1000, entry.playerBRatingBefore());
+        assertEquals(984, entry.playerBRatingAfter());
+    }
+
+    @Test
+    void clanWarLeaderboardAndHistoryUseOnlyAuthoritativeWarResults() throws SQLException {
         UUID leaderA = player("WarBoardA");
         UUID leaderB = player("WarBoardB");
         ClanSnapshot clanA = memberships.createClan(UUID.randomUUID(), leaderA, "Board Alpha", "BA");
@@ -119,7 +145,7 @@ class CompetitiveLeaderboardRepositoryIntegrationTest {
         wars.setRoster(UUID.randomUUID(), war.warId(), leaderB, clanB.clanId(), List.of(leaderB));
         wars.lockRoster(UUID.randomUUID(), war.warId());
         wars.start(UUID.randomUUID(), war.warId());
-        warResolutions.complete(UUID.randomUUID(), war.warId(), clanA.clanId());
+        ClanWarCompletionResult completed = warResolutions.complete(UUID.randomUUID(), war.warId(), clanA.clanId());
 
         List<ClanWarLeaderboardEntry> entries = warLeaderboard.top(2);
         assertEquals(2, entries.size());
@@ -131,18 +157,38 @@ class CompetitiveLeaderboardRepositoryIntegrationTest {
         assertEquals(clanB.clanId(), entries.get(1).clanId());
         assertEquals(0L, entries.get(1).wins());
         assertEquals(1L, entries.get(1).losses());
+
+        ClanWarHistoryEntry history = warHistory.recent(10).getFirst();
+        assertEquals(completed.war().warId(), history.warId());
+        assertEquals(clanA.clanId(), history.winningClanId());
+        assertEquals(clanB.clanId(), history.losingClanId());
+        assertEquals("Board Alpha", history.challengerName());
+        assertEquals("BA", history.challengerTag());
+        assertEquals("Board Beta", history.defenderName());
+        assertEquals("BB", history.defenderTag());
+        assertEquals("war.legacy_1_8_9", history.rulesetId());
+        assertEquals(1, history.rulesetVersion());
+        assertEquals(1, history.ratingPolicyVersion());
+        assertEquals(32, history.ratingKFactor());
+        assertEquals(1, history.teamSize());
+        assertEquals(1000, history.challengerRatingBefore());
+        assertEquals(1016, history.challengerRatingAfter());
+        assertEquals(1000, history.defenderRatingBefore());
+        assertEquals(984, history.defenderRatingAfter());
     }
 
     @Test
-    void leaderboardQueriesAreBounded() {
+    void competitiveReadModelsAreBounded() {
         assertThrows(IllegalArgumentException.class, () -> rankedLeaderboard.top(0));
         assertThrows(IllegalArgumentException.class, () -> warLeaderboard.top(101));
+        assertThrows(IllegalArgumentException.class, () -> rankedHistory.recent(0));
+        assertThrows(IllegalArgumentException.class, () -> warHistory.recent(101));
     }
 
-    private void completeRanked(UUID playerA, UUID playerB, UUID winner) throws SQLException {
+    private RankedMatchResult completeRanked(UUID playerA, UUID playerB, UUID winner) throws SQLException {
         RankedMatchSnapshot match = arena.createMatch(UUID.randomUUID(), playerA, playerB);
         arena.startMatch(UUID.randomUUID(), match.matchId());
-        arena.completeMatch(UUID.randomUUID(), match.matchId(), winner);
+        return arena.completeMatch(UUID.randomUUID(), match.matchId(), winner);
     }
 
     private UUID player(String name) throws SQLException {
