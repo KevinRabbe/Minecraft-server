@@ -454,10 +454,36 @@ public final class LegacyCompetitivePlugin extends JavaPlugin implements Listene
                                     objectiveSettings
                             );
                         }
-                    } catch (SQLException | RuntimeException exception) {
+                    } catch (SQLException exception) {
+                        getLogger().log(
+                                Level.WARNING,
+                                "Clan-War frozen-loadout preflight could not reach its narrow database boundary for "
+                                        + execution.getExecutionId(),
+                                exception
+                        );
+                        continue;
+                    } catch (IllegalArgumentException exception) {
                         getLogger().log(
                                 Level.SEVERE,
-                                "Refusing Clan-War execution without a valid frozen/representable loadout "
+                                "Clan-War frozen loadout is deterministically unrepresentable; aborting execution "
+                                        + execution.getExecutionId(),
+                                exception
+                        );
+                        try {
+                            current.submitFailure(execution.getExecutionId());
+                        } catch (SQLException reportFailure) {
+                            getLogger().log(
+                                    Level.WARNING,
+                                    "Could not submit safe failure for unrepresentable Clan-War execution "
+                                            + execution.getExecutionId(),
+                                    reportFailure
+                            );
+                        }
+                        continue;
+                    } catch (RuntimeException exception) {
+                        getLogger().log(
+                                Level.SEVERE,
+                                "Refusing Clan-War execution because runtime preflight failed "
                                         + execution.getExecutionId(),
                                 exception
                         );
