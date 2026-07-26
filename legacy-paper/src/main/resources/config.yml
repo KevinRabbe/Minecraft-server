@@ -1,0 +1,32 @@
+# First playable Ranked 1v1 content. These are cheap tuning values, not persistent authority.
+# The first runtime intentionally exposes one simple symmetric arena; future multi-arena placement may replace this
+# local geometry without changing match identity/rating authority.
+ranked:
+  arena:
+    origin-x: 0
+    floor-y: 200
+    origin-z: 0
+    half-size: 12
+    wall-height: 4
+    spawn-offset: 6
+    floor-material: STONE
+    border-material: BEDROCK
+    wall-material: GLASS
+
+  # Standardized disposable temporary state. Exact kit contents may be tuned without touching persistent MMO gear.
+  loadout:
+    - slot: 0
+      material: IRON_SWORD
+      amount: 1
+    - slot: helmet
+      material: IRON_HELMET
+      amount: 1
+    - slot: chestplate
+      material: IRON_CHESTPLATE
+      amount: 1
+    - slot: leggings
+      material: IRON_LEGGINGS
+      amount: 1
+    - slot: boots
+      material: IRON_BOOTS
+      amount: 1
