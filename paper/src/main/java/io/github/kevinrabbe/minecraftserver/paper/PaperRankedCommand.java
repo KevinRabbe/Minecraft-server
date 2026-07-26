@@ -14,7 +14,10 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.sql.SQLException;
@@ -41,15 +44,14 @@ final class PaperRankedCommand implements CommandExecutor, TabCompleter, Listene
             PaperPlayerIdentityResolver playerIdentities,
             RankedMatchmakingRepository matchmaking,
             RankedArenaRepository ranked,
-            RankedLeaderboardRepository leaderboard,
-            PaperRankedLeaderboardView leaderboardView
+            RankedLeaderboardRepository leaderboard
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.matchmaking = Objects.requireNonNull(matchmaking, "matchmaking");
         this.ranked = Objects.requireNonNull(ranked, "ranked");
         this.leaderboard = Objects.requireNonNull(leaderboard, "leaderboard");
-        this.leaderboardView = Objects.requireNonNull(leaderboardView, "leaderboardView");
+        this.leaderboardView = new PaperRankedLeaderboardView(plugin);
     }
 
     @Override
@@ -87,6 +89,20 @@ final class PaperRankedCommand implements CommandExecutor, TabCompleter, Listene
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         scheduleLeave(event.getPlayer().getUniqueId(), false);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onLeaderboardClick(InventoryClickEvent event) {
+        if (PaperRankedLeaderboardView.isRankedLeaderboard(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onLeaderboardDrag(InventoryDragEvent event) {
+        if (PaperRankedLeaderboardView.isRankedLeaderboard(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        }
     }
 
     private void scheduleJoin(UUID minecraftUuid) {
