@@ -151,6 +151,62 @@ final class PaperItemIdentityCodec {
         }
     }
 
+    /** Advances only the compact authority-version claim of one exact already-managed individual representation. */
+    void advanceIndividualAuthorityVersion(
+            ItemStack stack,
+            ItemDefinition definition,
+            UUID itemInstanceId,
+            long expectedAuthorityVersion,
+            long nextAuthorityVersion,
+            String source
+    ) {
+        Objects.requireNonNull(stack, "stack");
+        Objects.requireNonNull(definition, "definition");
+        Objects.requireNonNull(itemInstanceId, "itemInstanceId");
+        if (definition.identityKind() != ItemIdentityKind.INDIVIDUAL) {
+            throw new IllegalArgumentException("Definition is not INDIVIDUAL: " + definition.definitionId());
+        }
+        if (expectedAuthorityVersion < 0) {
+            throw new IllegalArgumentException("expectedAuthorityVersion must be >= 0");
+        }
+        final long expectedNext;
+        try {
+            expectedNext = Math.addExact(expectedAuthorityVersion, 1L);
+        } catch (ArithmeticException exception) {
+            throw new PaperItemRepresentationException("Item authority_version overflow at " + source, exception);
+        }
+        if (nextAuthorityVersion != expectedNext) {
+            throw new IllegalArgumentException("nextAuthorityVersion must advance exactly once");
+        }
+
+        ItemRepresentationClaim claim = readClaim(stack, source).orElseThrow(
+                () -> new PaperItemRepresentationException("Target item is not a managed representation at " + source)
+        );
+        if (!claim.individualClaim()
+                || claim.itemInstanceId() == null
+                || claim.authorityVersion() == null
+                || !itemInstanceId.equals(claim.itemInstanceId())
+                || !definition.definitionId().equals(claim.definitionId())
+                || claim.authorityVersion() != expectedAuthorityVersion
+                || claim.amount() != 1
+                || !definition.minecraftMaterial().equals(claim.minecraftMaterial())) {
+            throw new PaperItemRepresentationException(
+                    "Target item does not match the expected authoritative upgrade representation at " + source
+            );
+        }
+
+        boolean edited = stack.editPersistentDataContainer(container -> container.set(
+                authorityVersionKey,
+                PersistentDataType.LONG,
+                nextAuthorityVersion
+        ));
+        if (!edited) {
+            throw new PaperItemRepresentationException(
+                    "Could not advance individual item authority metadata at " + source
+            );
+        }
+    }
+
     private void writeBaseIdentity(PersistentDataContainer container, String definitionId) {
         container.set(schemaVersionKey, PersistentDataType.INTEGER, SCHEMA_VERSION);
         container.set(definitionIdKey, PersistentDataType.STRING, definitionId);
