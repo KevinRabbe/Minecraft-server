@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Bounded aggregate verifier across session/state, economy/custody, progression/crafting/world state,
+ * Bounded aggregate verifier across session/state, economy/custody, Bank Manager, progression/crafting/world state,
  * Artifacts/Attunement, PvE, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
@@ -19,6 +19,7 @@ public final class PersistentIntegrityVerifier {
 
     private final PlayerSessionIntegrityVerifier sessions;
     private final EconomyIntegrityVerifier economy;
+    private final BankIntegrityVerifier bank;
     private final ItemUpgradeIntegrityVerifier itemUpgrades;
     private final SkillProgressionIntegrityVerifier skills;
     private final CraftingIntegrityVerifier crafting;
@@ -58,6 +59,7 @@ public final class PersistentIntegrityVerifier {
         Objects.requireNonNull(dataSource, "dataSource");
         this.sessions = new PlayerSessionIntegrityVerifier(dataSource);
         this.economy = new EconomyIntegrityVerifier(dataSource);
+        this.bank = new BankIntegrityVerifier(dataSource);
         this.itemUpgrades = itemCatalog == null
                 ? new ItemUpgradeIntegrityVerifier(dataSource)
                 : new ItemUpgradeIntegrityVerifier(dataSource, itemCatalog);
@@ -83,6 +85,10 @@ public final class PersistentIntegrityVerifier {
         int remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(economy.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(bank.verify(remaining));
         }
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
