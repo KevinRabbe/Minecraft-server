@@ -181,6 +181,21 @@ For rolled equipment, derived presentation may show:
 
 Auction House browse exposes roll quality and upgrade investment before purchase. Lore/PDC presentation never becomes the authority for those values.
 
+### Live intrinsic damage materialization
+
+For the current `damage` roll property, Paper derives the gameplay attribute from trusted runtime authority rather than editing final damage events:
+
+- startup requires the mapped Minecraft material to expose exactly one main-hand-only `ATTACK_DAMAGE` `ADD_NUMBER` modifier and rejects any additional main-hand damage shape that would make the transformation ambiguous;
+- the live ItemStack's existing attribute component is never trusted as an input; materialization starts from the material's default attribute component every time;
+- the intrinsic multiplier applies to the vanilla player's complete pre-skill weapon base (`player base attack damage + vanilla item contribution`), then converts that target back to the item's additive attack-damage contribution;
+- attack speed and every unrelated vanilla attribute entry are copied unchanged;
+- player skill, upgrade power, enchantments, set/context bonuses, and temporary effects remain later pipeline stages and are not multiplied by the intrinsic roll;
+- reconnect/join installs authority-validated runtime snapshots and must materialize the exact derived attributes before gameplay continues;
+- a newly delivered individualized item is first rendered at the definition's minimum possible damage multiplier because the renderer does not own the exact roll; after the generation-fenced authority refresh, the exact multiplier replaces that conservative projection;
+- a materialization/shape failure clears local runtime trust and fails closed rather than silently using arbitrary or vanilla damage.
+
+This derived attribute is disposable presentation/runtime state. Persistent truth remains the item definition, normalized intrinsic roll state, item authority version, custody and later modifier-source state.
+
 ### Crafting-skill boundary
 
 Crafting skill may affect recipe access, throughput, batch convenience, modest efficiency, or configured costs. It should not create an overwhelming server-wide perfect-roll monopoly unless explicitly redesigned later.
@@ -258,28 +273,3 @@ A bounty pouch accepts only the fungible materials for its configured family. Ca
 Common pouch rules:
 
 - family allowlist is explicit;
-- persistent capacity/state;
-- eligible authorized drops may route directly into the pouch;
-- selling/transferring contents uses ordinary authoritative commodity accounting;
-- pouch custody does not soulbind or remove Bazaar tradability.
-
-## Drops and disposable zones
-
-Ordinary low-value ground drops may remain instance-local and can disappear with a disposable instance according to normal rules.
-
-High-value/unique/historical items must not rely on disposable ground state for correctness. Exact drop restrictions/handling remain an explicit content decision.
-
-## Invalid/conflicting item representation
-
-Examples:
-
-- unknown definition
-- malformed metadata
-- missing required instance ID
-- instance ID owned elsewhere
-- duplicate live representations of one unique instance
-- Map instance metadata inconsistent with authoritative challenge data
-- rolled-item representation inconsistent with authoritative normalized roll state
-- carried item authority version inconsistent with the persistent item head
-
-Do not guess-repair suspicious valuable items. Reject, rebuild from authority, or quarantine them and emit an audit signal.
