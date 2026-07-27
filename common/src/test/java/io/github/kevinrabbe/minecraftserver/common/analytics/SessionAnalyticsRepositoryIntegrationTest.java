@@ -117,6 +117,63 @@ class SessionAnalyticsRepositoryIntegrationTest {
     }
 
     @Test
+    void cohortRetentionRequiresASeparateReturnSessionAndClipsPartialReturnWindow() throws Exception {
+        UUID returnedEarly = player("RetainA");
+        UUID returnedLater = player("RetainB");
+        UUID longInitial = player("RetainLong");
+        UUID oldPlayer = player("OldReturn");
+        UUID lateJoin = player("LateJoin");
+
+        session(returnedEarly, "2026-08-01T09:00:00Z", "2026-08-01T10:00:00Z");
+        session(returnedEarly, "2026-08-02T09:00:00Z", "2026-08-02T09:30:00Z");
+
+        session(returnedLater, "2026-08-01T10:00:00Z", "2026-08-01T11:00:00Z");
+        session(returnedLater, "2026-08-02T18:00:00Z", "2026-08-02T19:00:00Z");
+
+        // Spanning into the return window is not a return; there is no second session start for this player.
+        session(longInitial, "2026-08-01T12:00:00Z", "2026-08-02T10:00:00Z");
+
+        session(oldPlayer, "2026-07-31T10:00:00Z", "2026-07-31T11:00:00Z");
+        session(oldPlayer, "2026-08-02T08:00:00Z", "2026-08-02T08:30:00Z");
+
+        session(lateJoin, "2026-08-02T05:00:00Z", "2026-08-02T06:00:00Z");
+
+        Instant returnStart = Instant.parse("2026-08-02T00:00:00Z");
+        Instant returnEnd = Instant.parse("2026-08-03T00:00:00Z");
+        SessionAnalyticsRepository partialRepository = new SessionAnalyticsRepository(
+                dataSource,
+                Clock.fixed(Instant.parse("2026-08-02T12:00:00Z"), ZoneOffset.UTC)
+        );
+        SessionRetentionSummary partial = partialRepository.retention(
+                WINDOW_START,
+                WINDOW_END,
+                returnStart,
+                returnEnd
+        );
+
+        assertEquals(3L, partial.cohortPlayers());
+        assertEquals(1L, partial.returnedPlayers());
+        assertEquals(Instant.parse("2026-08-02T12:00:00Z"), partial.observedReturnThrough());
+        assertEquals(1.0 / 3.0, partial.retentionRate().orElseThrow(), 1.0e-12);
+
+        SessionAnalyticsRepository completedRepository = new SessionAnalyticsRepository(
+                dataSource,
+                Clock.fixed(Instant.parse("2026-08-04T00:00:00Z"), ZoneOffset.UTC)
+        );
+        SessionRetentionSummary completed = completedRepository.retention(
+                WINDOW_START,
+                WINDOW_END,
+                returnStart,
+                returnEnd
+        );
+
+        assertEquals(3L, completed.cohortPlayers());
+        assertEquals(2L, completed.returnedPlayers());
+        assertEquals(returnEnd, completed.observedReturnThrough());
+        assertEquals(2.0 / 3.0, completed.retentionRate().orElseThrow(), 1.0e-12);
+    }
+
+    @Test
     void futureWindowReturnsAZeroObservedSummary() throws Exception {
         SessionAnalyticsRepository repository = new SessionAnalyticsRepository(
                 dataSource,
