@@ -47,7 +47,7 @@ The PostgreSQL integration proof covers new versus returning players, a session 
 
 ## Implemented Coin-flow baseline
 
-`CoinFlowAnalyticsRepository` reads authoritative `processed_operations`, append-only Coin `economic_ledger` evidence, immutable Bazaar fill fees, and salvage evidence. It writes no analytics state.
+`CoinFlowAnalyticsRepository` reads authoritative `processed_operations`, append-only Coin `economic_ledger` evidence, and salvage evidence. It writes no analytics state.
 
 A raw Coin-ledger operation net is **not** automatically a faucet or sink. Several valid custody systems move Coin into durable escrow in one operation and return/settle that escrow in another. For example, creating a Bazaar buy order debits the player's wallet now, but the Coin still exists in buy-order escrow; treating that debit as destruction would be wrong.
 
@@ -56,7 +56,7 @@ The projection therefore classifies the stable V1 Coin-bearing operation types e
 - confirmed faucets include controlled system credit, Bank interest, and configured salvage Coin return;
 - confirmed sinks include controlled system debit, Bank tier upgrade cost, Bounty contract fee, and Bazaar execution fees;
 - player transfer, Bank deposit/withdrawal, Bazaar buy escrow/cancel, Auction House purchase, secure-trade Coin escrow/settlement/cancel, crafting-commission payment escrow/cancel/completion, and clan-treasury deposit/withdrawal are classified as neutral custody/movement;
-- Bazaar execution fee is derived from immutable `bazaar_fills.fee_minor`, not from the match operation's wallet-credit net;
+- Bazaar execution fee is derived from the append-only `BAZAAR_MATCH` processed result field `fees_destroyed_minor`, which the matcher commits after summing its fills; it is not inferred from the match operation's wallet-credit net;
 - any current/future Coin-bearing operation that is unknown, missing processed-operation identity, or has malformed/mismatched faucet/sink evidence is **unclassified**, never guessed.
 
 For a requested time window the projection returns:
@@ -78,12 +78,13 @@ Totals and reason rows are read in one read-only repeatable-read snapshot, so co
 
 Normal authority operations carry one stable reason. If unusual evidence puts multiple reasons on one Coin operation, the ledger-side observation uses the synthetic `<mixed>` reason rather than splitting one economic operation into several fake supply events. A fee-only Bazaar match with no Coin credit line still has the stable fallback reason `bazaar.match.fee`.
 
-The PostgreSQL integration proof uses real authority operations and includes the original escrow counterexample:
+The PostgreSQL integration proof uses real authority operations and covers both sides of the escrow distinction:
 
 - controlled system credit -> confirmed supply creation;
 - balanced player transfer -> zero supply change with non-zero gross movement;
 - controlled system debit -> confirmed supply destruction;
 - real Bazaar buy-order escrow debit -> zero supply destruction with non-zero gross movement;
+- a real crossed Bazaar match at the test 1% fee -> `198` minor units of seller wallet credit/gross movement while exactly `2` minor units are classified as destroyed supply;
 - future, not-yet-observed windows -> zero flow.
 
 ## Event examples
@@ -128,7 +129,7 @@ The implemented session baseline deliberately derives start/end/player-time/rete
 - `NPC_SALVAGE`
 - `BOOTSTRAP_PURCHASE`
 
-Confirmed Coin faucet/sink analytics already derives from existing operation/ledger/fill evidence. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` rows merely to reproduce facts that are already durable. A separate analytics event is justified only when it adds observational context the authoritative operation does not preserve.
+Confirmed Coin faucet/sink analytics already derives from existing operation/ledger evidence. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` rows merely to reproduce facts that are already durable. A separate analytics event is justified only when it adds observational context the authoritative operation does not preserve.
 
 ### Maps / PvE
 - `MAP_OPENED`
