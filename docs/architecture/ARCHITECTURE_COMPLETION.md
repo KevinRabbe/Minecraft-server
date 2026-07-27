@@ -38,13 +38,13 @@ Status values:
 | Clan treasury/shared storage custody | PROVEN | Coin treasury plus commodity/individualized storage custody and permission tests/player bridge |
 | Ranked PvP isolation | PROVEN baseline runtime | isolated 1.8.9 dispatch/routing/admission, materialization-gated standardized 1v1 runtime, no-show/disconnect/timeout recovery and exactly-once result/rating settlement; real-client combat-feel acceptance remains deferred empirical work |
 | Clan-war economic custody/settlement | PROVEN baseline runtime | challenge/roster/custody/frozen loadout, sealed identity-free runtime transport, baseline 1.8.9 control-point runtime, recovery and exactly-once rating/result settlement; broader gear representation and real-client acceptance remain deferred |
-| Expansion voting/ballot/result authority | PROVEN | immutable candidates, effective ballots, authoritative close/tie/cancel/runoff, feature/world-era consequences and player-facing ballot/state projection |
-| Feature state/world era | PROVEN | expansion result + serialized world-era authority/history |
+| Expansion voting/ballot/result authority | PROVEN | immutable candidates, effective ballots, authoritative close/tie/cancel/runoff, feature/world-era consequences, player-facing ballot/state projection, and resolved-vote reconciliation against append-only resolution evidence + Chronicle + resulting feature/era state |
+| Feature state/world era | PROVEN | expansion result + serialized world-era authority/history; resolved expansion consequences are cross-checked against winning feature availability and exact resulting-era source/time |
 | Ordinary player-built district no-blueprint rule | CONTRACTED | `WORLD_VOTING_AND_HISTORY.md`, `COMMUNITY_PROJECTS.md`, `WORLD_ZONES_INSTANCES.md` |
 | Optional explicit Community Project boundary | CONTRACTED | `COMMUNITY_PROJECTS.md` |
 | Hidden Artifact discovery + Attunement | PROVEN | persistent definitions/location revisions/discoveries/profile authority plus Paper interaction and `/attune` bridge |
-| Chronicle/historical-event source model | PROVEN | append-only Chronicle authority, source uniqueness tests and player read projection |
-| Persistent integrity diagnostics | PROVEN | bounded read-only aggregate verifier across session/transfer authority, economy/custody, item-upgrade definition/evidence, skill-state↔XP-evidence plus staged-cap operation reconciliation/current catalog+cap invariants, persistent PvE, clans and competitive state; Paper `/integrity` loads bundled item/skill catalogs for catalog-aware checks |
+| Chronicle/historical-event source model | PROVEN | append-only Chronicle authority, source uniqueness tests and player read projection; expansion-resolution Chronicle records are reconciled to the authoritative resolved vote |
+| Persistent integrity diagnostics | PROVEN | bounded read-only aggregate verifier across session/transfer authority, economy/custody, item-upgrade definition/evidence, skill-state↔XP-evidence plus staged-cap operation reconciliation/current catalog+cap invariants, expansion resolution/history/feature/world-era consequences, persistent PvE, clans and competitive state; Paper `/integrity` loads bundled item/skill catalogs for catalog-aware checks |
 | Implemented operator command isolation | PROVEN | `PERMISSIONS.md`; named `/integrity` and `/devzone` capabilities are enforced inside their executors, YAML capability wiring is regression-tested, and development routing remains additionally closed by runtime policy |
 | Value-changing staff/recovery mutation | CONTRACTED | `PERMISSIONS.md`, `FAILURE_RECOVERY.md`; no generic persistent-value repair/mint/override command exists and any future operation requires narrow authorization plus append-only audit evidence |
 | Configuration/version validation | PROVEN for current content lanes | strict item/skill/resource/crafting/attunement/placement loaders; broader operational configuration remains contracted |
@@ -79,11 +79,11 @@ Player-facing/adapter and operations work already includes:
 - hidden Artifact discovery and Attunement selection;
 - personal crafting, commissions, Bank/Bazaar/Auction House/trade/salvage and clan storage/treasury surfaces;
 - inventory-coupled Map opening, managed Map encounter completion/recovery and Persistent-MMO leaderboards;
-- expansion voting/Chronicle projections;
+- expansion voting/Chronicle projections with cross-authority resolved-vote integrity reconciliation;
 - isolated Ranked 1v1 and baseline Clan-War 1.8.9 execution paths;
 - validated rolled-item runtime snapshots/presentation and fail-closed intrinsic-damage combat materialization plus structurally safe carried-item upgrade authority;
 - bounded reconnect-fenced item-use eligibility projection that stays dormant for unrestricted content and advances directly from committed XP results;
-- operator-triggered bounded `/integrity` verification including session/transfer identity+version checks and skill progression XP/cap evidence/catalog checks, plus fail-closed development-route capability isolation;
+- operator-triggered bounded `/integrity` verification including session/transfer identity+version checks, skill progression XP/cap evidence/catalog checks, and expansion resolution/history/feature/world-era consequence checks, plus fail-closed development-route capability isolation;
 - offline coherent local backup/restore scripts with manifest/checksum/version validation, a fail-closed incomplete-restore startup fence, and a bounded proxy-first logout drain before local Paper shutdown.
 
 The highest-value remaining recovery boundary is now **empirical coherent restore proof on the actual Windows/Docker development machine**, not more backup-script architecture. Upgrade economics/power, broader Clan-War gear representation, real-client competitive feel, first-Map acquisition and concrete skill-gated item content remain intentionally behind explicit content/tuning or empirical decisions rather than being guessed into architecture.
