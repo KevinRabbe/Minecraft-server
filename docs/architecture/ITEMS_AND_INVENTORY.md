@@ -200,6 +200,21 @@ This derived attribute is disposable presentation/runtime state. Persistent trut
 
 Crafting skill may affect recipe access, throughput, batch convenience, modest efficiency, or configured costs. It should not create an overwhelming server-wide perfect-roll monopoly unless explicitly redesigned later.
 
+### Crafting historical/integrity evidence
+
+A committed craft has immutable historical evidence independent from whatever later happens to the output:
+
+- `craft_records` freezes the exact craft/result identity and is append-only;
+- a personal craft must still match its `CRAFT_EXECUTE` processed-operation result;
+- a commission craft must still match its `CRAFTING_COMMISSION_COMPLETE` processed operation and the completed commission's worker/requester/recipe/craft linkage;
+- the frozen output must still have its creation-time delivery/issuance evidence and exactly one matching output CREDIT ledger line;
+- individualized output also retains exact creation provenance, original recipient, creator operation and intrinsic roll state;
+- later claim, trade, Auction House movement, clan storage or salvage does **not** invalidate the historical craft because the verifier checks creation evidence rather than current custody;
+- once `craft_experience_fulfillments` records completion, its XP operation must still match the crafter's append-only `craft.experience` skill award and `SKILL_XP_AWARD` processed result;
+- a craft with no XP-fulfillment marker is not automatically corrupt because XP fulfillment is deliberately recoverable after the craft transaction.
+
+`CraftingIntegrityVerifier` performs these checks in a bounded read-only pass and is composed into the global persistent-integrity verifier. It does not re-run recipe balance, infer past inventory contents, or treat current output custody as craft authority.
+
 ## Modifier pipeline
 
 Conceptual order:
@@ -273,3 +288,6 @@ A bounty pouch accepts only the fungible materials for its configured family. Ca
 Common pouch rules:
 
 - family allowlist is explicit;
+- no generic backpack behavior;
+- pouch capacity and upgrade values are configuration/content data;
+- pouch state never replaces authoritative commodity ownership/custody.
