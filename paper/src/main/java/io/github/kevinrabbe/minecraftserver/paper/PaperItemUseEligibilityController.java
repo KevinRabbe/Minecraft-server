@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillXpAwardResult;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -21,8 +22,9 @@ import java.util.logging.Level;
  * Maintains the disposable Paper projection used by future item use/equip checks.
  *
  * <p>This listener does not block any action. It only gives a real skill-gated catalog a fresh bounded projection after
- * the persistent join lifecycle has completed, invalidates that projection on detach, and keeps reconnect races from
- * reviving an old refresh as current. An unrestricted catalog performs no identity/progression query at all.</p>
+ * the persistent join lifecycle has completed, advances attached projections from already-committed XP results,
+ * invalidates the projection on detach, and keeps reconnect races from reviving old refresh work as current. An
+ * unrestricted catalog performs no identity/progression query at all.</p>
  */
 final class PaperItemUseEligibilityController implements Listener {
     private static final long INITIAL_REFRESH_DELAY_TICKS = 1L;
@@ -46,6 +48,11 @@ final class PaperItemUseEligibilityController implements Listener {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.identities = Objects.requireNonNull(identities, "identities");
         this.cache = Objects.requireNonNull(cache, "cache");
+    }
+
+    /** Applies only a result that has already committed in progression authority. Safe from async fulfillment paths. */
+    void applyCommittedAward(SkillXpAwardResult award) {
+        cache.applyCommittedAward(Objects.requireNonNull(award, "award"));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
