@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PaperItemRuntimeStatCacheTest {
@@ -39,7 +40,7 @@ class PaperItemRuntimeStatCacheTest {
     }
 
     @Test
-    void olderRefreshCannotOverwriteNewerGeneration() {
+    void olderRefreshCannotOverwriteOrInvalidateNewerGeneration() {
         player = UUID.randomUUID();
         UUID playerId = UUID.randomUUID();
         UUID itemId = UUID.randomUUID();
@@ -50,12 +51,15 @@ class PaperItemRuntimeStatCacheTest {
 
         PaperItemRuntimeStatCache.replaceIfCurrent(player, newGeneration, Map.of(itemId, newSnapshot));
         PaperItemRuntimeStatCache.replaceIfCurrent(player, oldGeneration, Map.of(itemId, oldSnapshot));
+        assertFalse(PaperItemRuntimeStatCache.invalidateIfCurrent(player, oldGeneration));
 
         assertEquals(
                 newSnapshot,
                 PaperItemRuntimeStatCache.find(player, itemId, "equipment.test", 2).orElseThrow()
         );
         assertTrue(PaperItemRuntimeStatCache.find(player, itemId, "equipment.test", 1).isEmpty());
+        assertTrue(PaperItemRuntimeStatCache.invalidateIfCurrent(player, newGeneration));
+        assertTrue(PaperItemRuntimeStatCache.find(player, itemId, "equipment.test", 2).isEmpty());
     }
 
     private static ItemRuntimeStatSnapshot snapshot(
