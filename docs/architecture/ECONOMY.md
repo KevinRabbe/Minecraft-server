@@ -36,6 +36,22 @@ Locked semantics:
 
 Interest credit must have a stable eligibility period/key so retries, reconnects, or multiple backends cannot credit the same period twice.
 
+### Bank integrity/recovery evidence
+
+The Bank Manager keeps mutable current state, but recovery/integrity must be able to explain that state from durable evidence rather than trusting the row blindly.
+
+The bounded Bank integrity pass therefore verifies:
+
+- every processed deposit, withdrawal, tier upgrade, and interest result has the expected frozen result shape;
+- Bank `state_version` advances exactly once for every committed Bank operation and the per-player history remains contiguous;
+- current protected balance matches the latest Bank operation result;
+- current tier matches the latest committed tier upgrade, or tier 0 when no upgrade exists;
+- current last-interest period matches the latest committed interest operation;
+- deposit/withdraw, upgrade-cost, and interest operations retain the exact append-only Coin ledger evidence required by their frozen results;
+- with the loaded tier catalog, current tier must still exist and current protected balance must not exceed that tier's configured capacity.
+
+This does not freeze today's tier capacities, costs, or interest rates into architecture. Those remain versioned/tunable content. The verifier reconciles persisted state to the loaded catalog and immutable operation history; it does not invent economic targets.
+
 ## Faucets and sinks
 
 Every source/destruction path should have an explicit reason/category so server-wide monetary flow can be measured.
