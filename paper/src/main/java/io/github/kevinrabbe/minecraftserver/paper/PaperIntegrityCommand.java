@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalog;
+import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
@@ -26,6 +28,7 @@ final class PaperIntegrityCommand implements CommandExecutor {
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_COMMAND_LIMIT = 100;
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
+    private static final String ATTUNEMENT_PROFILE_CATALOG_RESOURCE = "/content/attunement-profiles.json";
 
     private final JavaPlugin plugin;
     private final PersistentIntegrityVerifier verifier;
@@ -41,18 +44,21 @@ final class PaperIntegrityCommand implements CommandExecutor {
     }
 
     /**
-     * Bundled Paper installer. Item definitions are supplied by the already-loaded Paper catalog; the immutable
-     * bundled skill catalog is re-read once at startup so the existing bootstrap call also gets catalog-aware
-     * progression diagnostics without making the operator command depend on the plugin's private bootstrap state.
+     * Bundled Paper installer. Item definitions are supplied by the already-loaded Paper catalog; immutable bundled
+     * skill and Attunement-profile catalogs are re-read once at startup so the existing bootstrap call gets the
+     * strongest catalog-aware diagnostics without depending on the plugin's private bootstrap state.
      */
     static void install(JavaPlugin plugin, DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(itemCatalog, "itemCatalog");
         SkillProgressionCatalog skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
-        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog));
+        AttunementProfileCatalog attunementProfiles = new AttunementProfileCatalogLoader().loadResource(
+                ATTUNEMENT_PROFILE_CATALOG_RESOURCE
+        );
+        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog, attunementProfiles));
     }
 
-    /** Explicit installer for tests/adapters that already own the exact loaded catalogs. */
+    /** Explicit installer for tests/adapters that already own the exact loaded item and skill catalogs. */
     static void install(
             JavaPlugin plugin,
             DataSource dataSource,
