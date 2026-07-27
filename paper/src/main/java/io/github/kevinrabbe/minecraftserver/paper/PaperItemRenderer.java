@@ -14,10 +14,14 @@ import java.util.Objects;
 final class PaperItemRenderer {
     private final ItemCatalog itemCatalog;
     private final PaperItemIdentityCodec identityCodec;
+    private final double playerBaseAttackDamage;
 
     PaperItemRenderer(MinecraftServerPlugin plugin, ItemCatalog itemCatalog) {
         this.itemCatalog = Objects.requireNonNull(itemCatalog, "itemCatalog");
         identityCodec = new PaperItemIdentityCodec(Objects.requireNonNull(plugin, "plugin"));
+        // Renderer construction happens during Paper bootstrap on the server thread. Keep the entity-default lookup out
+        // of later persistence-worker rendering paths; those paths only mutate detached ItemStack data.
+        playerBaseAttackDamage = PaperIntrinsicItemAttributes.resolvePlayerBaseAttackDamage();
     }
 
     ItemStack renderCommodity(String definitionId, int amount) {
@@ -44,6 +48,9 @@ final class PaperItemRenderer {
         }
 
         ItemStack stack = newBaseStack(definition, 1);
+        // The renderer does not own individualized roll state. Project only the definition minimum so a representation
+        // created before the trusted runtime snapshot arrives can never temporarily overgrant intrinsic damage.
+        PaperIntrinsicItemAttributes.applyConfiguredMinimum(stack, definition, playerBaseAttackDamage);
         identityCodec.writeIndividual(stack, definition, instance);
         return stack;
     }
