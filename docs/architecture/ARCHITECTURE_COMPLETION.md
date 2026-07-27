@@ -48,7 +48,7 @@ Status values:
 | Implemented operator command isolation | PROVEN | `PERMISSIONS.md`; named `/integrity` and `/devzone` capabilities are enforced inside their executors, YAML capability wiring is regression-tested, and development routing remains additionally closed by runtime policy |
 | Value-changing staff/recovery mutation | CONTRACTED | `PERMISSIONS.md`, `FAILURE_RECOVERY.md`; no generic persistent-value repair/mint/override command exists and any future operation requires narrow authorization plus append-only audit evidence |
 | Configuration/version validation | PROVEN for current content lanes | strict item/skill/resource/crafting/attunement/placement loaders; broader operational configuration remains contracted |
-| Analytics/observability separation from authority | PROVEN baseline | `ANALYTICS.md`; read-only session analytics derives observed player-time, unique/new/returning participation and first-session cohort retention from authoritative `player_sessions`; read-only Coin-flow analytics derives operation-net faucets/sinks, net supply change and gross movement from append-only `economic_ledger`; partial windows are observation-fenced and no duplicate analytics lifecycle/ledger is created |
+| Analytics/observability separation from authority | PROVEN baseline | `ANALYTICS.md`; read-only session analytics derives observed player-time, unique/new/returning participation and first-session cohort retention from authoritative `player_sessions`; Coin-flow analytics explicitly classifies current faucet/sink/custody operation types, derives Bazaar fees from immutable fill evidence, and exposes unknown/malformed Coin-bearing operations as unclassified instead of treating raw escrow ledger net as supply; partial windows are observation-fenced and no duplicate analytics lifecycle/ledger is created |
 | Backup/restore/failure semantics | CONTRACTED | `FAILURE_RECOVERY.md`; offline coherent backup/restore tooling, checksum/version validation, incomplete-restore startup fencing and bounded proxy-first local logout drain are CI-qualified structurally; actual Windows/Docker restore/shutdown rehearsal remains empirical before release |
 | Extension/new-content reuse rules | CONTRACTED | `EXTENSION_POINTS.md` |
 
@@ -83,7 +83,7 @@ Player-facing/adapter and operations work already includes:
 - isolated Ranked 1v1 and baseline Clan-War 1.8.9 execution paths;
 - validated rolled-item runtime snapshots/presentation and fail-closed intrinsic-damage combat materialization plus structurally safe carried-item upgrade authority;
 - bounded reconnect-fenced item-use eligibility projection that stays dormant for unrestricted content and advances directly from committed XP results;
-- read-only analytics for observed player-time, first-session cohort retention and Coin supply/movement without duplicating session/economic authority;
+- read-only analytics for observed player-time, first-session cohort retention, and classified Coin supply/movement with explicit coverage gaps instead of escrow misclassification;
 - operator-triggered bounded `/integrity` verification including session/transfer identity+version checks, skill progression XP/cap evidence/catalog checks, and expansion resolution/history/feature/world-era consequence checks, plus fail-closed development-route capability isolation;
 - offline coherent local backup/restore scripts with manifest/checksum/version validation, a fail-closed incomplete-restore startup fence, and a bounded proxy-first logout drain before local Paper shutdown.
 
