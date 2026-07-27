@@ -84,11 +84,11 @@ class ItemRuntimeStatSnapshotIntegrationTest {
     @Test
     void validAuthorityStateProducesDerivedRuntimeSnapshotWithoutAnotherGameplayQuery() throws Exception {
         UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "RuntimeOwner");
-        UUID itemId = insertItem(playerId, 4, "{\"damage\":5000}", 3);
+        UUID itemId = insertItem(playerId, "{\"damage\":5000}", 3);
 
         ItemRepresentationValidationResult result = validator.validateAndSnapshot(
                 playerId,
-                List.of(claim(itemId, 4))
+                List.of(claim(itemId, 0))
         );
 
         assertTrue(result.valid());
@@ -96,7 +96,7 @@ class ItemRuntimeStatSnapshotIntegrationTest {
         ItemRuntimeStatSnapshot snapshot = result.validatedIndividualSnapshots().get(itemId);
         assertEquals(SWORD, snapshot.definitionId());
         assertEquals(ItemLocation.playerInventory(playerId), snapshot.location());
-        assertEquals(4, snapshot.stateVersion());
+        assertEquals(0, snapshot.stateVersion());
         assertEquals(Map.of("damage", 5_000), snapshot.normalizedRollQualityBasisPoints());
         assertEquals(Map.of("damage", 11_000), snapshot.intrinsicMultipliersBasisPoints());
         assertEquals(new UpgradeState(3), snapshot.upgradeState());
@@ -105,7 +105,7 @@ class ItemRuntimeStatSnapshotIntegrationTest {
     @Test
     void persistedRollShapeThatNoLongerMatchesDefinitionFailsClosed() throws Exception {
         UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "RuntimeMismatch");
-        UUID itemId = insertItem(playerId, 0, "{\"speed\":5000}", 0);
+        UUID itemId = insertItem(playerId, "{\"speed\":5000}", 0);
 
         ItemRepresentationValidationResult result = validator.validateAndSnapshot(
                 playerId,
@@ -120,33 +120,62 @@ class ItemRuntimeStatSnapshotIntegrationTest {
         assertTrue(result.validatedIndividualSnapshots().isEmpty());
     }
 
-    private UUID insertItem(UUID playerId, long stateVersion, String rollStateJson, int upgradeLevel)
-            throws SQLException {
+    private UUID insertItem(UUID playerId, String rollStateJson, int upgradeLevel) throws SQLException {
         UUID itemId = UUID.randomUUID();
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     INSERT INTO item_instances(
-                         item_instance_id,
-                         definition_id,
-                         location_kind,
-                         location_id,
-                         state_version,
-                         original_owner_player_id,
-                         created_by_operation_id,
-                         created_reason,
-                         roll_state,
-                         upgrade_level
-                     ) VALUES (?, ?, 'PLAYER_INVENTORY', ?, ?, ?, ?, 'test.runtime_snapshot', ?::jsonb, ?)
-                     """)) {
-            statement.setObject(1, itemId);
-            statement.setString(2, SWORD);
-            statement.setObject(3, playerId);
-            statement.setLong(4, stateVersion);
-            statement.setObject(5, playerId);
-            statement.setObject(6, UUID.randomUUID());
-            statement.setString(7, rollStateJson);
-            statement.setInt(8, upgradeLevel);
-            assertEquals(1, statement.executeUpdate());
+        UUID operationId = UUID.randomUUID();
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement statement = connection.prepareStatement("""
+                        INSERT INTO item_instances(
+                            item_instance_id,
+                            definition_id,
+                            location_kind,
+                            location_id,
+                            state_version,
+                            original_owner_player_id,
+                            created_by_operation_id,
+                            created_reason,
+                            roll_state,
+                            upgrade_level
+                        ) VALUES (?, ?, 'PLAYER_INVENTORY', ?, 0, ?, ?, 'test.runtime_snapshot', ?::jsonb, ?)
+                        """)) {
+                    statement.setObject(1, itemId);
+                    statement.setString(2, SWORD);
+                    statement.setObject(3, playerId);
+                    statement.setObject(4, playerId);
+                    statement.setObject(5, operationId);
+                    statement.setString(6, rollStateJson);
+                    statement.setInt(7, upgradeLevel);
+                    assertEquals(1, statement.executeUpdate());
+                }
+                try (PreparedStatement statement = connection.prepareStatement("""
+                        INSERT INTO item_provenance(
+                            item_instance_id,
+                            sequence_no,
+                            operation_id,
+                            event_type,
+                            from_location_kind,
+                            from_location_id,
+                            to_location_kind,
+                            to_location_id,
+                            reason,
+                            actor_player_id
+                        ) VALUES (?, 0, ?, 'CREATED', NULL, NULL, 'PLAYER_INVENTORY', ?, 'test.runtime_snapshot', ?)
+                        """)) {
+                    statement.setObject(1, itemId);
+                    statement.setObject(2, operationId);
+                    statement.setObject(3, playerId);
+                    statement.setObject(4, playerId);
+                    assertEquals(1, statement.executeUpdate());
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                throw exception;
+            } finally {
+                connection.setAutoCommit(true);
+            }
         }
         return itemId;
     }
