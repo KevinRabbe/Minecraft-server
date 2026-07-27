@@ -334,9 +334,14 @@ final class PaperAuctionHouseCommand implements CommandExecutor, TabCompleter {
                 definition,
                 listing.upgradeLevel()
         ).orElse(null);
+        String requirements = String.join(
+                ", ",
+                PaperItemRuntimePresentation.describeUseRequirements(definition)
+        );
         return listing.listingId() + " — " + definition.displayName()
                 + (rolls.isEmpty() ? "" : " — " + rolls)
                 + (upgrade == null ? "" : " — " + upgrade)
+                + (requirements.isEmpty() ? "" : " — " + requirements)
                 + " — " + formatCoin(listing.priceMinor());
     }
 
