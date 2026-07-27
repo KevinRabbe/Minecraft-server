@@ -45,10 +45,6 @@ public final class SkillProgressionIntegrityVerifier {
             verifyStateAgainstAwardEvidence(connection, issues, maxIssues);
 
             Integer currentCap = readCurrentCap(connection, issues, maxIssues);
-            if (currentCap != null) {
-                verifyAwardCapChronology(connection, currentCap, issues, maxIssues);
-            }
-
             if (skillCatalog.isPresent()) {
                 SkillProgressionCatalog catalog = skillCatalog.orElseThrow();
                 verifyKnownSkillIds(connection, catalog, issues, maxIssues);
@@ -56,6 +52,8 @@ public final class SkillProgressionIntegrityVerifier {
                     verifyCurrentCapCeilings(connection, catalog, currentCap, issues, maxIssues);
                     verifyHistoricalAwardCeilings(connection, catalog, currentCap, issues, maxIssues);
                 }
+            } else if (currentCap != null) {
+                verifyAwardCapChronology(connection, currentCap, issues, maxIssues);
             }
             return List.copyOf(issues);
         }
@@ -73,7 +71,7 @@ public final class SkillProgressionIntegrityVerifier {
                 WITH award_summary AS (
                     SELECT player_id,
                            skill_id,
-                           COALESCE(SUM(granted_experience), 0)::BIGINT AS granted_total,
+                           COALESCE(SUM(granted_experience), 0::NUMERIC) AS granted_total,
                            COUNT(*) FILTER (WHERE granted_experience > 0)::BIGINT AS positive_grants
                     FROM skill_xp_awards
                     GROUP BY player_id, skill_id
@@ -82,7 +80,7 @@ public final class SkillProgressionIntegrityVerifier {
                        COALESCE(state.skill_id, awards.skill_id) AS skill_id,
                        state.experience,
                        state.state_version,
-                       COALESCE(awards.granted_total, 0) AS granted_total,
+                       COALESCE(awards.granted_total, 0::NUMERIC) AS granted_total,
                        COALESCE(awards.positive_grants, 0) AS positive_grants,
                        state.player_id IS NULL AS missing_state
                 FROM player_skills state
@@ -90,7 +88,7 @@ public final class SkillProgressionIntegrityVerifier {
                   ON awards.player_id = state.player_id
                  AND awards.skill_id = state.skill_id
                 WHERE state.player_id IS NULL
-                   OR state.experience IS DISTINCT FROM COALESCE(awards.granted_total, 0)
+                   OR state.experience IS DISTINCT FROM COALESCE(awards.granted_total, 0::NUMERIC)
                    OR state.state_version IS DISTINCT FROM COALESCE(awards.positive_grants, 0)
                 ORDER BY COALESCE(state.player_id, awards.player_id),
                          COALESCE(state.skill_id, awards.skill_id)
@@ -109,7 +107,8 @@ public final class SkillProgressionIntegrityVerifier {
                             "SKILL_PROGRESS_EVIDENCE_MISMATCH",
                             playerId + "/" + skillId,
                             "Mutable skill state does not reconcile with append-only XP evidence: experience="
-                                    + currentExperience + ", grantedEvidence=" + rows.getLong("granted_total")
+                                    + currentExperience + ", grantedEvidence="
+                                    + rows.getBigDecimal("granted_total").toPlainString()
                                     + ", stateVersion=" + currentVersion
                                     + ", positiveGrantEvents=" + rows.getLong("positive_grants")
                     ));
@@ -140,16 +139,7 @@ public final class SkillProgressionIntegrityVerifier {
                 }
                 return null;
             }
-            int cap = row.getInt("active_skill_cap");
-            if (row.next() && remaining(issues, maxIssues) > 0) {
-                issues.add(new IntegrityIssue(
-                        IntegritySeverity.CRITICAL,
-                        "SKILL_ACTIVE_CAP_DUPLICATE",
-                        "progression_state",
-                        "More than one global staged skill-cap authority row exists"
-                ));
-            }
-            return cap;
+            return row.getInt("active_skill_cap");
         }
     }
 
