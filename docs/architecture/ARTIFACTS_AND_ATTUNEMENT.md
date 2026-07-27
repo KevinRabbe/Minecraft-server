@@ -116,7 +116,8 @@ The V1 persistence authority now implements:
 - retry/concurrency-safe one-time discovery;
 - point awards frozen into each discovery under a versioned point policy;
 - Attunement Point totals derived from immutable discoveries rather than maintained as another mutable balance;
-- one persistent active attunement profile per player.
+- one persistent active attunement profile per player;
+- bounded read-only integrity reconciliation that verifies Artifact create, relocation and discovery rows still match their source `processed_operations` evidence.
 
 The first Paper bridge additionally implements:
 
@@ -125,7 +126,8 @@ The first Paper bridge additionally implements:
 - PostgreSQL's current location revision winning on later restarts, so relocation is not reverted by stale content files;
 - exact-block interaction requesting discovery while PostgreSQL remains the authority;
 - break/explosion protection for the representation;
-- a minimal `/attune [profile]` player surface.
+- a minimal `/attune [profile]` player surface;
+- `/integrity` loading the bundled Attunement-profile catalog so persisted active profiles that no longer exist in current content are reported as critical integrity issues.
 
 The first content row is deliberately only a structural proof. More starter Artifacts are content expansion, not new mechanics.
 
@@ -155,4 +157,5 @@ The system is correct when:
 4. artifacts introduced in later world eras become discoverable without rewriting old discoveries;
 5. one active attunement determines the stat effect from the earned point pool;
 6. switching attunement cannot duplicate points or leave multiple profiles active;
-7. artifact progress remains independent from tradable economy custody.
+7. artifact progress remains independent from tradable economy custody;
+8. bounded integrity verification detects missing/mismatched Artifact source-operation evidence and active Attunement profiles that are unknown to the loaded catalog.
