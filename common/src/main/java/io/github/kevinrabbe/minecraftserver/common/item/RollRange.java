@@ -5,7 +5,7 @@ package io.github.kevinrabbe.minecraftserver.common.item;
  * Example: 10_000..12_000 represents base value through +20% at perfect quality.
  */
 public record RollRange(int minimumBasisPoints, int maximumBasisPoints) {
-    private static final int TECHNICAL_MAX_BASIS_POINTS = 1_000_000;
+    public static final int TECHNICAL_MAX_BASIS_POINTS = 1_000_000;
 
     public RollRange {
         if (minimumBasisPoints < 0) {
