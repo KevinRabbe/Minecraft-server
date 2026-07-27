@@ -32,12 +32,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
 class ItemUpgradeIntegrityVerifierIntegrationTest {
     private static final String SWORD = "verify.upgrade_sword";
+    private static final String MAP = "verify.upgrade_map";
     private static final String REASON = "verify.item_upgrade";
 
     private Database database;
     private DataSource dataSource;
     private PlayerIdentityRepository identities;
     private UniqueItemAuthorityRepository items;
+    private ItemCatalog catalog;
     private ItemUpgradeIntegrityVerifier verifier;
 
     @BeforeAll
@@ -51,16 +53,26 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
         database.migrate();
         dataSource = database.dataSource();
         identities = new PlayerIdentityRepository(dataSource);
-        ItemCatalog catalog = new ItemCatalog(List.of(new ItemDefinition(
-                SWORD,
-                "IRON_SWORD",
-                "Upgrade Verifier Sword",
-                1,
-                ItemCategory.EQUIPMENT,
-                ItemIdentityKind.INDIVIDUAL
-        )));
+        catalog = new ItemCatalog(List.of(
+                new ItemDefinition(
+                        SWORD,
+                        "IRON_SWORD",
+                        "Upgrade Verifier Sword",
+                        1,
+                        ItemCategory.EQUIPMENT,
+                        ItemIdentityKind.INDIVIDUAL
+                ),
+                new ItemDefinition(
+                        MAP,
+                        "MAP",
+                        "Upgrade Verifier Map",
+                        1,
+                        ItemCategory.PROGRESSION,
+                        ItemIdentityKind.INDIVIDUAL
+                )
+        ));
         items = new UniqueItemAuthorityRepository(dataSource, catalog);
-        verifier = new ItemUpgradeIntegrityVerifier(dataSource);
+        verifier = new ItemUpgradeIntegrityVerifier(dataSource, catalog);
     }
 
     @BeforeEach
@@ -90,16 +102,37 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
     @Test
     void healthyUpgradeChainProducesNoUpgradeIntegrityIssues() throws Exception {
         UUID owner = player("VerifyUpHealthy");
-        UniqueItemAuthorityResult item = createAndUpgrade(owner);
+        UniqueItemAuthorityResult item = createAndUpgrade(owner, SWORD);
 
         assertTrue(verifier.verify(10).isEmpty());
         assertEquals(1, upgradeLevel(item.itemInstanceId()));
     }
 
     @Test
+    void internallyConsistentUpgradeChainOnNonEquipmentIsCriticalCorruption() throws Exception {
+        UUID owner = player("VerifyUpMap");
+        UniqueItemAuthorityResult item = createAndUpgrade(owner, MAP);
+
+        List<IntegrityIssue> issues = verifier.verify(10);
+
+        assertEquals(1, issues.size());
+        IntegrityIssue issue = issues.getFirst();
+        assertEquals(IntegritySeverity.CRITICAL, issue.severity());
+        assertEquals("ITEM_UPGRADE_NON_EQUIPMENT", issue.code());
+        assertEquals(item.itemInstanceId().toString(), issue.subjectId());
+        assertTrue(issue.message().contains(MAP));
+        assertTrue(issue.message().contains("PROGRESSION"));
+
+        assertTrue(new PersistentIntegrityVerifier(dataSource, catalog).verify(10_000).stream().anyMatch(
+                aggregate -> aggregate.code().equals("ITEM_UPGRADE_NON_EQUIPMENT")
+                        && item.itemInstanceId().toString().equals(aggregate.subjectId())
+        ));
+    }
+
+    @Test
     void missingUpgradeEventForLiveItemIsReportedAndIncludedInAggregateVerifier() throws Exception {
         UUID owner = player("VerifyUpMissing");
-        UniqueItemAuthorityResult item = createAndUpgrade(owner);
+        UniqueItemAuthorityResult item = createAndUpgrade(owner, SWORD);
         deleteUpgradeEventAsCorruption(item.itemInstanceId());
 
         List<IntegrityIssue> issues = verifier.verify(10);
@@ -110,7 +143,7 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
         assertEquals("ITEM_UPGRADE_CHAIN_MISMATCH", issue.code());
         assertEquals(item.itemInstanceId().toString(), issue.subjectId());
 
-        assertTrue(new PersistentIntegrityVerifier(dataSource).verify(10_000).stream().anyMatch(
+        assertTrue(new PersistentIntegrityVerifier(dataSource, catalog).verify(10_000).stream().anyMatch(
                 aggregate -> aggregate.code().equals("ITEM_UPGRADE_CHAIN_MISMATCH")
                         && item.itemInstanceId().toString().equals(aggregate.subjectId())
         ));
@@ -119,7 +152,7 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
     @Test
     void rewrittenUpgradeProvenanceIsReportedWithoutMisclassifyingTheUpgradeChain() throws Exception {
         UUID owner = player("VerifyUpProv");
-        UniqueItemAuthorityResult item = createAndUpgrade(owner);
+        UniqueItemAuthorityResult item = createAndUpgrade(owner, SWORD);
         rewriteUpgradeProvenanceAsCorruption(item.itemInstanceId());
 
         List<IntegrityIssue> issues = verifier.verify(10);
@@ -134,7 +167,7 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
     @Test
     void orphanHistoricalUpgradeRowsWithoutCurrentItemAuthorityAreIgnored() throws Exception {
         UUID owner = player("VerifyUpOrphan");
-        UniqueItemAuthorityResult item = createAndUpgrade(owner);
+        UniqueItemAuthorityResult item = createAndUpgrade(owner, SWORD);
         removeCurrentItemAuthorityForFixtureCleanup(item.itemInstanceId());
 
         assertTrue(verifier.verify(10).isEmpty());
@@ -144,15 +177,15 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
         return identities.ensurePlayer(UUID.randomUUID(), name);
     }
 
-    private UniqueItemAuthorityResult createAndUpgrade(UUID owner) throws SQLException {
+    private UniqueItemAuthorityResult createAndUpgrade(UUID owner, String definitionId) throws SQLException {
         UniqueItemAuthorityResult item = items.createForPlayer(
-                UUID.randomUUID(), SWORD, owner, "verify.create", owner
+                UUID.randomUUID(), definitionId, owner, "verify.create", owner
         );
         insertValidUpgradeFixture(item.itemInstanceId(), owner);
         return item;
     }
 
-    /** Test-only direct fixture: creates the same database evidence a valid +1 upgrade transaction must leave behind. */
+    /** Test-only direct fixture: creates a database-consistent +1 upgrade chain, including impossible content states. */
     private void insertValidUpgradeFixture(UUID itemId, UUID owner) throws SQLException {
         UUID operationId = UUID.randomUUID();
         try (Connection connection = dataSource.getConnection()) {
