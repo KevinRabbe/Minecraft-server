@@ -186,6 +186,11 @@ public final class ItemRepresentationAuthorityValidator {
             }
 
             try {
+                if (validated.definition().category() != ItemCategory.EQUIPMENT && head.upgradeLevel() != 0) {
+                    throw new IllegalArgumentException(
+                            "non-equipment definition carries generic upgrade state: " + head.upgradeLevel()
+                    );
+                }
                 Map<String, Integer> rollState = parseRollState(head.rollStateJson());
                 Map<String, Integer> intrinsicMultipliers = IntrinsicRollResolver.resolveMultipliers(
                         validated.definition().rollProfile(),
