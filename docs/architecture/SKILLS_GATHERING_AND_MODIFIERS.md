@@ -29,6 +29,22 @@ The authority/runtime baseline is now proven for the first ordinary progression 
 
 The currently loaded starter curves for Mining, Woodcutting, Farming, Combat and Crafting are provisional content values. Their exact curve shape is tuning, not architecture.
 
+### Item-use eligibility projection
+
+Definition-owned skill requirements remain separate from ownership, trade and crafting. The current bundled item catalog declares no such requirement, so Paper performs no eligibility identity/progression read and blocks no action.
+
+When content eventually opts an item into a requirement, Paper uses a bounded disposable projection rather than querying PostgreSQL on every use/equip action:
+
+- only skills referenced by configured item requirements are loaded;
+- attachment refresh publishes no stale snapshot while its authoritative read is in flight;
+- committed XP results from gathering, managed ordinary PvE, personal crafting/recovery and crafting commissions advance the projection directly by committed skill `state_version`;
+- a committed award racing a stale refresh is merged so the newer version wins;
+- detach/reconnect invalidation fences the in-flight read and its retries so an older session cannot republish permission state;
+- missing/untrusted projection state fails closed for restricted items;
+- the projection remains disposable and never becomes progression authority.
+
+Action-level use/equip enforcement remains intentionally dormant until launch content opts a real item into a requirement.
+
 ### Authorized gathering
 
 The first Paper source path is:
@@ -81,7 +97,7 @@ Individualized output uses generic pending unique-item custody. Paper projects t
 
 The current `/craft <recipe>` surface is intentionally minimal. A richer crafting station/UI is presentation work, not a new authority model.
 
-The persisted Starter Sword roll is **not yet applied by the Paper effective-combat-stat pipeline**. Derived damage/equipment effects belong to the centralized modifier pipeline below and should not be baked into item custody/crafting settlement.
+The persisted Starter Sword damage roll is now applied by Paper through fail-closed intrinsic attribute materialization from the trusted item definition plus authority-validated runtime snapshot. Item custody/crafting settlement still owns no effective combat value, and later upgrade, player-skill, enchantment, equipment-context and temporary-effect stages remain separate inputs.
 
 ## Progression philosophy
 
@@ -238,7 +254,9 @@ Keep calculation centralized and deterministic.
 
 Conceptual sources:
 
-`base action/item -> player skill -> tool/equipment -> enchantment -> temporary effect/context -> final result`
+`base item/action -> intrinsic roll -> upgrade state -> player skill -> equipment set/context -> enchantment -> temporary effect -> effective result`
+
+Not every action uses every stage. The order defines ownership/composition boundaries: an intrinsic item roll must not accidentally multiply later player skill, upgrade, enchantment, set/context, or temporary-effect contributions.
 
 Do not persist derived effective values that can be recomputed from authoritative inputs.
 
