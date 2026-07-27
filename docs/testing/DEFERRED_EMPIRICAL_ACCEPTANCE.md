@@ -2,7 +2,48 @@
 
 Status: **Deferred real-machine/client evidence.** These checks do not block independent architecture/code work. They must be executed as a batch before the affected capability is enabled for production.
 
-The repository's automated suite proves authority, custody, idempotency, protocol isolation, fail-closed admission, runtime materialization structure, and terminal settlement. It cannot prove Minecraft-1.8.9 client feel or every Bukkit/vanilla behavior that depends on a real client/server session.
+The repository's automated suite proves authority, custody, idempotency, protocol isolation, fail-closed admission, runtime materialization structure, terminal settlement, and PowerShell syntax. It cannot prove Minecraft-1.8.9 client feel or every Windows/Docker/Bukkit/vanilla behavior that depends on a real machine or client/server session.
+
+## Local coherent backup/restore rehearsal
+
+The local recovery scripts are code-complete enough for empirical qualification, but **do not mark backup/restore proven until this has run on the developer Windows machine with Docker Desktop**.
+
+Prerequisites:
+
+- current local network can start/stop cleanly through `infra/local/start.ps1`;
+- Docker Desktop/PostgreSQL local compose service is healthy;
+- repository is on a deliberate clean recovery commit;
+- a disposable test state is acceptable to destroy/restore;
+- `backup.ps1`, `restore.ps1`, `setup.ps1` and `start.ps1` are the qualified versions under test.
+
+Evidence to capture:
+
+1. Create representative persistent state that spans multiple authorities: carried commodity + individualized item, Coin pocket/bank, skill XP, at least one market/crafting/provenance record, Map/Bounty state, clan state, and vote/history state where available.
+2. Make a small recognizable persistent-world change in City so database and world recovery can be compared to one exact point.
+3. Gracefully stop the network through the PowerShell supervisor; confirm Velocity and every configured Paper backend are no longer reachable.
+4. Run `infra/local/backup.ps1` and retain its snapshot ID, `manifest.json`, `checksums.sha256`, `COMPLETE`, PostgreSQL dump and captured world set.
+5. Restart the network and deliberately change both database-backed player/economic state and the recognizable persistent-world state after the backup point.
+6. Stop the network again and restore the selected snapshot using `restore.ps1 -BackupPath <snapshot> -ConfirmRestore`.
+7. Start through Velocity and verify the post-backup mutations are gone while the pre-backup representative state and City world change are restored together to the same recovery point.
+8. Run `/integrity 100`; no unexplained CRITICAL issue may remain. Verify specifically inventory/item custody, Coin/bank, Bazaar/AH or equivalent market evidence, crafting/provenance, skills, Map/Bounty state, clan custody, voting/world-era/history read models and session ownership after reconnect.
+9. Verify valuable recovery does not require any disposable Map/Bounty/competitive runtime world to survive. A disposable instance may be absent/recreated while persistent value/history remains correct.
+10. Tamper with one copied backup file and prove checksum verification rejects the snapshot before destructive restore begins.
+11. Remove or omit `COMPLETE` on a copied backup and prove restore rejects it before destructive work.
+12. Simulate an interrupted restore only in a disposable test setup: leave/create `runtime/restore.in-progress`, then prove both `setup.ps1` and `start.ps1` refuse to proceed until the selected restore completes and clears the marker.
+13. Prove a repository commit mismatch is rejected by default. Exercise `-AllowVersionMismatch` only as an explicit test escape hatch and never treat it as normal recovery procedure.
+14. Repeat one restore after a deliberate first-attempt interruption/failure and verify the final successful recovery still produces one coherent authoritative state with no duplicate value.
+
+Acceptance result to record:
+
+- exact repository commit;
+- backup snapshot ID;
+- Windows/Docker/PostgreSQL versions;
+- selected representative state before backup, after mutation, and after restore;
+- `/integrity` output;
+- whether any manual intervention was required;
+- every observed mismatch or recovery ambiguity, even if the final restore succeeded.
+
+A failure freezes only the backup/restore release assumption. Fix the specific recovery boundary and rerun this batch; do not stop unrelated MMO implementation work.
 
 ## Competitive legacy runtime
 
