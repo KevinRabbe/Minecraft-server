@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.verification.IntegrityIssue;
 import io.github.kevinrabbe.minecraftserver.common.verification.PersistentIntegrityVerifier;
 import net.kyori.adventure.text.Component;
@@ -18,7 +19,7 @@ import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 
-/** Explicit bounded operator diagnostic over persistent economy/custody, item, PvE, clan, and competitive evidence. */
+/** Explicit bounded operator diagnostic over persistent economy/custody, item/progression, PvE, clan, and competitive evidence. */
 final class PaperIntegrityCommand implements CommandExecutor {
     static final String PERMISSION = "minecraftserver.admin.integrity";
     private static final int DEFAULT_LIMIT = 20;
@@ -32,16 +33,29 @@ final class PaperIntegrityCommand implements CommandExecutor {
         this.verifier = Objects.requireNonNull(verifier, "verifier");
     }
 
-    /** Compatibility installer for environments that do not expose the loaded item catalog. */
+    /** Compatibility installer for environments that do not expose loaded content catalogs. */
     static void install(JavaPlugin plugin, DataSource dataSource) {
         install(plugin, new PersistentIntegrityVerifier(dataSource));
     }
 
-    /** Production installer: includes catalog-aware item-definition invariants. */
+    /** Compatibility installer with item-definition-aware invariants only. */
     static void install(JavaPlugin plugin, DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(itemCatalog, "itemCatalog");
         install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog));
+    }
+
+    /** Production installer: includes catalog-aware item and staged-skill progression reconciliation. */
+    static void install(
+            JavaPlugin plugin,
+            DataSource dataSource,
+            ItemCatalog itemCatalog,
+            SkillProgressionCatalog skillCatalog
+    ) {
+        Objects.requireNonNull(dataSource, "dataSource");
+        Objects.requireNonNull(itemCatalog, "itemCatalog");
+        Objects.requireNonNull(skillCatalog, "skillCatalog");
+        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog));
     }
 
     private static void install(JavaPlugin plugin, PersistentIntegrityVerifier verifier) {
