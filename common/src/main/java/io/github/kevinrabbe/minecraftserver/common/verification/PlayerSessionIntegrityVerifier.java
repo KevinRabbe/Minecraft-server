@@ -30,6 +30,7 @@ public final class PlayerSessionIntegrityVerifier {
             ArrayList<IntegrityIssue> issues = new ArrayList<>();
             verifyLiveSessionStateVersion(connection, issues, maxIssues);
             verifySessionLifecycleShape(connection, issues, maxIssues);
+            verifyLiveSessionOwnerInstanceIdentity(connection, issues, maxIssues);
             verifyTransferringSessionTicket(connection, issues, maxIssues);
             verifyOpenTicketSessionStatus(connection, issues, maxIssues);
             verifyRoutedTransferTargetIdentity(connection, issues, maxIssues);
@@ -131,6 +132,54 @@ public final class PlayerSessionIntegrityVerifier {
                                     + ", ownerBackend=" + rows.getString("owner_backend_id")
                                     + ", ownerInstance=" + rows.getObject("owner_instance_id", UUID.class)
                                     + ", leaseExpiresAt=" + rows.getTimestamp("lease_expires_at")
+                    ));
+                }
+            }
+        }
+    }
+
+    private static void verifyLiveSessionOwnerInstanceIdentity(
+            Connection connection,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        int remaining = remaining(issues, maxIssues);
+        if (remaining == 0) return;
+
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT session.network_session_id,
+                       session.player_id,
+                       session.status,
+                       session.owner_backend_id,
+                       session.owner_instance_id,
+                       instance.backend_id AS instance_backend_id,
+                       instance.zone_id AS instance_zone_id
+                FROM player_sessions session
+                LEFT JOIN zone_instances instance ON instance.instance_id = session.owner_instance_id
+                WHERE session.status IN ('ACTIVE', 'TRANSFERRING', 'RECOVERING')
+                  AND session.owner_instance_id IS NOT NULL
+                  AND (
+                      instance.instance_id IS NULL
+                      OR session.owner_backend_id IS DISTINCT FROM instance.backend_id
+                  )
+                ORDER BY session.network_session_id
+                LIMIT ?
+                """)) {
+            statement.setInt(1, remaining);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    UUID sessionId = rows.getObject("network_session_id", UUID.class);
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "LIVE_SESSION_INSTANCE_IDENTITY_MISMATCH",
+                            sessionId.toString(),
+                            "Live " + rows.getString("status") + " session for player "
+                                    + rows.getObject("player_id", UUID.class) + " claims ownerBackend="
+                                    + rows.getString("owner_backend_id") + " and ownerInstance="
+                                    + rows.getObject("owner_instance_id", UUID.class)
+                                    + " but that stable instance belongs to backend="
+                                    + rows.getString("instance_backend_id") + ", zone="
+                                    + rows.getString("instance_zone_id")
                     ));
                 }
             }
