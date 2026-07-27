@@ -70,6 +70,10 @@ final class PaperItemUseEligibilityCache {
         relevantSkillSet = Set.copyOf(required);
     }
 
+    boolean requiresProgressionSnapshot() {
+        return !relevantSkills.isEmpty();
+    }
+
     /** Loads every skill used by the current item catalog in one bounded authoritative projection. */
     void refresh(UUID playerId) throws SQLException {
         Objects.requireNonNull(playerId, "playerId");
