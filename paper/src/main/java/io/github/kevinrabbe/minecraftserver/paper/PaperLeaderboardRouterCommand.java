@@ -1,6 +1,8 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapLeaderboardRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarHistoryRepository;
+import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLeaderboardRepository;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -15,14 +17,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-/** Preserves the original skill command while adding explicit namespaced Persistent-MMO Map boards. */
+/** Preserves skill boards while routing explicitly separated Persistent-MMO and competitive leaderboard categories. */
 final class PaperLeaderboardRouterCommand implements CommandExecutor, TabCompleter {
     private final PaperSkillLeaderboardCommand skills;
     private final PaperMapLeaderboardCommand maps;
+    private final PaperClanWarLeaderboardCommand clanWars;
 
-    PaperLeaderboardRouterCommand(PaperSkillLeaderboardCommand skills, PaperMapLeaderboardCommand maps) {
+    PaperLeaderboardRouterCommand(
+            PaperSkillLeaderboardCommand skills,
+            PaperMapLeaderboardCommand maps,
+            PaperClanWarLeaderboardCommand clanWars
+    ) {
         this.skills = Objects.requireNonNull(skills, "skills");
         this.maps = Objects.requireNonNull(maps, "maps");
+        this.clanWars = Objects.requireNonNull(clanWars, "clanWars");
     }
 
     /**
@@ -36,7 +44,7 @@ final class PaperLeaderboardRouterCommand implements CommandExecutor, TabComplet
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             PluginCommand command = plugin.getCommand("leaderboard");
             if (command == null) {
-                plugin.getLogger().severe("Could not install Map leaderboard router: leaderboard command is missing");
+                plugin.getLogger().severe("Could not install leaderboard router: leaderboard command is missing");
                 return;
             }
             if (command.getExecutor() instanceof PaperLeaderboardRouterCommand) {
@@ -44,13 +52,18 @@ final class PaperLeaderboardRouterCommand implements CommandExecutor, TabComplet
             }
             if (!(command.getExecutor() instanceof PaperSkillLeaderboardCommand skills)) {
                 plugin.getLogger().severe(
-                        "Could not install Map leaderboard router: leaderboard executor is not the MMO skill command"
+                        "Could not install leaderboard router: leaderboard executor is not the MMO skill command"
                 );
                 return;
             }
             PaperLeaderboardRouterCommand router = new PaperLeaderboardRouterCommand(
                     skills,
-                    new PaperMapLeaderboardCommand(plugin, new MapLeaderboardRepository(dataSource))
+                    new PaperMapLeaderboardCommand(plugin, new MapLeaderboardRepository(dataSource)),
+                    new PaperClanWarLeaderboardCommand(
+                            plugin,
+                            new ClanWarLeaderboardRepository(dataSource),
+                            new ClanWarHistoryRepository(dataSource)
+                    )
             );
             command.setExecutor(router);
             command.setTabCompleter(router);
@@ -61,6 +74,9 @@ final class PaperLeaderboardRouterCommand implements CommandExecutor, TabComplet
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length > 0 && args[0].equalsIgnoreCase("map")) {
             return maps.onCommand(sender, command, label, tail(args));
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("clan-war")) {
+            return clanWars.onCommand(sender, command, label, tail(args));
         }
         return skills.onCommand(sender, command, label, args);
     }
@@ -73,11 +89,17 @@ final class PaperLeaderboardRouterCommand implements CommandExecutor, TabComplet
             if ("map".startsWith(prefix)) {
                 result.add("map");
             }
+            if ("clan-war".startsWith(prefix)) {
+                result.add("clan-war");
+            }
             result.addAll(skills.onTabComplete(sender, command, alias, args));
             return List.copyOf(result);
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("map")) {
             return maps.onTabComplete(sender, command, alias, tail(args));
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("clan-war")) {
+            return clanWars.onTabComplete(sender, command, alias, tail(args));
         }
         return skills.onTabComplete(sender, command, alias, args);
     }
