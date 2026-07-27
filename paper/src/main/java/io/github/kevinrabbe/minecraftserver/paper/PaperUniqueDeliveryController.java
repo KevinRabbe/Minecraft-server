@@ -1,6 +1,8 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationValidationResult;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryClaimService;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryException;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryMaterializationResult;
@@ -21,6 +23,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -34,12 +37,17 @@ import java.util.logging.Level;
 final class PaperUniqueDeliveryController implements Listener {
     private static final String CLAIM_REASON = "delivery.unique_claim";
     private static final long BUSY_RETRY_TICKS = 10L;
+    private static final long STAT_REFRESH_RETRY_TICKS = 20L;
+    private static final Component INVALID_ITEM_STATE_MESSAGE = Component.text(
+            "Your carried item state failed authority validation and has been isolated. Please contact staff."
+    );
 
     private final JavaPlugin plugin;
     private final DataSource dataSource;
     private final PaperSessionController sessions;
     private final PaperPlayerIdentityResolver playerIdentities;
     private final PendingUniqueDeliveryClaimService claims;
+    private final PaperPlayerItemRepresentationValidator statValidator;
     private final Set<UUID> drainInFlight = ConcurrentHashMap.newKeySet();
 
     PaperUniqueDeliveryController(
@@ -59,6 +67,7 @@ final class PaperUniqueDeliveryController implements Listener {
                 new UniqueItemAuthorityRepository(dataSource, catalog),
                 new PaperUniqueDeliveryStateMutator(plugin)
         );
+        this.statValidator = new PaperPlayerItemRepresentationValidator(plugin, dataSource, catalog);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -134,7 +143,10 @@ final class PaperUniqueDeliveryController implements Listener {
         }).whenComplete((result, failure) -> {
             finishDrain(minecraftUuid);
             if (failure == null) {
-                runOnMainThreadLater(() -> requestDrain(minecraftUuid), 1L);
+                runOnMainThreadLater(() -> {
+                    requestStatRefresh(minecraftUuid);
+                    requestDrain(minecraftUuid);
+                }, 1L);
                 return;
             }
 
@@ -167,6 +179,89 @@ final class PaperUniqueDeliveryController implements Listener {
                     cause
             );
         });
+    }
+
+    /** Captures Bukkit inventory on the main thread, then performs the authority query asynchronously. */
+    private void requestStatRefresh(UUID minecraftUuid) {
+        if (!plugin.isEnabled()) return;
+        Player player = plugin.getServer().getPlayer(minecraftUuid);
+        if (player == null || !player.isOnline()) return;
+
+        final List<ItemRepresentationClaim> capturedClaims;
+        try {
+            capturedClaims = statValidator.collectClaims(player);
+        } catch (RuntimeException exception) {
+            PaperItemRuntimeStatCache.clear(minecraftUuid);
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Could not read delivered item identity metadata for player " + minecraftUuid,
+                    exception
+            );
+            player.kick(INVALID_ITEM_STATE_MESSAGE);
+            return;
+        }
+
+        long generation = PaperItemRuntimeStatCache.beginRefresh(minecraftUuid);
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(
+                    plugin,
+                    () -> refreshStatsOffThread(minecraftUuid, generation, capturedClaims)
+            );
+        } catch (RejectedExecutionException | IllegalStateException exception) {
+            plugin.getLogger().log(Level.WARNING, "Could not schedule delivered item stat validation", exception);
+            runOnMainThreadLater(() -> requestStatRefresh(minecraftUuid), STAT_REFRESH_RETRY_TICKS);
+        }
+    }
+
+    private void refreshStatsOffThread(
+            UUID minecraftUuid,
+            long generation,
+            List<ItemRepresentationClaim> capturedClaims
+    ) {
+        try {
+            ItemRepresentationValidationResult validation = statValidator.validateAndSnapshot(
+                    minecraftUuid,
+                    capturedClaims
+            );
+            if (validation.valid()) {
+                PaperItemRuntimeStatCache.replaceIfCurrent(
+                        minecraftUuid,
+                        generation,
+                        validation.validatedIndividualSnapshots()
+                );
+                return;
+            }
+
+            if (PaperItemRuntimeStatCache.invalidateIfCurrent(minecraftUuid, generation)) {
+                plugin.getLogger().severe(
+                        "Delivered item state failed authority validation for player " + minecraftUuid
+                                + "; issues=" + validation.issues()
+                );
+                runOnMainThread(() -> {
+                    Player live = plugin.getServer().getPlayer(minecraftUuid);
+                    if (live != null && live.isOnline()) live.kick(INVALID_ITEM_STATE_MESSAGE);
+                });
+            }
+        } catch (SQLException exception) {
+            plugin.getLogger().log(
+                    Level.WARNING,
+                    "Could not refresh delivered item runtime stats for player " + minecraftUuid,
+                    exception
+            );
+            runOnMainThreadLater(() -> requestStatRefresh(minecraftUuid), STAT_REFRESH_RETRY_TICKS);
+        } catch (RuntimeException exception) {
+            if (PaperItemRuntimeStatCache.invalidateIfCurrent(minecraftUuid, generation)) {
+                plugin.getLogger().log(
+                        Level.SEVERE,
+                        "Delivered item runtime-stat validation failed closed for player " + minecraftUuid,
+                        exception
+                );
+                runOnMainThread(() -> {
+                    Player live = plugin.getServer().getPlayer(minecraftUuid);
+                    if (live != null && live.isOnline()) live.kick(INVALID_ITEM_STATE_MESSAGE);
+                });
+            }
+        }
     }
 
     private Optional<UUID> findNextPendingDelivery(UUID playerId) throws SQLException {
