@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Read-only bounded verification of the single-writer session representation against persistent player state. */
+/** Read-only bounded verification of single-writer session/transfer representations against persistent player state. */
 public final class PlayerSessionIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
 
@@ -30,6 +30,8 @@ public final class PlayerSessionIntegrityVerifier {
             ArrayList<IntegrityIssue> issues = new ArrayList<>();
             verifyLiveSessionStateVersion(connection, issues, maxIssues);
             verifySessionLifecycleShape(connection, issues, maxIssues);
+            verifyTransferringSessionTicket(connection, issues, maxIssues);
+            verifyOpenTicketSessionStatus(connection, issues, maxIssues);
             return List.copyOf(issues);
         }
     }
@@ -99,7 +101,11 @@ public final class PlayerSessionIntegrityVerifier {
                 FROM player_sessions
                 WHERE (
                     status IN ('ACTIVE', 'TRANSFERRING', 'RECOVERING')
-                    AND (owner_backend_id IS NULL OR lease_expires_at IS NULL)
+                    AND (
+                        owner_backend_id IS NULL
+                        OR BTRIM(owner_backend_id) = ''
+                        OR lease_expires_at IS NULL
+                    )
                 ) OR (
                     status = 'DISCONNECTED'
                     AND (
@@ -128,6 +134,105 @@ public final class PlayerSessionIntegrityVerifier {
                 }
             }
         }
+    }
+
+    private static void verifyTransferringSessionTicket(
+            Connection connection,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        int remaining = remaining(issues, maxIssues);
+        if (remaining == 0) return;
+
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT session.network_session_id,
+                       session.player_id AS session_player_id,
+                       session.owner_backend_id,
+                       session.state_version AS session_state_version,
+                       ticket.transfer_id,
+                       ticket.player_id AS ticket_player_id,
+                       ticket.source_backend_id,
+                       ticket.target_zone_id,
+                       ticket.expected_state_version
+                FROM player_sessions session
+                LEFT JOIN transfer_tickets ticket
+                  ON ticket.network_session_id = session.network_session_id
+                 AND ticket.consumed_at IS NULL
+                WHERE session.status = 'TRANSFERRING'
+                  AND (
+                      ticket.transfer_id IS NULL
+                      OR ticket.player_id IS DISTINCT FROM session.player_id
+                      OR ticket.source_backend_id IS DISTINCT FROM session.owner_backend_id
+                      OR ticket.expected_state_version IS DISTINCT FROM session.state_version
+                      OR BTRIM(ticket.source_backend_id) = ''
+                      OR BTRIM(ticket.target_zone_id) = ''
+                  )
+                ORDER BY session.network_session_id
+                LIMIT ?
+                """)) {
+            statement.setInt(1, remaining);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    UUID sessionId = rows.getObject("network_session_id", UUID.class);
+                    UUID transferId = rows.getObject("transfer_id", UUID.class);
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "TRANSFERRING_SESSION_TICKET_MISMATCH",
+                            sessionId.toString(),
+                            "TRANSFERRING session does not match its open transfer ticket: transfer=" + transferId
+                                    + ", sessionPlayer=" + rows.getObject("session_player_id", UUID.class)
+                                    + ", ticketPlayer=" + rows.getObject("ticket_player_id", UUID.class)
+                                    + ", ownerBackend=" + rows.getString("owner_backend_id")
+                                    + ", sourceBackend=" + rows.getString("source_backend_id")
+                                    + ", sessionVersion=" + rows.getLong("session_state_version")
+                                    + ", expectedVersion=" + nullableLong(rows, "expected_state_version")
+                                    + ", targetZone=" + rows.getString("target_zone_id")
+                    ));
+                }
+            }
+        }
+    }
+
+    private static void verifyOpenTicketSessionStatus(
+            Connection connection,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        int remaining = remaining(issues, maxIssues);
+        if (remaining == 0) return;
+
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT ticket.transfer_id,
+                       ticket.network_session_id,
+                       ticket.player_id,
+                       session.status
+                FROM transfer_tickets ticket
+                JOIN player_sessions session ON session.network_session_id = ticket.network_session_id
+                WHERE ticket.consumed_at IS NULL
+                  AND session.status <> 'TRANSFERRING'
+                ORDER BY ticket.transfer_id
+                LIMIT ?
+                """)) {
+            statement.setInt(1, remaining);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    UUID transferId = rows.getObject("transfer_id", UUID.class);
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "OPEN_TRANSFER_TICKET_SESSION_MISMATCH",
+                            transferId.toString(),
+                            "Open transfer ticket for player " + rows.getObject("player_id", UUID.class)
+                                    + " references session " + rows.getObject("network_session_id", UUID.class)
+                                    + " with status " + rows.getString("status")
+                    ));
+                }
+            }
+        }
+    }
+
+    private static String nullableLong(ResultSet rows, String column) throws SQLException {
+        long value = rows.getLong(column);
+        return rows.wasNull() ? "missing" : Long.toString(value);
     }
 
     private static int remaining(List<IntegrityIssue> issues, int maxIssues) {
