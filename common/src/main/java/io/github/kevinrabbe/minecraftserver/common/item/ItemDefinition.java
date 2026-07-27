@@ -59,6 +59,11 @@ public record ItemDefinition(
         if (identityKind == ItemIdentityKind.COMMODITY && rollProfile.rolled()) {
             throw new IllegalArgumentException("COMMODITY definitions cannot have intrinsic roll profiles: " + definitionId);
         }
+        if (rollProfile.rolled() && category != ItemCategory.EQUIPMENT) {
+            throw new IllegalArgumentException(
+                    "Intrinsic roll profiles are only valid for EQUIPMENT definitions: " + definitionId
+            );
+        }
     }
 
     public boolean stackable() {
