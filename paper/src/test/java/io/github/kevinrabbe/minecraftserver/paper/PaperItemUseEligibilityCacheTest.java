@@ -30,11 +30,34 @@ class PaperItemUseEligibilityCacheTest {
     private static final String COMBAT_FIVE = "equipment.cache_combat_5";
 
     @Test
+    void unrestrictedCatalogNeedsNoProgressionSnapshot() throws Exception {
+        MutableSkillLoader loader = new MutableSkillLoader();
+        PaperItemUseEligibilityCache cache = new PaperItemUseEligibilityCache(
+                new ItemCatalog(List.of(new ItemDefinition(
+                        UNRESTRICTED,
+                        "WOODEN_SWORD",
+                        "Cache Unrestricted Sword",
+                        1,
+                        ItemCategory.EQUIPMENT,
+                        ItemIdentityKind.INDIVIDUAL
+                ))),
+                loader,
+                1
+        );
+
+        assertFalse(cache.requiresProgressionSnapshot());
+        cache.refresh(UUID.randomUUID());
+        assertEquals(0, loader.loadCount());
+        assertEquals(0, cache.cachedPlayerCount());
+    }
+
+    @Test
     void restrictedItemFailsClosedBeforeRefreshWhileUnrestrictedNeedsNoSnapshot() {
         UUID playerId = UUID.randomUUID();
         MutableSkillLoader loader = new MutableSkillLoader();
         PaperItemUseEligibilityCache cache = cache(loader, 2);
 
+        assertTrue(cache.requiresProgressionSnapshot());
         assertTrue(cache.evaluate(playerId, COMBAT_FIVE).isEmpty());
         ItemUseEligibility unrestricted = cache.evaluate(playerId, UNRESTRICTED).orElseThrow();
         assertTrue(unrestricted.allowed());
@@ -192,6 +215,7 @@ class PaperItemUseEligibilityCacheTest {
 
     private static final class MutableSkillLoader implements PaperItemUseEligibilityCache.SkillProjectionLoader {
         private final Map<UUID, Map<SkillId, SkillProgressSnapshot>> snapshots = new HashMap<>();
+        private int loadCount;
 
         void set(UUID playerId, SkillId skillId, int level, long stateVersion) {
             snapshots.computeIfAbsent(playerId, ignored -> new HashMap<>()).put(
@@ -207,8 +231,13 @@ class PaperItemUseEligibilityCacheTest {
             );
         }
 
+        int loadCount() {
+            return loadCount;
+        }
+
         @Override
         public Map<SkillId, SkillProgressSnapshot> load(UUID playerId, List<SkillId> skillIds) {
+            loadCount++;
             Map<SkillId, SkillProgressSnapshot> player = snapshots.getOrDefault(playerId, Map.of());
             LinkedHashMap<SkillId, SkillProgressSnapshot> result = new LinkedHashMap<>();
             for (SkillId skillId : skillIds) {
