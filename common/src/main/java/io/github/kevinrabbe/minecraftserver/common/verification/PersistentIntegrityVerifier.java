@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.verification;
 
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -17,10 +19,18 @@ public final class PersistentIntegrityVerifier {
     private final CompetitiveIntegrityVerifier competitive;
     private final CompetitiveExecutionLoadoutIntegrityVerifier competitiveLoadouts;
 
+    /** Compatibility constructor for environments without a loaded item catalog. */
     public PersistentIntegrityVerifier(DataSource dataSource) {
+        this(dataSource, null);
+    }
+
+    /** Strong aggregate verifier with item-definition-aware upgrade reconciliation. */
+    public PersistentIntegrityVerifier(DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
         this.economy = new EconomyIntegrityVerifier(dataSource);
-        this.itemUpgrades = new ItemUpgradeIntegrityVerifier(dataSource);
+        this.itemUpgrades = itemCatalog == null
+                ? new ItemUpgradeIntegrityVerifier(dataSource)
+                : new ItemUpgradeIntegrityVerifier(dataSource, itemCatalog);
         this.pve = new PersistentPveIntegrityVerifier(dataSource);
         this.clans = new ClanIntegrityVerifier(dataSource);
         this.competitive = new CompetitiveIntegrityVerifier(dataSource);
