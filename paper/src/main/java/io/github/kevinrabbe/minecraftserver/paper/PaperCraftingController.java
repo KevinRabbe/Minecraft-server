@@ -37,6 +37,7 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
     private final PaperSessionController sessions;
     private final CraftingStateExecutionService crafting;
     private final CraftingExperienceFulfillmentRepository experience;
+    private final PaperItemUseEligibilityController itemUseEligibility;
     private final PaperCommodityBatchStateMutator ingredientMutator;
     private final PaperCommodityDeliveryController commodityDeliveries;
     private final PaperUniqueDeliveryController uniqueDeliveries;
@@ -47,6 +48,7 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
             PaperSessionController sessions,
             CraftingStateExecutionService crafting,
             CraftingExperienceFulfillmentRepository experience,
+            PaperItemUseEligibilityController itemUseEligibility,
             CraftRecipeCatalog recipes,
             PaperCommodityBatchStateMutator ingredientMutator,
             PaperCommodityDeliveryController commodityDeliveries,
@@ -56,6 +58,7 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.crafting = Objects.requireNonNull(crafting, "crafting");
         this.experience = Objects.requireNonNull(experience, "experience");
+        this.itemUseEligibility = Objects.requireNonNull(itemUseEligibility, "itemUseEligibility");
         this.ingredientMutator = Objects.requireNonNull(ingredientMutator, "ingredientMutator");
         this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
         this.uniqueDeliveries = Objects.requireNonNull(uniqueDeliveries, "uniqueDeliveries");
@@ -68,7 +71,8 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
                 List<UUID> pending = experience.listUnfulfilled(XP_RECOVERY_BATCH);
                 for (UUID craftId : pending) {
                     try {
-                        experience.fulfill(craftId);
+                        var recovered = experience.fulfill(craftId);
+                        itemUseEligibility.applyCommittedAward(recovered.experienceAward());
                     } catch (SQLException | RuntimeException exception) {
                         plugin.getLogger().log(
                                 Level.WARNING,
@@ -170,6 +174,7 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
         runAsync(() -> {
             try {
                 var xp = experience.fulfill(result.craft().craftId());
+                itemUseEligibility.applyCommittedAward(xp.experienceAward());
                 String roll = result.craft().rollQualityBasisPoints().isEmpty()
                         ? ""
                         : " Roll: " + result.craft().rollQualityBasisPoints();
