@@ -119,6 +119,8 @@ Current absolute stat values derive from:
 
 A balance update may change the definition/range but must not reroll the historical item.
 
+The current implementation stores normalized roll quality in bounded basis points and resolves the current intrinsic multiplier from the item definition's roll profile. Craft recipes may not redefine the output item's intrinsic roll semantics.
+
 ### Bounded variance
 
 The intended low-to-high relevant item value spread is generally about **10–30% depending on the item**. Exact ranges/distributions are content/balance data.
@@ -133,6 +135,36 @@ Intrinsic roll quality and later upgrade investment are separate state:
 - upgrade state answers "how much has been invested into this exact item?".
 
 Upgrading must not silently reroll intrinsic quality.
+
+### Upgrade authority
+
+Upgrade economics/progression remain tuning/content decisions, but the persistent mutation contract is fixed:
+
+- one committed upgrade step advances `upgrade_level` exactly once;
+- the exact item `state_version` advances exactly once with it;
+- upgrade does not change item custody;
+- normalized intrinsic roll state is preserved;
+- `item_upgrade_events` is append-only upgrade evidence;
+- matching `UPGRADED` item provenance preserves the item authority chain;
+- replaying one operation ID returns the same result and cannot rebind the operation to another item/request;
+- concurrent attempts from one stale item head cannot both commit;
+- a failed/uncommitted upgrade attempt leaves the item intact rather than destroying or silently degrading it.
+
+A carried-item upgrade has an additional single-writer requirement: the serialized ItemStack representation contains the item authority version, so the new player-state payload and upgraded item authority head must commit in the same PostgreSQL transaction under the owning live session. The Paper adapter deterministically reconstructs the expected next inventory payload by changing only that exact item's authority-version claim; any unrelated inventory/metadata mutation fails closed.
+
+The exact upgrade cost curve, progression, maximum gameplay investment, and whether success is deterministic remain explicit balance/content decisions. If a later failure mechanic exists, the item itself remains intact; cost can carry the risk instead.
+
+### Runtime inspection/presentation
+
+Validated unique-item state is loaded in bounded batches at authority boundaries, not queried on every hit or inventory click. Paper may keep disposable local snapshots keyed by stable `item_instance_id` plus exact authority version.
+
+For rolled equipment, derived presentation may show:
+
+- exact normalized roll quality;
+- the current intrinsic multiplier resolved from the active item definition;
+- upgrade level as separate investment state.
+
+Auction House browse exposes roll quality and upgrade investment before purchase. Lore/PDC presentation never becomes the authority for those values.
 
 ### Crafting-skill boundary
 
@@ -172,6 +204,7 @@ A rendered ItemStack may contain compact internal metadata such as:
 
 - `definition_id`
 - `item_instance_id` when applicable
+- `authority_version` for version-fenced individualized representations
 - metadata/schema version
 
 Do not store the entire authoritative database record inside ItemStack metadata.
@@ -182,7 +215,7 @@ For high-value individual items, authenticity comes from persistent identity/own
 
 Minecraft inventory is the active gameplay representation of network-owned persistent state while one backend owns the session.
 
-Important boundaries (login, transfer, market listing, secure trade, Map opening, recovery) validate authoritative state. Do not query PostgreSQL for every routine inventory click if the loaded single-writer state is already valid.
+Important boundaries (login, transfer, market listing, secure trade, Map opening, carried-item upgrading, recovery) validate authoritative state. Do not query PostgreSQL for every routine inventory click if the loaded single-writer state is already valid.
 
 ## Pouches
 
@@ -232,5 +265,6 @@ Examples:
 - duplicate live representations of one unique instance
 - Map instance metadata inconsistent with authoritative challenge data
 - rolled-item representation inconsistent with authoritative normalized roll state
+- carried item authority version inconsistent with the persistent item head
 
 Do not guess-repair suspicious valuable items. Reject, rebuild from authority, or quarantine them and emit an audit signal.
