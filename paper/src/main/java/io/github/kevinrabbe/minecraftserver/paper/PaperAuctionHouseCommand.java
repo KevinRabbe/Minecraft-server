@@ -327,6 +327,7 @@ final class PaperAuctionHouseCommand implements CommandExecutor, TabCompleter {
         String rolls = formatRolls(listing.rollQualityBasisPoints());
         return listing.listingId() + " — " + displayName(listing.definitionId())
                 + (rolls.isEmpty() ? "" : " — " + rolls)
+                + " — upgrade +" + listing.upgradeLevel()
                 + " — " + formatCoin(listing.priceMinor());
     }
 
