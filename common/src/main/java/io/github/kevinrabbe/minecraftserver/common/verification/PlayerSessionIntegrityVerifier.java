@@ -32,6 +32,7 @@ public final class PlayerSessionIntegrityVerifier {
             verifySessionLifecycleShape(connection, issues, maxIssues);
             verifyTransferringSessionTicket(connection, issues, maxIssues);
             verifyOpenTicketSessionStatus(connection, issues, maxIssues);
+            verifyRoutedTransferTargetIdentity(connection, issues, maxIssues);
             return List.copyOf(issues);
         }
     }
@@ -224,6 +225,52 @@ public final class PlayerSessionIntegrityVerifier {
                             "Open transfer ticket for player " + rows.getObject("player_id", UUID.class)
                                     + " references session " + rows.getObject("network_session_id", UUID.class)
                                     + " with status " + rows.getString("status")
+                    ));
+                }
+            }
+        }
+    }
+
+    private static void verifyRoutedTransferTargetIdentity(
+            Connection connection,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        int remaining = remaining(issues, maxIssues);
+        if (remaining == 0) return;
+
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT ticket.transfer_id,
+                       ticket.target_zone_id,
+                       ticket.target_backend_id,
+                       ticket.target_instance_id,
+                       instance.zone_id AS instance_zone_id,
+                       instance.backend_id AS instance_backend_id
+                FROM transfer_tickets ticket
+                LEFT JOIN zone_instances instance ON instance.instance_id = ticket.target_instance_id
+                WHERE ticket.target_instance_id IS NOT NULL
+                  AND (
+                      instance.instance_id IS NULL
+                      OR ticket.target_backend_id IS DISTINCT FROM instance.backend_id
+                      OR ticket.target_zone_id IS DISTINCT FROM instance.zone_id
+                  )
+                ORDER BY ticket.transfer_id
+                LIMIT ?
+                """)) {
+            statement.setInt(1, remaining);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    UUID transferId = rows.getObject("transfer_id", UUID.class);
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "ROUTED_TRANSFER_TARGET_IDENTITY_MISMATCH",
+                            transferId.toString(),
+                            "Routed transfer target does not match its stable zone-instance identity: ticketZone="
+                                    + rows.getString("target_zone_id")
+                                    + ", ticketBackend=" + rows.getString("target_backend_id")
+                                    + ", instance=" + rows.getObject("target_instance_id", UUID.class)
+                                    + ", instanceZone=" + rows.getString("instance_zone_id")
+                                    + ", instanceBackend=" + rows.getString("instance_backend_id")
                     ));
                 }
             }
