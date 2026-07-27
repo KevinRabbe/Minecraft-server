@@ -1,12 +1,14 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationIssue;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationValidationResult;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.sql.SQLException;
 import java.util.List;
@@ -40,16 +42,23 @@ final class PaperItemRepresentationGate implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         try {
-            List<ItemRepresentationIssue> issues = validator.validate(player);
+            ItemRepresentationValidationResult result = validator.validateAndSnapshot(player);
+            List<ItemRepresentationIssue> issues = result.issues();
             if (issues.isEmpty()) {
+                PaperItemRuntimeStatCache.replaceNow(
+                        player.getUniqueId(),
+                        result.validatedIndividualSnapshots()
+                );
                 return;
             }
 
+            PaperItemRuntimeStatCache.clear(player.getUniqueId());
             plugin.getLogger().severe(() -> formatIncident(player, issues));
             player.kick(QUARANTINED_MESSAGE);
         } catch (PaperItemRepresentationException exception) {
             quarantineMalformed(player, exception);
         } catch (SQLException exception) {
+            PaperItemRuntimeStatCache.clear(player.getUniqueId());
             plugin.getLogger().log(
                     Level.WARNING,
                     "Could not validate custom item authority for player " + player.getUniqueId(),
@@ -61,7 +70,13 @@ final class PaperItemRepresentationGate implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        PaperItemRuntimeStatCache.clear(event.getPlayer().getUniqueId());
+    }
+
     private void quarantineMalformed(Player player, RuntimeException exception) {
+        PaperItemRuntimeStatCache.clear(player.getUniqueId());
         plugin.getLogger().log(
                 Level.SEVERE,
                 "Malformed or unreadable custom item identity metadata for player " + player.getUniqueId(),
