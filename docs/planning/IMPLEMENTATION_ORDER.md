@@ -17,7 +17,9 @@ The active branch has moved materially beyond the original architecture-only che
 - the first-Map acquisition source remains intentionally unresolved in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md); do not create a hidden mandatory Bounty/crafting/vendor route just to make the first Map appear;
 - player-directed expansion voting already has authoritative schedule/open/ballot/resolve, feature/world-era consequences, historical evidence, a bounded player read projection, and `/vote` ballot access. Candidate scheduling/content remains a separate configuration/operations decision;
 - Ranked Arena has end-to-end isolated 1.8.9 dispatch/routing/admission, a config-driven disposable symmetric 1v1 arena and standardized temporary kit, materialization-gated combat/lease renewal, disconnect pause/no-show recovery, bounded no-winner timeout, and death -> exactly-once result/rating settlement;
-- Clan War has challenge/roster/custody/frozen-loadout transport plus a structurally qualified baseline 1.8.9 control-point runtime: exact identity-free roster/loadout snapshot, code-bound `war.legacy_1_8_9@1` starter-sword representation, exact non-truncating inventory projection, deterministic separate arena/spawns, death isolation, control progress, timeout/failure recovery, trusted result/rating settlement, and capability-gated dispatch. Production `supports_clan_war` remains `FALSE` until the accepted V1 gear representation set and deferred real-client acceptance are proven; broader rolled/upgraded/equipment translation remains intentionally fail-closed.
+- Clan War has challenge/roster/custody/frozen-loadout transport plus a structurally qualified baseline 1.8.9 control-point runtime: exact identity-free roster/loadout snapshot, code-bound `war.legacy_1_8_9@1` starter-sword representation, exact non-truncating inventory projection, deterministic separate arena/spawns, death isolation, control progress, timeout/failure recovery, trusted result/rating settlement, and capability-gated dispatch. Production `supports_clan_war` remains `FALSE` until the accepted V1 gear representation set and deferred real-client acceptance are proven; broader rolled/upgraded/equipment translation remains intentionally fail-closed;
+- read-only analytics now derives observed player-time/retention, classified Coin supply/movement with explicit coverage gaps, and Bazaar current-book plus execution microstructure directly from durable authority without creating duplicate session, currency, or market state;
+- destruction testing now includes deterministic zone/backend routing churn, explicit mid-transaction rollback fault injection, post-commit acknowledgement-loss retry proof, and aggregate persistent-integrity verification after adversarial recovery; real process/client/Windows recovery gates remain empirical rather than being imitated by weaker in-process tests.
 
 Treat this checkpoint as the execution state, while the numbered sections below remain the dependency/reference order.
 
@@ -167,6 +169,8 @@ Numbers need to be plausible, not perfect.
 5. duplicate/replay/race/crash injection;
 6. integrity-verifier runs after adversarial scenarios;
 7. backup + disposable restore proof.
+
+Current structural coverage now includes concurrent value/custody races, deterministic zone/backend routing churn, transfer fencing/recovery, injected pre-commit database failure with full rollback, injected post-commit acknowledgement loss with exact idempotent replay, and aggregate integrity verification after adversarial recovery. Remaining stage-11 work should target genuinely unproven boundaries such as representative entity/load behavior, question-driven economy simulation once launch numbers exist, and the actual disposable Windows/Docker restore rehearsal—not duplicate the same transaction failure under another name.
 
 ## 12 — Private alpha
 
