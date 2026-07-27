@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * JVM-local hot-path cache of already validated item stat snapshots.
  *
  * <p>Entries are keyed by stable item identity rather than inventory slot. The cache is disposable runtime state and
- * never becomes item authority. Generation fencing prevents an older async refresh from replacing a newer snapshot.</p>
+ * never becomes item authority. Generation fencing prevents an older async refresh from replacing or invalidating a
+ * newer snapshot.</p>
  */
 final class PaperItemRuntimeStatCache {
     private static final ConcurrentHashMap<UUID, PlayerCache> PLAYERS = new ConcurrentHashMap<>();
@@ -41,6 +42,14 @@ final class PaperItemRuntimeStatCache {
     static void replaceNow(UUID minecraftUuid, Map<UUID, ItemRuntimeStatSnapshot> snapshots) {
         long generation = beginRefresh(minecraftUuid);
         replaceIfCurrent(minecraftUuid, generation, snapshots);
+    }
+
+    static boolean invalidateIfCurrent(UUID minecraftUuid, long generation) {
+        Objects.requireNonNull(minecraftUuid, "minecraftUuid");
+        AtomicLong current = GENERATIONS.get(minecraftUuid);
+        if (current == null || current.get() != generation) return false;
+        PLAYERS.remove(minecraftUuid);
+        return true;
     }
 
     static Optional<ItemRuntimeStatSnapshot> find(
