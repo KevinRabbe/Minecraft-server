@@ -2,6 +2,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalog;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
@@ -44,9 +45,8 @@ final class PaperIntegrityCommand implements CommandExecutor {
     }
 
     /**
-     * Bundled Paper installer. Item definitions are supplied by the already-loaded Paper catalog; immutable bundled
-     * skill and Attunement-profile catalogs are re-read once at startup so the existing bootstrap call gets the
-     * strongest catalog-aware diagnostics without depending on the plugin's private bootstrap state.
+     * Compatibility bundled installer when the caller does not expose its already-loaded Bank tier catalog.
+     * Item definitions are supplied by the caller; immutable bundled skill and Attunement catalogs are re-read once.
      */
     static void install(JavaPlugin plugin, DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
@@ -56,6 +56,32 @@ final class PaperIntegrityCommand implements CommandExecutor {
                 ATTUNEMENT_PROFILE_CATALOG_RESOURCE
         );
         install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog, attunementProfiles));
+    }
+
+    /**
+     * Live Paper installer. Reuses the exact Bank tier catalog already validated by plugin bootstrap while loading the
+     * immutable bundled skill and Attunement catalogs for the strongest catalog-aware integrity pass.
+     */
+    static void install(
+            JavaPlugin plugin,
+            DataSource dataSource,
+            ItemCatalog itemCatalog,
+            BankTierCatalog bankTiers
+    ) {
+        Objects.requireNonNull(dataSource, "dataSource");
+        Objects.requireNonNull(itemCatalog, "itemCatalog");
+        Objects.requireNonNull(bankTiers, "bankTiers");
+        SkillProgressionCatalog skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
+        AttunementProfileCatalog attunementProfiles = new AttunementProfileCatalogLoader().loadResource(
+                ATTUNEMENT_PROFILE_CATALOG_RESOURCE
+        );
+        install(plugin, new PersistentIntegrityVerifier(
+                dataSource,
+                itemCatalog,
+                skillCatalog,
+                attunementProfiles,
+                bankTiers
+        ));
     }
 
     /** Explicit installer for tests/adapters that already own the exact loaded item and skill catalogs. */
