@@ -6,6 +6,15 @@ Use named capabilities, not a broad `isAdmin`/unrestricted OP model for project 
 
 Staff convenience must not bypass economic, vote, provenance, PvE-result, or history correctness.
 
+## Implemented operator surfaces
+
+The currently implemented Paper operator commands are deliberately narrow:
+
+- `/integrity` requires `minecraftserver.admin.integrity` and is read-only. It runs bounded persistent integrity diagnostics and has no repair/mint/override path.
+- `/devzone` requires `minecraftserver.dev.route` **and** is runtime-disabled unless `DEV_TOOLS_ENABLED=true`. The local Windows development supervisor opts in explicitly; a normal production backend defaults closed even for an OP account.
+
+A plugin permission by itself is not considered sufficient isolation for a development-only bypass surface. Test/development capability must also be absent or fail closed in the production runtime mode.
+
 ## Capability examples
 
 Capabilities may include narrowly scoped rights such as:
@@ -118,6 +127,8 @@ Record consequential staff/recovery actions with:
 - related operation/transaction/source ID
 
 Recovery actions that modify value, vote/feature state, world era, leaderboard source records, or historical authenticity require especially strong auditability.
+
+No generic persistent-value recovery mutation command exists yet. When the first such operation is implemented, append-only audit evidence and narrow authorization are prerequisites rather than follow-up hardening.
 
 ## Principle
 
