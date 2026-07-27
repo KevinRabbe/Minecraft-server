@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalog;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
+import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
@@ -30,6 +31,7 @@ final class PaperIntegrityCommand implements CommandExecutor {
     private static final int MAX_COMMAND_LIMIT = 100;
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
     private static final String ATTUNEMENT_PROFILE_CATALOG_RESOURCE = "/content/attunement-profiles.json";
+    private static final String BANK_TIER_CATALOG_RESOURCE = "/content/bank-tiers.json";
 
     private final JavaPlugin plugin;
     private final PersistentIntegrityVerifier verifier;
@@ -45,8 +47,8 @@ final class PaperIntegrityCommand implements CommandExecutor {
     }
 
     /**
-     * Compatibility bundled installer when the caller does not expose its already-loaded Bank tier catalog.
-     * Item definitions are supplied by the caller; immutable bundled skill and Attunement catalogs are re-read once.
+     * Bundled Paper installer. Item definitions are supplied by the caller; immutable bundled skill, Attunement and
+     * Bank tier catalogs are re-read once at startup so the operator command gets the strongest catalog-aware pass.
      */
     static void install(JavaPlugin plugin, DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
@@ -55,12 +57,19 @@ final class PaperIntegrityCommand implements CommandExecutor {
         AttunementProfileCatalog attunementProfiles = new AttunementProfileCatalogLoader().loadResource(
                 ATTUNEMENT_PROFILE_CATALOG_RESOURCE
         );
-        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog, attunementProfiles));
+        BankTierCatalog bankTiers = new BankTierCatalogLoader().loadResource(BANK_TIER_CATALOG_RESOURCE);
+        install(plugin, new PersistentIntegrityVerifier(
+                dataSource,
+                itemCatalog,
+                skillCatalog,
+                attunementProfiles,
+                bankTiers
+        ));
     }
 
     /**
-     * Live Paper installer. Reuses the exact Bank tier catalog already validated by plugin bootstrap while loading the
-     * immutable bundled skill and Attunement catalogs for the strongest catalog-aware integrity pass.
+     * Explicit live installer for callers that already own the exact validated Bank tier catalog.
+     * Skill and Attunement catalogs remain immutable bundled content loaded once for diagnostics.
      */
     static void install(
             JavaPlugin plugin,
