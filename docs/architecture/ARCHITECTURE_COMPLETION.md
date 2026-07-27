@@ -23,7 +23,7 @@ Status values:
 | Protected Bank Manager semantics | PROVEN | Bank account/tier/transfer/upgrade/interest authority and integration tests |
 | Bazaar order-book semantics | PROVEN | buy/sell reserve, price-time matching, partial fill, cancellation, delivery and concurrency tests |
 | Crafting exactly-once settlement | PROVEN | personal crafting + commissions, exact ingredient-state verification, persistent output issuance, Crafting-XP recovery, Paper `/craft` bridge |
-| Persistent normalized rolled-item quality | PROVEN | definition-owned bounded roll profiles, immutable normalized roll state, validated runtime snapshots/cache and derived Paper/AH presentation; live combat application remains a separate modifier/runtime boundary |
+| Persistent normalized rolled-item quality | PROVEN | definition-owned bounded roll profiles, immutable normalized roll state, validated runtime snapshots/cache, derived Paper/AH presentation, conservative delivery projection and fail-closed intrinsic-damage attribute materialization on join/delivery |
 | Equipment upgrade/salvage separation | PROVEN authority | V82 upgrade evidence/integrity, session-fenced atomic carried-item + serialized-state upgrade transition, replay/concurrency/category guards; irreversible salvage authority/tests; exact upgrade economics/power remain content decisions |
 | Item use/equip requirements | PROVEN foundation | definition-owned use requirements, catalog validation and eligibility service; Paper action-level enforcement remains intentionally dormant until launch content opts into a real requirement |
 | Generic skills + staged active caps 50/75/100 | PROVEN | skill authority, cap transitions, no hidden above-cap XP, integration tests |
@@ -80,11 +80,11 @@ Player-facing/adapter and operations work already includes:
 - inventory-coupled Map opening, managed Map encounter completion/recovery and Persistent-MMO leaderboards;
 - expansion voting/Chronicle projections;
 - isolated Ranked 1v1 and baseline Clan-War 1.8.9 execution paths;
-- validated rolled-item runtime snapshots/presentation plus structurally safe carried-item upgrade authority;
+- validated rolled-item runtime snapshots/presentation and fail-closed intrinsic-damage combat materialization plus structurally safe carried-item upgrade authority;
 - operator-triggered bounded `/integrity` verification;
 - offline coherent local backup/restore scripts with manifest/checksum/version validation and a fail-closed incomplete-restore startup fence.
 
-The highest-value remaining recovery boundary is now **empirical coherent restore proof on the actual Windows/Docker development machine**, not more backup-script architecture. Live rolled-stat combat application, upgrade economics/power, broader Clan-War gear representation, real-client competitive feel, first-Map acquisition and concrete skill-gated item content remain intentionally behind explicit content/tuning or empirical decisions rather than being guessed into architecture.
+The highest-value remaining recovery boundary is now **empirical coherent restore proof on the actual Windows/Docker development machine**, not more backup-script architecture. Upgrade economics/power, broader Clan-War gear representation, real-client competitive feel, first-Map acquisition and concrete skill-gated item content remain intentionally behind explicit content/tuning or empirical decisions rather than being guessed into architecture.
 
 ## Rule
 
