@@ -86,7 +86,7 @@ jobs:
           tail -n 40 build.log
 
       - name: Upload Gradle failure diagnostics
-        if: steps.gradle-build.outcome == 'failure'
+        if: ${{ failure() && steps.gradle-build.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: gradle-failure-diagnostics
@@ -98,7 +98,7 @@ jobs:
           retention-days: 7
 
       - name: Report Gradle failure on PR
-        if: steps.gradle-build.outcome == 'failure' && github.event_name == 'pull_request'
+        if: ${{ failure() && steps.gradle-build.outcome == 'failure' && github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
