@@ -6,12 +6,21 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
-/** Temporary acceptance-test entrypoint for the logical zone transfer path. */
+/** Temporary acceptance-test entrypoint for the logical zone transfer path. Disabled unless explicitly enabled. */
 final class DevZoneCommand implements CommandExecutor {
     private final PaperSessionController sessions;
+    private final boolean enabled;
 
     DevZoneCommand(PaperSessionController sessions) {
+        this(
+                sessions,
+                DevToolsPolicy.enabled(System.getenv(DevToolsPolicy.ENABLE_ENVIRONMENT_VARIABLE))
+        );
+    }
+
+    DevZoneCommand(PaperSessionController sessions, boolean enabled) {
         this.sessions = sessions;
+        this.enabled = enabled;
     }
 
     @Override
@@ -21,6 +30,10 @@ final class DevZoneCommand implements CommandExecutor {
             @NotNull String label,
             @NotNull String[] args
     ) {
+        if (!enabled) {
+            sender.sendMessage("Development tools are disabled on this backend.");
+            return true;
+        }
         if (!(sender instanceof Player player)) {
             sender.sendMessage("This development command can only be used by a player.");
             return true;
