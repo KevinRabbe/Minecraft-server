@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class BundledItemCatalogTest {
@@ -12,6 +13,18 @@ class BundledItemCatalogTest {
     void bundledCatalogAlwaysPassesCommonValidation() {
         ItemCatalog catalog = new ItemCatalogLoader().loadResource("/content/items.json");
         assertNotNull(catalog);
+    }
+
+    @Test
+    void bundledNonEquipmentDefinitionsNeverCarryGenericGearRollProfiles() {
+        ItemCatalog catalog = new ItemCatalogLoader().loadResource("/content/items.json");
+
+        catalog.definitions().stream()
+                .filter(definition -> definition.category() != ItemCategory.EQUIPMENT)
+                .forEach(definition -> assertFalse(
+                        definition.rollProfile().rolled(),
+                        () -> definition.definitionId() + " must not carry an equipment roll profile"
+                ));
     }
 
     @Test
