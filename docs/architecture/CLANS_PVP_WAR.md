@@ -29,6 +29,22 @@ Large clans may choose to organize members as miners/foragers/farmers, Map pushe
 
 Their advantage comes from division of labor, specialization, capital allocation, market knowledge, and coordination rather than hidden clan-only production multipliers. Solo/small-group specialists remain economically relevant because resources/materials/gear remain tradable through the wider market.
 
+## Clan chat
+
+V1 clan chat is network-wide across persistent-MMO Paper backends. PostgreSQL is a bounded ephemeral transit boundary, not permanent player-visible chat history and not a second membership authority.
+
+Rules:
+
+- the server derives the sender's clan from current authoritative membership; clients never choose a target `ClanId`;
+- publication is replay-safe through a stable server-generated message UUID;
+- each backend polls one bounded global sequence and derives recipients from current clan membership plus ACTIVE, unexpired session ownership on that backend;
+- removed/offline/transferring players are not recipients;
+- backend restart starts from the current sequence rather than replaying old chat as an inbox;
+- transit retention is bounded and has no value/economy semantics;
+- chat database failure never falls back to a fake same-server broadcast.
+
+The exact transport/delivery contract is defined in [`CLAN_CHAT.md`](CLAN_CHAT.md).
+
 ## Clan treasury
 
 The treasury is explicit clan-controlled Coin custody.
