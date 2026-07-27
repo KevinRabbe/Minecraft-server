@@ -50,6 +50,10 @@ class CraftingRepositoryIntegrationTest {
     private static final String STEEL = "craft.steel";
     private static final String SWORD = "craft.sword";
     private static final SkillId SMITHING = new SkillId("smithing");
+    private static final ItemRollProfile SWORD_ROLL_PROFILE = new ItemRollProfile(Map.of(
+            "damage", new RollRange(10_000, 12_000),
+            "speed", new RollRange(9_500, 10_500)
+    ));
 
     private Database database;
     private DataSource dataSource;
@@ -82,7 +86,8 @@ class CraftingRepositoryIntegrationTest {
                         "Rolled Sword",
                         1,
                         ItemCategory.EQUIPMENT,
-                        ItemIdentityKind.INDIVIDUAL
+                        ItemIdentityKind.INDIVIDUAL,
+                        SWORD_ROLL_PROFILE
                 )
         ));
         skills = new SkillProgressionCatalog(List.of(linearSkill(SMITHING)));
@@ -109,10 +114,7 @@ class CraftingRepositoryIntegrationTest {
                                 SMITHING,
                                 10
                         ),
-                        new ItemRollProfile(Map.of(
-                                "damage", new RollRange(10_000, 12_000),
-                                "speed", new RollRange(9_500, 10_500)
-                        ))
+                        SWORD_ROLL_PROFILE
                 )
         ), items);
     }
@@ -363,7 +365,9 @@ class CraftingRepositoryIntegrationTest {
         }
     }
 
-    private CraftingRepository repository(io.github.kevinrabbe.minecraftserver.common.economy.CommodityBatchEscrowValidator validator) {
+    private CraftingRepository repository(
+            io.github.kevinrabbe.minecraftserver.common.economy.CommodityBatchEscrowValidator validator
+    ) {
         return new CraftingRepository(dataSource, items, recipes, skills, validator);
     }
 
