@@ -1,9 +1,12 @@
 package io.github.kevinrabbe.minecraftserver.common.item;
 
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -13,6 +16,14 @@ class BundledItemCatalogTest {
     void bundledCatalogAlwaysPassesCommonValidation() {
         ItemCatalog catalog = new ItemCatalogLoader().loadResource("/content/items.json");
         assertNotNull(catalog);
+    }
+
+    @Test
+    void bundledItemUseRequirementsReferenceKnownSkills() {
+        ItemCatalog items = new ItemCatalogLoader().loadResource("/content/items.json");
+        SkillProgressionCatalog skills = new SkillProgressionCatalogLoader().loadResource("/content/skills.json");
+
+        assertDoesNotThrow(() -> ItemUseRequirementCatalogValidator.validate(items, skills));
     }
 
     @Test
