@@ -50,6 +50,7 @@ final class PaperUniqueDeliveryController implements Listener {
     private final PaperPlayerIdentityResolver playerIdentities;
     private final PendingUniqueDeliveryClaimService claims;
     private final PaperPlayerItemRepresentationValidator statValidator;
+    private final PaperItemRuntimeMaterializer materializer;
     private final PaperItemRuntimePresentation presentation;
     private final Set<UUID> drainInFlight = ConcurrentHashMap.newKeySet();
 
@@ -71,6 +72,7 @@ final class PaperUniqueDeliveryController implements Listener {
                 new PaperUniqueDeliveryStateMutator(plugin)
         );
         this.statValidator = new PaperPlayerItemRepresentationValidator(plugin, dataSource, catalog);
+        this.materializer = new PaperItemRuntimeMaterializer(plugin, catalog);
         this.presentation = new PaperItemRuntimePresentation(plugin, catalog);
     }
 
@@ -230,7 +232,7 @@ final class PaperUniqueDeliveryController implements Listener {
             if (validation.valid()) {
                 Map<UUID, ItemRuntimeStatSnapshot> snapshots = validation.validatedIndividualSnapshots();
                 if (PaperItemRuntimeStatCache.replaceIfCurrent(minecraftUuid, generation, snapshots)) {
-                    runOnMainThread(() -> refreshPresentationBestEffort(minecraftUuid));
+                    runOnMainThread(() -> materializeAndPresentOrQuarantine(minecraftUuid));
                 }
                 return;
             }
@@ -267,15 +269,33 @@ final class PaperUniqueDeliveryController implements Listener {
         }
     }
 
-    private void refreshPresentationBestEffort(UUID minecraftUuid) {
+    private void materializeAndPresentOrQuarantine(UUID minecraftUuid) {
         Player live = plugin.getServer().getPlayer(minecraftUuid);
         if (live == null || !live.isOnline()) return;
+        try {
+            materializer.refresh(live);
+        } catch (RuntimeException exception) {
+            PaperItemRuntimeStatCache.clear(minecraftUuid);
+            plugin.getLogger().log(
+                    Level.SEVERE,
+                    "Could not materialize authoritative managed-item attributes after delivery for player "
+                            + minecraftUuid,
+                    exception
+            );
+            live.kick(INVALID_ITEM_STATE_MESSAGE);
+            return;
+        }
+        refreshPresentationBestEffort(live);
+    }
+
+    private void refreshPresentationBestEffort(Player live) {
         try {
             presentation.refresh(live);
         } catch (RuntimeException exception) {
             plugin.getLogger().log(
                     Level.WARNING,
-                    "Could not refresh derived managed-item presentation after delivery for player " + minecraftUuid,
+                    "Could not refresh derived managed-item presentation after delivery for player "
+                            + live.getUniqueId(),
                     exception
             );
         }
