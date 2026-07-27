@@ -20,6 +20,7 @@ import java.util.logging.Level;
 
 /** Explicit bounded operator diagnostic over persistent economy/custody, item, PvE, clan, and competitive evidence. */
 final class PaperIntegrityCommand implements CommandExecutor {
+    static final String PERMISSION = "minecraftserver.admin.integrity";
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_COMMAND_LIMIT = 100;
 
@@ -49,11 +50,21 @@ final class PaperIntegrityCommand implements CommandExecutor {
                 plugin.getCommand("integrity"),
                 "integrity command missing from plugin.yml"
         );
+        if (!PERMISSION.equals(command.getPermission())) {
+            throw new IllegalStateException(
+                    "integrity command must require capability " + PERMISSION + " in plugin.yml"
+            );
+        }
         command.setExecutor(new PaperIntegrityCommand(plugin, verifier));
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!sender.hasPermission(PERMISSION)) {
+            sender.sendMessage(Component.text("You do not have permission to run persistent integrity diagnostics."));
+            return true;
+        }
+
         final int limit;
         try {
             if (args.length > 1) {
