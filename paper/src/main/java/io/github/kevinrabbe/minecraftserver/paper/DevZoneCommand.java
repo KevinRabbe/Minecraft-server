@@ -8,6 +8,8 @@ import org.jetbrains.annotations.NotNull;
 
 /** Temporary acceptance-test entrypoint for the logical zone transfer path. Disabled unless explicitly enabled. */
 final class DevZoneCommand implements CommandExecutor {
+    static final String PERMISSION = "minecraftserver.dev.route";
+
     private final PaperSessionController sessions;
     private final boolean enabled;
 
@@ -30,6 +32,10 @@ final class DevZoneCommand implements CommandExecutor {
             @NotNull String label,
             @NotNull String[] args
     ) {
+        if (!sender.hasPermission(PERMISSION)) {
+            sender.sendMessage("You do not have permission to use this development command.");
+            return true;
+        }
         if (!enabled) {
             sender.sendMessage("Development tools are disabled on this backend.");
             return true;
