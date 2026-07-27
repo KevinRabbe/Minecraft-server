@@ -82,7 +82,7 @@ class ArtifactIntegrityVerifierIntegrationTest {
 
     @Test
     void repositoryCreatedArtifactHistoryAndKnownAttunementAreClean() throws Exception {
-        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "ArtifactIntegrity");
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "ArtifactCheck");
         UUID artifactId = UUID.randomUUID();
         artifacts.createArtifact(
                 UUID.randomUUID(), artifactId, 3, 1, true,
