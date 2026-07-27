@@ -5,6 +5,7 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRuntimeStatSnapshot;
+import io.github.kevinrabbe.minecraftserver.common.item.UpgradeState;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Central owner of derived presentation for managed individualized ItemStack representations and market inspection. */
 final class PaperItemRuntimePresentation {
@@ -71,11 +73,6 @@ final class PaperItemRuntimePresentation {
         if (!definition.definitionId().equals(snapshot.definitionId())) {
             throw new IllegalArgumentException("snapshot definition does not match item definition");
         }
-        if (definition.category() != ItemCategory.EQUIPMENT && snapshot.upgradeState().level() != 0) {
-            throw new IllegalArgumentException(
-                    "non-equipment definition carries generic upgrade state: " + snapshot.upgradeState().level()
-            );
-        }
 
         List<String> rollLines = describeRolls(definition, snapshot.normalizedRollQualityBasisPoints());
         Map<String, Integer> currentMultipliers = IntrinsicRollResolver.resolveMultipliers(
@@ -87,9 +84,7 @@ final class PaperItemRuntimePresentation {
         }
 
         ArrayList<String> lines = new ArrayList<>(rollLines);
-        if (definition.category() == ItemCategory.EQUIPMENT) {
-            lines.add("Upgrade: +" + snapshot.upgradeState().level());
-        }
+        describeUpgrade(definition, snapshot.upgradeState().level()).ifPresent(lines::add);
         return List.copyOf(lines);
     }
 
@@ -115,6 +110,20 @@ final class PaperItemRuntimePresentation {
                             + " quality (" + formatPercent(multiplier) + " base)";
                 })
                 .toList();
+    }
+
+    static Optional<String> describeUpgrade(ItemDefinition definition, int upgradeLevel) {
+        Objects.requireNonNull(definition, "definition");
+        UpgradeState upgradeState = new UpgradeState(upgradeLevel);
+        if (definition.category() == ItemCategory.EQUIPMENT) {
+            return Optional.of("Upgrade: +" + upgradeState.level());
+        }
+        if (upgradeState.level() != 0) {
+            throw new IllegalArgumentException(
+                    "non-equipment definition carries generic upgrade state: " + upgradeState.level()
+            );
+        }
+        return Optional.empty();
     }
 
     private static String formatPercent(int basisPoints) {
