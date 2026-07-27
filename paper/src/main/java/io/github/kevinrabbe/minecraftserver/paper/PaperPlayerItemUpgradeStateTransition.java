@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
 import io.github.kevinrabbe.minecraftserver.common.item.PlayerItemUpgradeStateValidator;
@@ -11,7 +12,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Deterministic Paper projection/proof for one carried item's authority-version upgrade.
+ * Deterministic Paper projection/proof for one carried equipment item's authority-version upgrade.
  *
  * <p>The expected next payload is reconstructed from the locked current payload. Therefore slot movement, stack/count
  * changes, unrelated item/PDC/lore edits, or any second inventory mutation make validation fail closed.</p>
@@ -35,6 +36,11 @@ final class PaperPlayerItemUpgradeStateTransition implements PlayerItemUpgradeSt
     ) {
         Objects.requireNonNull(itemInstanceId, "itemInstanceId");
         ItemDefinition definition = itemCatalog.require(definitionId);
+        if (definition.category() != ItemCategory.EQUIPMENT) {
+            throw new PaperItemRepresentationException(
+                    "Only EQUIPMENT definitions can use the carried item upgrade transition: " + definitionId
+            );
+        }
         PaperPlayerStateCodec.InventoryState current = stateCodec.decodeState(currentStatePayload);
         ItemStack[] storage = current.storage();
         ItemStack[] armor = current.armor();
