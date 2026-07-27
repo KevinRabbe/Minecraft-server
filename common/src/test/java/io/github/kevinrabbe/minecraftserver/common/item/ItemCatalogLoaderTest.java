@@ -1,9 +1,11 @@
 package io.github.kevinrabbe.minecraftserver.common.item;
 
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillId;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -42,10 +44,69 @@ class ItemCatalogLoaderTest {
         ItemDefinition commodity = catalog.require("material.iron_ore");
         assertEquals(ItemIdentityKind.COMMODITY, commodity.identityKind());
         assertTrue(commodity.stackable());
+        assertTrue(commodity.useRequirements().unrestricted());
 
         ItemDefinition individual = catalog.require("equipment.steel_pickaxe");
         assertEquals(ItemIdentityKind.INDIVIDUAL, individual.identityKind());
         assertEquals(1, individual.maxStackSize());
+        assertTrue(individual.useRequirements().unrestricted());
+    }
+
+    @Test
+    void loadsSkillUseRequirementsWithoutChangingOwnershipModel() {
+        ItemCatalog catalog = load("""
+                {
+                  "schema_version": 1,
+                  "items": [
+                    {
+                      "definition_id": "equipment.special_sword",
+                      "minecraft_material": "IRON_SWORD",
+                      "display_name": "Special Sword",
+                      "max_stack_size": 1,
+                      "category": "equipment",
+                      "identity_kind": "individual",
+                      "use_skill_requirements": {
+                        "combat": 10,
+                        "bounty.spider": 5
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        ItemDefinition definition = catalog.require("equipment.special_sword");
+        assertEquals(ItemIdentityKind.INDIVIDUAL, definition.identityKind());
+        assertEquals(
+                List.of(
+                        new ItemSkillRequirement(new SkillId("bounty.spider"), 5),
+                        new ItemSkillRequirement(new SkillId("combat"), 10)
+                ),
+                definition.useRequirements().skillRequirements()
+        );
+    }
+
+    @Test
+    void rejectsInvalidUseSkillRequirementLevel() {
+        ItemCatalogException exception = assertThrows(ItemCatalogException.class, () -> load("""
+                {
+                  "schema_version": 1,
+                  "items": [
+                    {
+                      "definition_id": "equipment.bad_requirement",
+                      "minecraft_material": "IRON_SWORD",
+                      "display_name": "Bad Requirement",
+                      "max_stack_size": 1,
+                      "category": "equipment",
+                      "identity_kind": "individual",
+                      "use_skill_requirements": {
+                        "combat": 101
+                      }
+                    }
+                  ]
+                }
+                """));
+
+        assertTrue(exception.getMessage().contains("minimumLevel must be between 1 and 100"));
     }
 
     @Test
