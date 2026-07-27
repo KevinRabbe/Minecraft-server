@@ -5,6 +5,7 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 
 import javax.sql.DataSource;
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -13,7 +14,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /** Read-only bounded reconciliation of current unique-item upgrade state against append-only upgrade evidence. */
 public final class ItemUpgradeIntegrityVerifier {
@@ -59,37 +62,46 @@ public final class ItemUpgradeIntegrityVerifier {
         int remaining = remaining(issues, maxIssues);
         if (remaining == 0) return;
 
-        try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT item.item_instance_id,
-                       item.definition_id,
-                       item.upgrade_level
-                FROM item_instances item
-                WHERE item.upgrade_level > 0
-                   OR EXISTS (
-                        SELECT 1
-                        FROM item_upgrade_events event
-                        WHERE event.item_instance_id = item.item_instance_id
-                   )
-                ORDER BY item.item_instance_id
-                LIMIT ?
-                """)) {
-            statement.setInt(1, remaining);
-            try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    UUID itemId = rows.getObject("item_instance_id", UUID.class);
-                    String definitionId = rows.getString("definition_id");
-                    Optional<ItemDefinition> definition = itemCatalog.find(definitionId);
-                    if (definition.isEmpty()) {
-                        issues.add(new IntegrityIssue(
-                                IntegritySeverity.CRITICAL,
-                                "ITEM_UPGRADE_DEFINITION_UNKNOWN",
-                                itemId.toString(),
-                                "Upgraded live item references unknown definition " + definitionId
-                        ));
-                        continue;
-                    }
-                    ItemDefinition known = definition.orElseThrow();
-                    if (known.category() != ItemCategory.EQUIPMENT) {
+        Set<String> equipmentDefinitionIds = itemCatalog.definitions().stream()
+                .filter(definition -> definition.category() == ItemCategory.EQUIPMENT)
+                .map(ItemDefinition::definitionId)
+                .collect(Collectors.toUnmodifiableSet());
+        Array equipmentIds = connection.createArrayOf("text", equipmentDefinitionIds.toArray());
+        try {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT item.item_instance_id,
+                           item.definition_id,
+                           item.upgrade_level
+                    FROM item_instances item
+                    WHERE (
+                            item.upgrade_level > 0
+                            OR EXISTS (
+                                SELECT 1
+                                FROM item_upgrade_events event
+                                WHERE event.item_instance_id = item.item_instance_id
+                            )
+                          )
+                      AND NOT (item.definition_id = ANY (?))
+                    ORDER BY item.item_instance_id
+                    LIMIT ?
+                    """)) {
+                statement.setArray(1, equipmentIds);
+                statement.setInt(2, remaining);
+                try (ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        UUID itemId = rows.getObject("item_instance_id", UUID.class);
+                        String definitionId = rows.getString("definition_id");
+                        Optional<ItemDefinition> definition = itemCatalog.find(definitionId);
+                        if (definition.isEmpty()) {
+                            issues.add(new IntegrityIssue(
+                                    IntegritySeverity.CRITICAL,
+                                    "ITEM_UPGRADE_DEFINITION_UNKNOWN",
+                                    itemId.toString(),
+                                    "Upgraded live item references unknown definition " + definitionId
+                            ));
+                            continue;
+                        }
+                        ItemDefinition known = definition.orElseThrow();
                         issues.add(new IntegrityIssue(
                                 IntegritySeverity.CRITICAL,
                                 "ITEM_UPGRADE_NON_EQUIPMENT",
@@ -101,6 +113,8 @@ public final class ItemUpgradeIntegrityVerifier {
                     }
                 }
             }
+        } finally {
+            equipmentIds.free();
         }
     }
 
