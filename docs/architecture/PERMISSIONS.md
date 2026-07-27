@@ -10,10 +10,13 @@ Staff convenience must not bypass economic, vote, provenance, PvE-result, or his
 
 The currently implemented Paper operator commands are deliberately narrow:
 
-- `/integrity` requires `minecraftserver.admin.integrity` and is read-only. It runs bounded persistent integrity diagnostics and has no repair/mint/override path.
-- `/devzone` requires `minecraftserver.dev.route` **and** is runtime-disabled unless `DEV_TOOLS_ENABLED=true`. The local Windows development supervisor opts in explicitly; a normal production backend defaults closed even for an OP account.
+- `/integrity` requires `minecraftserver.admin.integrity` and is read-only. It runs bounded persistent integrity diagnostics and has no repair/mint/override path. The command installer fails startup if `plugin.yml` no longer declares that exact capability, and the executor checks the capability again before scheduling the database read.
+- `/devzone` requires `minecraftserver.dev.route` **and** is runtime-disabled unless `DEV_TOOLS_ENABLED=true`. The executor checks the named capability itself in addition to Bukkit command dispatch. The local Windows development supervisor may opt in explicitly; a normal production backend defaults closed even for an OP account.
+- a Paper regression test binds both command entries and both declared permissions in `plugin.yml` to the stable capability identifiers enforced by code.
 
 A plugin permission by itself is not considered sufficient isolation for a development-only bypass surface. Test/development capability must also be absent or fail closed in the production runtime mode.
+
+These proven read-only/development operator boundaries do **not** imply that value-changing recovery is implemented. No generic persistent-value repair/mint/override command exists.
 
 ## Capability examples
 
