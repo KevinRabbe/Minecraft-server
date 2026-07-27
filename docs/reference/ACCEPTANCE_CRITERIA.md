@@ -122,7 +122,8 @@ For Mining and Crafting first, then all launch skills:
 10. a configured use/equip requirement is enforced at the relevant use/equip boundary without blocking ownership, transfer, listing, or purchase;
 11. eligibility is derived from authoritative committed skill progression rather than item possession or client presentation;
 12. any local eligibility projection is bounded, fails closed when no trustworthy snapshot exists, and routine use/equip checks do not require a PostgreSQL query per action;
-13. disconnect/reconnect or attachment replacement fences stale eligibility refresh/retry work so an earlier session cannot become the current permission snapshot.
+13. disconnect/reconnect or attachment replacement fences stale eligibility refresh/retry work so an earlier session cannot become the current permission snapshot;
+14. a committed XP award that crosses a configured use threshold advances the attached eligibility projection without requiring reconnect; if that commit races an attachment refresh, the newer skill `state_version` wins, while detach during the refresh prevents the old read from republishing permission state.
 
 Enchanting/brewing retain their separately documented Minecraft integration and may not bypass staged-cap or source-gating invariants.
 
@@ -264,7 +265,7 @@ Deliberately test at minimum:
 - Bazaar cancel/fill and AH cancel/buy races;
 - simultaneous bank/spend/death-loss operations;
 - concurrent carried-item upgrades from one stale item/session head;
-- stale item-use eligibility refresh/retry work racing disconnect/reconnect;
+- stale item-use eligibility refresh/retry work racing disconnect/reconnect or a newly committed XP result;
 - player disconnect during sensitive operations;
 - Velocity restart;
 - PostgreSQL temporary unavailability;
