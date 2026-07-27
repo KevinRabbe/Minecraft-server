@@ -108,6 +108,11 @@ public final class PlayerItemUpgradeRepository {
                             "Only INDIVIDUAL definitions can be upgraded: " + current.definitionId()
                     );
                 }
+                if (definition.category() != ItemCategory.EQUIPMENT) {
+                    throw new UniqueItemAuthorityException(
+                            "Only EQUIPMENT definitions can be upgraded: " + current.definitionId()
+                    );
+                }
                 if (current.stateVersion() != expectedItemStateVersion) {
                     throw new UniqueItemAuthorityException(
                             "Stale item state_version for carried upgrade " + itemInstanceId
