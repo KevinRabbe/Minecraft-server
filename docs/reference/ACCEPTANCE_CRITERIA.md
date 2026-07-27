@@ -100,7 +100,9 @@ For at least one commodity before broad content expansion:
 12. an uncommitted/failed upgrade attempt leaves the item intact and does not silently degrade, destroy, reroll, or ambiguously advance it;
 13. upgrade evidence/provenance is append-only enough for the global integrity verifier to detect live-item chain/provenance corruption;
 14. salvage destroys exactly the intended unique item and creates configured output once;
-15. craft/Bazaar/transfer races cannot spend the same commodity twice.
+15. craft/Bazaar/transfer races cannot spend the same commodity twice;
+16. live rolled-equipment stats are rebuilt from trusted item definition/roll authority rather than trusting arbitrary carried ItemStack attributes, and unsupported runtime attribute shapes fail closed;
+17. intrinsic-roll materialization affects the definition-owned base item contribution without accidentally scaling later player-skill, upgrade, enchantment, set/context, or temporary-effect stages.
 
 Exact upgrade cost/progression/power values are tuning/content decisions, not substitutes for these authority invariants.
 
@@ -118,7 +120,9 @@ For Mining and Crafting first, then all launch skills:
 8. test transition 50 -> 75 reopens progression without duplicating earlier rewards;
 9. test transition 75 -> 100 behaves the same way;
 10. a configured use/equip requirement is enforced at the relevant use/equip boundary without blocking ownership, transfer, listing, or purchase;
-11. eligibility is derived from authoritative committed skill progression rather than item possession or client presentation.
+11. eligibility is derived from authoritative committed skill progression rather than item possession or client presentation;
+12. any local eligibility projection is bounded, fails closed when no trustworthy snapshot exists, and routine use/equip checks do not require a PostgreSQL query per action;
+13. disconnect/reconnect or attachment replacement fences stale eligibility refresh/retry work so an earlier session cannot become the current permission snapshot.
 
 Enchanting/brewing retain their separately documented Minecraft integration and may not bypass staged-cap or source-gating invariants.
 
@@ -260,6 +264,7 @@ Deliberately test at minimum:
 - Bazaar cancel/fill and AH cancel/buy races;
 - simultaneous bank/spend/death-loss operations;
 - concurrent carried-item upgrades from one stale item/session head;
+- stale item-use eligibility refresh/retry work racing disconnect/reconnect;
 - player disconnect during sensitive operations;
 - Velocity restart;
 - PostgreSQL temporary unavailability;
