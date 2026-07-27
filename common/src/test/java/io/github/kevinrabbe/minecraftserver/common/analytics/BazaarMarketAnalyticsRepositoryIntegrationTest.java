@@ -15,18 +15,24 @@ import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityReposit
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import javax.sql.DataSource;
 import java.math.BigInteger;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,6 +50,9 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
     private PlayerIdentityRepository identities;
     private PlayerSessionRepository sessions;
     private CoinWalletRepository wallets;
+    private final Set<String> testCommodities = new LinkedHashSet<>();
+    private final Set<UUID> testOperationIds = new LinkedHashSet<>();
+    private final Set<UUID> testPlayers = new LinkedHashSet<>();
 
     @BeforeAll
     void openDatabase() {
@@ -60,6 +69,55 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
         wallets = new CoinWalletRepository(dataSource);
     }
 
+    @BeforeEach
+    void resetTracking() {
+        testCommodities.clear();
+        testOperationIds.clear();
+        testPlayers.clear();
+    }
+
+    @AfterEach
+    void cleanTestAuthority() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                for (String commodity : testCommodities) {
+                    execute(connection, """
+                            DELETE FROM pending_commodity_deliveries
+                            WHERE commodity_definition_id = ?
+                            """, commodity);
+                    execute(connection, """
+                            DELETE FROM bazaar_fills
+                            WHERE buy_order_id IN (
+                                SELECT order_id FROM bazaar_orders WHERE commodity_definition_id = ?
+                            ) OR sell_order_id IN (
+                                SELECT order_id FROM bazaar_orders WHERE commodity_definition_id = ?
+                            )
+                            """, commodity, commodity);
+                    execute(connection, """
+                            DELETE FROM bazaar_orders
+                            WHERE commodity_definition_id = ?
+                            """, commodity);
+                }
+                for (UUID operationId : testOperationIds) {
+                    execute(connection, "DELETE FROM economic_ledger WHERE operation_id = ?", operationId);
+                    execute(connection, "DELETE FROM processed_operations WHERE operation_id = ?", operationId);
+                }
+                for (UUID playerId : testPlayers) {
+                    execute(connection, "DELETE FROM player_sessions WHERE player_id = ?", playerId);
+                    execute(connection, "DELETE FROM wallets WHERE player_id = ?", playerId);
+                    execute(connection, "DELETE FROM player_state WHERE player_id = ?", playerId);
+                    execute(connection, "DELETE FROM player_names WHERE player_id = ?", playerId);
+                    execute(connection, "DELETE FROM players WHERE player_id = ?", playerId);
+                }
+                connection.commit();
+            } catch (Exception exception) {
+                connection.rollback();
+                throw exception;
+            }
+        }
+    }
+
     @AfterAll
     void closeDatabase() {
         if (database != null) database.close();
@@ -74,17 +132,17 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
         UUID lowerBidder = player("MarketBidB");
         UUID bestSeller = player("MarketAskA");
         UUID higherSeller = player("MarketAskB");
-        wallets.creditFromSystem(UUID.randomUUID(), bestBidder, 1_000L, "verify.market.book.credit.a");
-        wallets.creditFromSystem(UUID.randomUUID(), lowerBidder, 1_000L, "verify.market.book.credit.b");
+        wallets.creditFromSystem(operation(), bestBidder, 1_000L, "verify.market.book.credit.a");
+        wallets.creditFromSystem(operation(), lowerBidder, 1_000L, "verify.market.book.credit.b");
 
         bazaar.createBuyOrder(
-                UUID.randomUUID(),
+                operation(),
                 bestBidder,
                 new BazaarOrderRequest(commodity, BazaarOrderSide.BUY, 3L, 100L),
                 "verify.market.book.bid.best"
         );
         bazaar.createBuyOrder(
-                UUID.randomUUID(),
+                operation(),
                 lowerBidder,
                 new BazaarOrderRequest(commodity, BazaarOrderSide.BUY, 5L, 90L),
                 "verify.market.book.bid.lower"
@@ -119,9 +177,9 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
 
         UUID buyer = player("MarketFillBuy");
         UUID seller = player("MarketFillSell");
-        wallets.creditFromSystem(UUID.randomUUID(), buyer, 1_000L, "verify.market.fill.credit");
+        wallets.creditFromSystem(operation(), buyer, 1_000L, "verify.market.fill.credit");
         bazaar.createBuyOrder(
-                UUID.randomUUID(),
+                operation(),
                 buyer,
                 new BazaarOrderRequest(commodity, BazaarOrderSide.BUY, 2L, 100L),
                 "verify.market.fill.buy"
@@ -129,7 +187,7 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
         createSellOrder(bazaar, seller, commodity, 2L, 100L, "verify.market.fill.sell");
 
         BazaarMatchResult match = bazaar.matchCommodity(
-                UUID.randomUUID(),
+                operation(),
                 commodity,
                 10,
                 "verify.market.fill.match"
@@ -162,9 +220,9 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
         String commodity = uniqueCommodity("future");
         BazaarRepository bazaar = bazaarFor(commodity, 100);
         UUID buyer = player("MarketFuture");
-        wallets.creditFromSystem(UUID.randomUUID(), buyer, 500L, "verify.market.future.credit");
+        wallets.creditFromSystem(operation(), buyer, 500L, "verify.market.future.credit");
         bazaar.createBuyOrder(
-                UUID.randomUUID(),
+                operation(),
                 buyer,
                 new BazaarOrderRequest(commodity, BazaarOrderSide.BUY, 2L, 50L),
                 "verify.market.future.buy"
@@ -209,7 +267,15 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
     }
 
     private UUID player(String name) throws Exception {
-        return identities.ensurePlayer(UUID.randomUUID(), name);
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), name);
+        testPlayers.add(playerId);
+        return playerId;
+    }
+
+    private UUID operation() {
+        UUID operationId = UUID.randomUUID();
+        testOperationIds.add(operationId);
+        return operationId;
     }
 
     private void createSellOrder(
@@ -222,21 +288,37 @@ class BazaarMarketAnalyticsRepositoryIntegrationTest {
     ) throws Exception {
         String backend = "analytics-bazaar-" + UUID.randomUUID().toString().substring(0, 8);
         SessionLease lease = sessions.openSession(seller, backend, null, Duration.ofMinutes(5));
-        bazaar.createSellOrder(
-                UUID.randomUUID(),
-                lease.sessionId(),
-                backend,
-                lease.stateVersion(),
-                new BazaarOrderRequest(commodity, BazaarOrderSide.SELL, quantity, priceMinor),
-                null,
-                null,
-                new byte[] {1},
-                reason
-        );
+        try {
+            bazaar.createSellOrder(
+                    operation(),
+                    lease.sessionId(),
+                    backend,
+                    lease.stateVersion(),
+                    new BazaarOrderRequest(commodity, BazaarOrderSide.SELL, quantity, priceMinor),
+                    null,
+                    null,
+                    new byte[] {1},
+                    reason
+            );
+        } finally {
+            sessions.disconnect(lease.sessionId(), backend);
+        }
     }
 
-    private static String uniqueCommodity(String lane) {
-        return "material.analytics_" + lane + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    private String uniqueCommodity(String lane) {
+        String commodity = "material.analytics_" + lane + "_"
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        testCommodities.add(commodity);
+        return commodity;
+    }
+
+    private static void execute(Connection connection, String sql, Object... values) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int index = 0; index < values.length; index++) {
+                statement.setObject(index + 1, values[index]);
+            }
+            statement.executeUpdate();
+        }
     }
 
     private static String requireEnvironment(String name) {
