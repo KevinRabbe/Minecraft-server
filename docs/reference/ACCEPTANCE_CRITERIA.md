@@ -26,7 +26,11 @@ For starter gameplay and at least one disposable PvE activity:
 5. transfer freezes/commits/releases/claims with version fencing;
 6. stale source writes and ticket replays are rejected;
 7. instance/backend failure cannot duplicate inventory, Coins, XP, Map/Bounty rewards, or unique items;
-8. unavailable destinations fall back safely.
+8. unavailable destinations fall back safely;
+9. every live `ACTIVE`, `TRANSFERRING`, or `RECOVERING` session reconciles to the exact current `player_state.state_version`;
+10. live session ownership/lease shape is valid, a claimed `owner_instance_id` belongs to the same owner backend, and historical `DISCONNECTED` sessions retain no live backend/instance/lease custody;
+11. every `TRANSFERRING` session and its one open ticket agree on player, source backend, and exact expected state version, while an open ticket cannot remain attached to a non-`TRANSFERRING` session;
+12. a routed transfer's stable instance identity agrees with the ticket's target backend and logical zone; ticket expiry or a later `STOPPED` instance alone remains a recoverable condition rather than an integrity failure.
 
 ## C. Asset identity and economic evidence
 
@@ -260,6 +264,7 @@ Deliberately test at minimum:
 - Paper crash during ordinary play;
 - Paper crash during/around transfer;
 - repeated transfer ticket replay;
+- deliberate corruption of live session/player-state version pairing, session ownership/lease shape, transfer-ticket/session pairing, and routed instance identity must be detected by bounded integrity verification;
 - database response lost after a successful transaction commit;
 - duplicate economic/crafting/XP/Map/Bounty/vote/upgrade operation requests;
 - Bazaar cancel/fill and AH cancel/buy races;
