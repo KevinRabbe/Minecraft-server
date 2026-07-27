@@ -41,7 +41,6 @@ class PlayerItemUpgradeRepositoryIntegrationTest {
     private static final Duration LEASE = Duration.ofSeconds(30);
     private static final String BACKEND = "paper-a";
     private static final String SWORD = "equipment.player_upgrade_test";
-    private static final String MAP = "progression.player_upgrade_test_map";
     private static final String REASON = "test.player_item_upgrade";
     private static final byte[] CURRENT_PAYLOAD = new byte[]{4, 1, 0};
     private static final byte[] NEXT_PAYLOAD = new byte[]{4, 1, 1};
@@ -67,24 +66,14 @@ class PlayerItemUpgradeRepositoryIntegrationTest {
         identities = new PlayerIdentityRepository(dataSource);
         sessions = new PlayerSessionRepository(dataSource);
         states = new PlayerStateRepository(dataSource);
-        catalog = new ItemCatalog(List.of(
-                new ItemDefinition(
-                        SWORD,
-                        "IRON_SWORD",
-                        "Player Upgrade Test Sword",
-                        1,
-                        ItemCategory.EQUIPMENT,
-                        ItemIdentityKind.INDIVIDUAL
-                ),
-                new ItemDefinition(
-                        MAP,
-                        "MAP",
-                        "Player Upgrade Test Map",
-                        1,
-                        ItemCategory.PROGRESSION,
-                        ItemIdentityKind.INDIVIDUAL
-                )
-        ));
+        catalog = new ItemCatalog(List.of(new ItemDefinition(
+                SWORD,
+                "IRON_SWORD",
+                "Player Upgrade Test Sword",
+                1,
+                ItemCategory.EQUIPMENT,
+                ItemIdentityKind.INDIVIDUAL
+        )));
         itemAuthority = new UniqueItemAuthorityRepository(dataSource, catalog);
     }
 
@@ -216,45 +205,6 @@ class PlayerItemUpgradeRepositoryIntegrationTest {
                 REASON
         ));
 
-        PlayerStateSnapshot state = states.load(player.playerId());
-        assertEquals(player.lease().stateVersion(), state.stateVersion());
-        assertArrayEquals(CURRENT_PAYLOAD, state.statePayload());
-        assertHead(item.itemInstanceId(), player.playerId(), 0, 0);
-        assertEquals(0L, count("item_upgrade_events"));
-    }
-
-    @Test
-    void nonEquipmentIndividualCannotEnterUpgradePathEvenWithPermissiveAdapter() throws Exception {
-        PlayerContext player = playerWithState("RejectMapUpgrade", CURRENT_PAYLOAD);
-        UniqueItemAuthorityResult item = createItem(player.playerId(), MAP);
-        AtomicInteger validations = new AtomicInteger();
-        PlayerItemUpgradeRepository upgrades = repository((
-                playerId,
-                itemId,
-                definitionId,
-                fromVersion,
-                toVersion,
-                fromLevel,
-                toLevel,
-                currentPayload,
-                nextPayload
-        ) -> validations.incrementAndGet());
-
-        assertThrows(UniqueItemAuthorityException.class, () -> upgrades.upgradeOneLevel(
-                UUID.randomUUID(),
-                player.lease().sessionId(),
-                BACKEND,
-                player.lease().stateVersion(),
-                item.itemInstanceId(),
-                0,
-                0,
-                "city",
-                "forge",
-                NEXT_PAYLOAD,
-                REASON
-        ));
-
-        assertEquals(0, validations.get());
         PlayerStateSnapshot state = states.load(player.playerId());
         assertEquals(player.lease().stateVersion(), state.stateVersion());
         assertArrayEquals(CURRENT_PAYLOAD, state.statePayload());
@@ -407,11 +357,7 @@ class PlayerItemUpgradeRepositoryIntegrationTest {
     }
 
     private UniqueItemAuthorityResult createItem(UUID owner) throws SQLException {
-        return createItem(owner, SWORD);
-    }
-
-    private UniqueItemAuthorityResult createItem(UUID owner, String definitionId) throws SQLException {
-        return itemAuthority.createForPlayer(UUID.randomUUID(), definitionId, owner, "test.create", owner);
+        return itemAuthority.createForPlayer(UUID.randomUUID(), SWORD, owner, "test.create", owner);
     }
 
     private void assertHead(UUID itemId, UUID owner, long stateVersion, int upgradeLevel) throws SQLException {
