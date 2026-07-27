@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationValidationResult;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemRuntimeStatSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryClaimService;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryException;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryMaterializationResult;
@@ -24,6 +25,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -48,6 +50,7 @@ final class PaperUniqueDeliveryController implements Listener {
     private final PaperPlayerIdentityResolver playerIdentities;
     private final PendingUniqueDeliveryClaimService claims;
     private final PaperPlayerItemRepresentationValidator statValidator;
+    private final PaperItemRuntimePresentation presentation;
     private final Set<UUID> drainInFlight = ConcurrentHashMap.newKeySet();
 
     PaperUniqueDeliveryController(
@@ -68,6 +71,7 @@ final class PaperUniqueDeliveryController implements Listener {
                 new PaperUniqueDeliveryStateMutator(plugin)
         );
         this.statValidator = new PaperPlayerItemRepresentationValidator(plugin, dataSource, catalog);
+        this.presentation = new PaperItemRuntimePresentation(plugin, catalog);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -224,11 +228,10 @@ final class PaperUniqueDeliveryController implements Listener {
                     capturedClaims
             );
             if (validation.valid()) {
-                PaperItemRuntimeStatCache.replaceIfCurrent(
-                        minecraftUuid,
-                        generation,
-                        validation.validatedIndividualSnapshots()
-                );
+                Map<UUID, ItemRuntimeStatSnapshot> snapshots = validation.validatedIndividualSnapshots();
+                if (PaperItemRuntimeStatCache.replaceIfCurrent(minecraftUuid, generation, snapshots)) {
+                    runOnMainThread(() -> refreshPresentationBestEffort(minecraftUuid, snapshots));
+                }
                 return;
             }
 
@@ -261,6 +264,23 @@ final class PaperUniqueDeliveryController implements Listener {
                     if (live != null && live.isOnline()) live.kick(INVALID_ITEM_STATE_MESSAGE);
                 });
             }
+        }
+    }
+
+    private void refreshPresentationBestEffort(
+            UUID minecraftUuid,
+            Map<UUID, ItemRuntimeStatSnapshot> snapshots
+    ) {
+        Player live = plugin.getServer().getPlayer(minecraftUuid);
+        if (live == null || !live.isOnline()) return;
+        try {
+            presentation.refresh(live, snapshots);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.WARNING,
+                    "Could not refresh derived managed-item presentation after delivery for player " + minecraftUuid,
+                    exception
+            );
         }
     }
 
