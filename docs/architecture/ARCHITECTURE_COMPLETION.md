@@ -44,12 +44,12 @@ Status values:
 | Optional explicit Community Project boundary | CONTRACTED | `COMMUNITY_PROJECTS.md` |
 | Hidden Artifact discovery + Attunement | PROVEN | persistent definitions/location revisions/discoveries/profile authority plus Paper interaction and `/attune` bridge |
 | Chronicle/historical-event source model | PROVEN | append-only Chronicle authority, source uniqueness tests and player read projection |
-| Persistent integrity diagnostics | PROVEN | bounded read-only aggregate verifier across economy/custody, item-upgrade definition/evidence, persistent PvE, clans and competitive state; Paper `/integrity` is installed with the live item catalog |
+| Persistent integrity diagnostics | PROVEN | bounded read-only aggregate verifier across economy/custody, item-upgrade definition/evidence, skill-state↔XP-evidence reconciliation/current catalog+cap invariants, persistent PvE, clans and competitive state; Paper `/integrity` loads the bundled item/skill catalogs for the catalog-aware checks |
 | Implemented operator command isolation | PROVEN | `PERMISSIONS.md`; named `/integrity` and `/devzone` capabilities are enforced inside their executors, YAML capability wiring is regression-tested, and development routing remains additionally closed by runtime policy |
 | Value-changing staff/recovery mutation | CONTRACTED | `PERMISSIONS.md`, `FAILURE_RECOVERY.md`; no generic persistent-value repair/mint/override command exists and any future operation requires narrow authorization plus append-only audit evidence |
 | Configuration/version validation | PROVEN for current content lanes | strict item/skill/resource/crafting/attunement/placement loaders; broader operational configuration remains contracted |
 | Analytics/observability separation from authority | CONTRACTED | `ANALYTICS.md` |
-| Backup/restore/failure semantics | CONTRACTED | `FAILURE_RECOVERY.md`; offline coherent backup/restore tooling, checksum/version validation and incomplete-restore startup fencing are CI-qualified; actual Windows/Docker restore rehearsal remains empirical before release |
+| Backup/restore/failure semantics | CONTRACTED | `FAILURE_RECOVERY.md`; offline coherent backup/restore tooling, checksum/version validation, incomplete-restore startup fencing and bounded proxy-first local logout drain are CI-qualified structurally; actual Windows/Docker restore/shutdown rehearsal remains empirical before release |
 | Extension/new-content reuse rules | CONTRACTED | `EXTENSION_POINTS.md` |
 
 ## Architecture-document gate
@@ -83,8 +83,8 @@ Player-facing/adapter and operations work already includes:
 - isolated Ranked 1v1 and baseline Clan-War 1.8.9 execution paths;
 - validated rolled-item runtime snapshots/presentation and fail-closed intrinsic-damage combat materialization plus structurally safe carried-item upgrade authority;
 - bounded reconnect-fenced item-use eligibility projection that stays dormant for unrestricted content and advances directly from committed XP results;
-- operator-triggered bounded `/integrity` verification plus fail-closed development-route capability isolation;
-- offline coherent local backup/restore scripts with manifest/checksum/version validation and a fail-closed incomplete-restore startup fence.
+- operator-triggered bounded `/integrity` verification including skill progression evidence/catalog/cap checks, plus fail-closed development-route capability isolation;
+- offline coherent local backup/restore scripts with manifest/checksum/version validation, a fail-closed incomplete-restore startup fence, and a bounded proxy-first logout drain before local Paper shutdown.
 
 The highest-value remaining recovery boundary is now **empirical coherent restore proof on the actual Windows/Docker development machine**, not more backup-script architecture. Upgrade economics/power, broader Clan-War gear representation, real-client competitive feel, first-Map acquisition and concrete skill-gated item content remain intentionally behind explicit content/tuning or empirical decisions rather than being guessed into architecture.
 
