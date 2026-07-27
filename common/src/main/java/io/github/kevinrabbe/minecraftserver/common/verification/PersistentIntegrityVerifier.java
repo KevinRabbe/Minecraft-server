@@ -31,11 +31,6 @@ public final class PersistentIntegrityVerifier {
         this(dataSource, itemCatalog, null);
     }
 
-    /** Compatibility constructor with skill-definition-aware progression reconciliation only. */
-    public PersistentIntegrityVerifier(DataSource dataSource, SkillProgressionCatalog skillCatalog) {
-        this(dataSource, null, skillCatalog);
-    }
-
     /** Strong aggregate verifier with both live item and skill catalogs. */
     public PersistentIntegrityVerifier(
             DataSource dataSource,
