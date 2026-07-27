@@ -56,6 +56,10 @@ class CraftingCommissionCompletionIntegrationTest {
     private static final String IRON = "commission.iron";
     private static final String SWORD = "commission.sword";
     private static final SkillId SMITHING = new SkillId("smithing");
+    private static final ItemRollProfile SWORD_ROLL_PROFILE = new ItemRollProfile(Map.of(
+            "damage", new RollRange(10_000, 12_000),
+            "speed", new RollRange(9_500, 10_500)
+    ));
 
     private Database database;
     private DataSource dataSource;
@@ -86,8 +90,15 @@ class CraftingCommissionCompletionIntegrationTest {
         items = new ItemCatalog(List.of(
                 new ItemDefinition(IRON, "IRON_INGOT", "Commission Iron", 64,
                         ItemCategory.MATERIALS, ItemIdentityKind.COMMODITY),
-                new ItemDefinition(SWORD, "IRON_SWORD", "Commission Sword", 1,
-                        ItemCategory.EQUIPMENT, ItemIdentityKind.INDIVIDUAL)
+                new ItemDefinition(
+                        SWORD,
+                        "IRON_SWORD",
+                        "Commission Sword",
+                        1,
+                        ItemCategory.EQUIPMENT,
+                        ItemIdentityKind.INDIVIDUAL,
+                        SWORD_ROLL_PROFILE
+                )
         ));
         skills = new SkillProgressionCatalog(List.of(linearSkill(SMITHING)));
         recipes = new CraftRecipeCatalog(List.of(
@@ -101,10 +112,7 @@ class CraftingCommissionCompletionIntegrationTest {
                                 SMITHING,
                                 10
                         ),
-                        new ItemRollProfile(Map.of(
-                                "damage", new RollRange(10_000, 12_000),
-                                "speed", new RollRange(9_500, 10_500)
-                        ))
+                        SWORD_ROLL_PROFILE
                 )
         ), items);
         CommodityBatchEscrowValidator permissive = (playerId, materials, current, next) -> { };
