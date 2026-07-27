@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRuntimeStatSnapshot;
+import io.github.kevinrabbe.minecraftserver.common.item.RollRange;
 import io.papermc.paper.datacomponent.DataComponentTypes;
 import io.papermc.paper.datacomponent.item.ItemAttributeModifiers;
 import org.bukkit.Material;
@@ -31,11 +32,7 @@ final class PaperIntrinsicItemAttributes {
         Objects.requireNonNull(stack, "stack");
         Objects.requireNonNull(definition, "definition");
         Objects.requireNonNull(snapshot, "snapshot");
-        if (definition.category() != ItemCategory.EQUIPMENT) {
-            throw new PaperItemRepresentationException(
-                    "Intrinsic equipment attributes cannot be applied to " + definition.definitionId()
-            );
-        }
+        requireEquipment(definition);
         if (!definition.definitionId().equals(snapshot.definitionId())) {
             throw new PaperItemRepresentationException(
                     "Runtime stat snapshot definition does not match " + definition.definitionId()
@@ -45,6 +42,40 @@ final class PaperIntrinsicItemAttributes {
             return;
         }
 
+        applyDamageMultiplier(
+                stack,
+                definition,
+                snapshot.requireIntrinsicMultiplierBasisPoints(DAMAGE_ROLL_PROPERTY),
+                resolvePlayerBaseAttackDamage()
+        );
+    }
+
+    /**
+     * Projects a newly rendered damage-rolled item at the definition's lowest possible intrinsic value. The renderer
+     * does not know or own the individualized roll; this lower bound only prevents the temporary serialized/live
+     * representation from granting more damage than the eventual authoritative snapshot can justify.
+     */
+    static void applyConfiguredMinimum(
+            ItemStack stack,
+            ItemDefinition definition,
+            double playerBaseDamage
+    ) {
+        Objects.requireNonNull(stack, "stack");
+        Objects.requireNonNull(definition, "definition");
+        RollRange damageRange = definition.rollProfile().properties().get(DAMAGE_ROLL_PROPERTY);
+        if (damageRange == null) {
+            return;
+        }
+        requireEquipment(definition);
+        applyDamageMultiplier(stack, definition, damageRange.minimumBasisPoints(), playerBaseDamage);
+    }
+
+    private static void applyDamageMultiplier(
+            ItemStack stack,
+            ItemDefinition definition,
+            int multiplierBasisPoints,
+            double playerBaseDamage
+    ) {
         Material material = stack.getType();
         if (!material.name().equals(definition.minecraftMaterial())) {
             throw new PaperItemRepresentationException(
@@ -58,8 +89,6 @@ final class PaperIntrinsicItemAttributes {
             );
         }
 
-        double playerBaseDamage = defaultPlayerAttackDamage();
-        int multiplierBasisPoints = snapshot.requireIntrinsicMultiplierBasisPoints(DAMAGE_ROLL_PROPERTY);
         ItemAttributeModifiers.Builder rebuilt = ItemAttributeModifiers.itemAttributes();
         int replaced = 0;
         for (ItemAttributeModifiers.Entry entry : defaults.modifiers()) {
@@ -116,14 +145,7 @@ final class PaperIntrinsicItemAttributes {
         return rolledContribution;
     }
 
-    private static boolean isScalableMainHandDamage(ItemAttributeModifiers.Entry entry) {
-        return entry.attribute().equals(Attribute.ATTACK_DAMAGE)
-                && entry.modifier().getOperation() == AttributeModifier.Operation.ADD_NUMBER
-                && entry.getGroup().test(EquipmentSlot.HAND)
-                && !entry.getGroup().test(EquipmentSlot.OFF_HAND);
-    }
-
-    private static double defaultPlayerAttackDamage() {
+    static double resolvePlayerBaseAttackDamage() {
         AttributeInstance attackDamage = EntityType.PLAYER.getDefaultAttributes().getAttribute(Attribute.ATTACK_DAMAGE);
         if (attackDamage == null) {
             throw new PaperItemRepresentationException("Paper player defaults do not expose attack damage");
@@ -133,5 +155,20 @@ final class PaperIntrinsicItemAttributes {
             throw new PaperItemRepresentationException("Paper player default attack damage is invalid: " + value);
         }
         return value;
+    }
+
+    private static boolean isScalableMainHandDamage(ItemAttributeModifiers.Entry entry) {
+        return entry.attribute().equals(Attribute.ATTACK_DAMAGE)
+                && entry.modifier().getOperation() == AttributeModifier.Operation.ADD_NUMBER
+                && entry.getGroup().test(EquipmentSlot.HAND)
+                && !entry.getGroup().test(EquipmentSlot.OFF_HAND);
+    }
+
+    private static void requireEquipment(ItemDefinition definition) {
+        if (definition.category() != ItemCategory.EQUIPMENT) {
+            throw new PaperItemRepresentationException(
+                    "Intrinsic equipment attributes cannot be applied to " + definition.definitionId()
+            );
+        }
     }
 }
