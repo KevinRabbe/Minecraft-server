@@ -197,7 +197,7 @@ function Set-PaperVelocityForwarding([string]$Path, [string]$Secret) {
 function Write-VelocityConfig([string]$Path) {
     $serverLines = @()
     foreach ($server in $LocalNetwork.Servers) {
-        $serverLines += "$($server.Id) = \"127.0.0.1:$($server.Port)\""
+        $serverLines += "$($server.Id) = `"127.0.0.1:$($server.Port)`""
     }
     $serverBlock = $serverLines -join "`r`n"
 
