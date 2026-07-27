@@ -230,7 +230,7 @@ final class PaperUniqueDeliveryController implements Listener {
             if (validation.valid()) {
                 Map<UUID, ItemRuntimeStatSnapshot> snapshots = validation.validatedIndividualSnapshots();
                 if (PaperItemRuntimeStatCache.replaceIfCurrent(minecraftUuid, generation, snapshots)) {
-                    runOnMainThread(() -> refreshPresentationBestEffort(minecraftUuid, snapshots));
+                    runOnMainThread(() -> refreshPresentationBestEffort(minecraftUuid));
                 }
                 return;
             }
@@ -267,14 +267,11 @@ final class PaperUniqueDeliveryController implements Listener {
         }
     }
 
-    private void refreshPresentationBestEffort(
-            UUID minecraftUuid,
-            Map<UUID, ItemRuntimeStatSnapshot> snapshots
-    ) {
+    private void refreshPresentationBestEffort(UUID minecraftUuid) {
         Player live = plugin.getServer().getPlayer(minecraftUuid);
         if (live == null || !live.isOnline()) return;
         try {
-            presentation.refresh(live, snapshots);
+            presentation.refresh(live);
         } catch (RuntimeException exception) {
             plugin.getLogger().log(
                     Level.WARNING,
