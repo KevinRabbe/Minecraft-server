@@ -249,7 +249,7 @@ class ItemRepresentationAuthorityValidatorIntegrationTest {
 
     @Test
     void nonEquipmentGenericUpgradeCorruptionIsRejectedBeforeRuntimeSnapshot() throws SQLException {
-        UUID playerId = createPlayer("MapUpgradeCorrupt");
+        UUID playerId = createPlayer("MapUpCorrupt");
         UniqueItemAuthorityResult map = itemAuthority.createForPlayer(
                 UUID.randomUUID(),
                 "map.test",
