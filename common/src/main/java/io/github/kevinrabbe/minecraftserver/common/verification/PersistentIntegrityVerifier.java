@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.verification;
 
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalog;
+import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 
@@ -32,34 +33,47 @@ public final class PersistentIntegrityVerifier {
 
     /** Compatibility constructor for environments without loaded content catalogs. */
     public PersistentIntegrityVerifier(DataSource dataSource) {
-        this(dataSource, null, null, null);
+        this(dataSource, null, null, null, null);
     }
 
     /** Compatibility constructor with item-definition-aware upgrade reconciliation only. */
     public PersistentIntegrityVerifier(DataSource dataSource, ItemCatalog itemCatalog) {
-        this(dataSource, itemCatalog, null, null);
+        this(dataSource, itemCatalog, null, null, null);
     }
 
-    /** Compatibility constructor with live item and skill catalogs but no Attunement profile catalog. */
+    /** Compatibility constructor with live item and skill catalogs but no Attunement or Bank tier catalog. */
     public PersistentIntegrityVerifier(
             DataSource dataSource,
             ItemCatalog itemCatalog,
             SkillProgressionCatalog skillCatalog
     ) {
-        this(dataSource, itemCatalog, skillCatalog, null);
+        this(dataSource, itemCatalog, skillCatalog, null, null);
     }
 
-    /** Strong aggregate verifier with live item, skill, and Attunement-profile catalogs. */
+    /** Compatibility constructor with live item, skill and Attunement catalogs but no Bank tier catalog. */
     public PersistentIntegrityVerifier(
             DataSource dataSource,
             ItemCatalog itemCatalog,
             SkillProgressionCatalog skillCatalog,
             AttunementProfileCatalog attunementProfiles
     ) {
+        this(dataSource, itemCatalog, skillCatalog, attunementProfiles, null);
+    }
+
+    /** Strong aggregate verifier with live item, skill, Attunement-profile, and Bank-tier catalogs. */
+    public PersistentIntegrityVerifier(
+            DataSource dataSource,
+            ItemCatalog itemCatalog,
+            SkillProgressionCatalog skillCatalog,
+            AttunementProfileCatalog attunementProfiles,
+            BankTierCatalog bankTiers
+    ) {
         Objects.requireNonNull(dataSource, "dataSource");
         this.sessions = new PlayerSessionIntegrityVerifier(dataSource);
         this.economy = new EconomyIntegrityVerifier(dataSource);
-        this.bank = new BankIntegrityVerifier(dataSource);
+        this.bank = bankTiers == null
+                ? new BankIntegrityVerifier(dataSource)
+                : new BankIntegrityVerifier(dataSource, bankTiers);
         this.itemUpgrades = itemCatalog == null
                 ? new ItemUpgradeIntegrityVerifier(dataSource)
                 : new ItemUpgradeIntegrityVerifier(dataSource, itemCatalog);
