@@ -1,6 +1,11 @@
 package io.github.kevinrabbe.minecraftserver.common.analytics;
 
+import io.github.kevinrabbe.minecraftserver.common.economy.BazaarOrderRequest;
+import io.github.kevinrabbe.minecraftserver.common.economy.BazaarOrderSide;
+import io.github.kevinrabbe.minecraftserver.common.economy.BazaarRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
@@ -19,6 +24,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
@@ -30,6 +36,7 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
     private DataSource dataSource;
     private PlayerIdentityRepository identities;
     private CoinWalletRepository wallets;
+    private BazaarRepository bazaar;
 
     @BeforeAll
     void openDatabase() {
@@ -43,6 +50,8 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         dataSource = database.dataSource();
         identities = new PlayerIdentityRepository(dataSource);
         wallets = new CoinWalletRepository(dataSource);
+        ItemCatalog items = new ItemCatalogLoader().loadResource("/content/items.json");
+        bazaar = new BazaarRepository(dataSource, items, (playerId, definitionId, quantity, before, after) -> { }, 100);
     }
 
     @AfterAll
@@ -51,11 +60,12 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
     }
 
     @Test
-    void operationNetSeparatesTrueSupplyChangeFromInternalMovement() throws Exception {
+    void classifiedSupplySeparatesFaucetSinkTransferAndBazaarEscrow() throws Exception {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String faucetReason = "verify.analytics.reward." + suffix;
         String transferReason = "verify.analytics.transfer." + suffix;
         String sinkReason = "verify.analytics.sink." + suffix;
+        String escrowReason = "verify.analytics.escrow." + suffix;
 
         UUID sourcePlayer = identities.ensurePlayer(UUID.randomUUID(), "CoinMetricA");
         UUID targetPlayer = identities.ensurePlayer(UUID.randomUUID(), "CoinMetricB");
@@ -63,6 +73,12 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         wallets.creditFromSystem(UUID.randomUUID(), sourcePlayer, 1_000L, faucetReason);
         wallets.transfer(UUID.randomUUID(), sourcePlayer, targetPlayer, 200L, transferReason);
         wallets.debitToSystem(UUID.randomUUID(), sourcePlayer, 150L, sinkReason);
+        bazaar.createBuyOrder(
+                UUID.randomUUID(),
+                sourcePlayer,
+                new BazaarOrderRequest("material.raw_iron", BazaarOrderSide.BUY, 2L, 100L),
+                escrowReason
+        );
 
         CoinFlowAnalyticsRepository analytics = new CoinFlowAnalyticsRepository(
                 dataSource,
@@ -93,6 +109,16 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         assertEquals(BigInteger.valueOf(-150L), sink.netSupplyChangeMinor());
         assertEquals(BigInteger.valueOf(150L), sink.grossMovementMinor());
         assertEquals(1L, sink.operationCount());
+
+        CoinFlowReasonSummary escrow = reason(summary, escrowReason);
+        assertEquals(BigInteger.ZERO, escrow.createdMinor());
+        assertEquals(BigInteger.ZERO, escrow.destroyedMinor());
+        assertEquals(BigInteger.ZERO, escrow.netSupplyChangeMinor());
+        assertEquals(BigInteger.valueOf(200L), escrow.grossMovementMinor());
+        assertEquals(1L, escrow.operationCount());
+
+        assertTrue(summary.confirmedCreatedMinor().compareTo(BigInteger.valueOf(1_000L)) >= 0);
+        assertTrue(summary.confirmedDestroyedMinor().compareTo(BigInteger.valueOf(150L)) >= 0);
     }
 
     @Test
@@ -107,13 +133,17 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         CoinFlowSummary summary = analytics.summarize(futureStart, futureEnd, 10);
 
         assertEquals(futureStart, summary.observedThrough());
-        assertEquals(BigInteger.ZERO, summary.createdMinor());
-        assertEquals(BigInteger.ZERO, summary.destroyedMinor());
-        assertEquals(BigInteger.ZERO, summary.netSupplyChangeMinor());
+        assertEquals(BigInteger.ZERO, summary.confirmedCreatedMinor());
+        assertEquals(BigInteger.ZERO, summary.confirmedDestroyedMinor());
+        assertEquals(BigInteger.ZERO, summary.confirmedNetSupplyChangeMinor());
         assertEquals(BigInteger.ZERO, summary.grossMovementMinor());
+        assertEquals(0L, summary.classifiedOperationCount());
+        assertEquals(0L, summary.unclassifiedOperationCount());
+        assertEquals(BigInteger.ZERO, summary.unclassifiedGrossMovementMinor());
         assertEquals(0L, summary.operationCount());
         assertEquals(0, summary.reasons().size());
         assertFalse(summary.reasonsTruncated());
+        assertTrue(summary.supplyClassificationComplete());
     }
 
     private static CoinFlowReasonSummary reason(CoinFlowSummary summary, String reason) {
