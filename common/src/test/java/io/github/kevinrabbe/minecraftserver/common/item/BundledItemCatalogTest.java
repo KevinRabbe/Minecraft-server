@@ -2,6 +2,8 @@ package io.github.kevinrabbe.minecraftserver.common.item;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -21,5 +23,9 @@ class BundledItemCatalogTest {
         assertEquals(1, starterSword.maxStackSize());
         assertEquals(ItemCategory.EQUIPMENT, starterSword.category());
         assertEquals(ItemIdentityKind.INDIVIDUAL, starterSword.identityKind());
+        assertEquals(
+                new ItemRollProfile(Map.of("damage", new RollRange(10_000, 12_000))),
+                starterSword.rollProfile()
+        );
     }
 }
