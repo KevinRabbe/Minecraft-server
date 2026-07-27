@@ -405,6 +405,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     sessionController,
                     new CraftingStateExecutionService(craftingRepository),
                     craftingExperience,
+                    itemUseEligibilityController,
                     craftingContent.recipes(),
                     craftingIngredients,
                     commodityDeliveryController,
@@ -431,6 +432,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     ),
                     new CraftingCommissionQueryRepository(database.dataSource()),
                     craftingExperience,
+                    itemUseEligibilityController,
                     craftingContent.recipes(),
                     itemCatalog,
                     craftingIngredients
@@ -489,7 +491,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                         sourceRepository,
                         gatheringService,
                         resourceSessions,
-                        commodityDeliveryController
+                        commodityDeliveryController,
+                        itemUseEligibilityController
                 );
 
                 PaperResourceEntityPlacementCatalog entityPlacements = PaperResourceEntityPlacementCatalog.loadResource(
@@ -505,7 +508,8 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                         new ResourceEntitySpawnRepository(database.dataSource(), resourceSourceCatalog),
                         gatheringService,
                         resourceSessions,
-                        commodityDeliveryController
+                        commodityDeliveryController,
+                        itemUseEligibilityController
                 );
                 bountyProgressService = new PaperBountyProgressService(
                         this,
