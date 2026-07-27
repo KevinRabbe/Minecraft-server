@@ -3,10 +3,17 @@ package io.github.kevinrabbe.minecraftserver.paper;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogException;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.ItemAttributeModifiers;
 import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeModifier;
+import org.bukkit.inventory.EquipmentSlot;
 
 /** Paper-specific validation that cannot live in the platform-neutral common module. */
 final class PaperItemCatalogValidator {
+    private static final String DAMAGE_ROLL_PROPERTY = "damage";
+
     private PaperItemCatalogValidator() {
     }
 
@@ -32,6 +39,42 @@ final class PaperItemCatalogValidator {
                                 + " for item " + definition.definitionId()
                 );
             }
+            if (definition.rollProfile().properties().containsKey(DAMAGE_ROLL_PROPERTY)) {
+                validateDamageRollMaterial(definition, material);
+            }
         }
+    }
+
+    private static void validateDamageRollMaterial(ItemDefinition definition, Material material) {
+        ItemAttributeModifiers defaults = material.getDefaultData(DataComponentTypes.ATTRIBUTE_MODIFIERS);
+        if (defaults == null) {
+            throw unsupportedDamageRoll(definition, material, "material has no default attribute component");
+        }
+
+        long scalableMainHandDamageEntries = defaults.modifiers().stream()
+                .filter(entry -> entry.attribute().equals(Attribute.ATTACK_DAMAGE))
+                .filter(entry -> entry.modifier().getOperation() == AttributeModifier.Operation.ADD_NUMBER)
+                .filter(entry -> entry.getGroup().test(EquipmentSlot.HAND))
+                .filter(entry -> !entry.getGroup().test(EquipmentSlot.OFF_HAND))
+                .count();
+        if (scalableMainHandDamageEntries != 1) {
+            throw unsupportedDamageRoll(
+                    definition,
+                    material,
+                    "expected exactly one main-hand ADD_NUMBER attack-damage modifier but found "
+                            + scalableMainHandDamageEntries
+            );
+        }
+    }
+
+    private static ItemCatalogException unsupportedDamageRoll(
+            ItemDefinition definition,
+            Material material,
+            String detail
+    ) {
+        return new ItemCatalogException(
+                "Item " + definition.definitionId() + " declares a damage roll but Paper material "
+                        + material.name() + " cannot represent it safely: " + detail
+        );
     }
 }
