@@ -44,6 +44,7 @@ import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillLeaderboardRepository;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionQueryRepository;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyBossMaterializationRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalog;
@@ -142,6 +143,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         PaperBountyCommand bountyCommand;
         PaperSalvageCommand salvageCommand;
         PaperUniqueDeliveryController uniqueDeliveryController;
+        PaperItemUseEligibilityController itemUseEligibilityController;
         PaperCraftingController craftingController;
         BazaarPolicy bazaarPolicy;
         BazaarRepository bazaarRepository;
@@ -203,6 +205,15 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                     database.dataSource()
             );
             PaperPlayerIdentityResolver playerIdentities = new PaperPlayerIdentityResolver(database.dataSource());
+            itemUseEligibilityController = new PaperItemUseEligibilityController(
+                    this,
+                    playerIdentities,
+                    new PaperItemUseEligibilityCache(
+                            itemCatalog,
+                            new SkillProgressionQueryRepository(database.dataSource(), skillCatalog),
+                            Math.max(1, getServer().getMaxPlayers())
+                    )
+            );
             RankedArenaRuleset rankedRuleset = RankedArenaRuleset.legacy189V1();
             RankedArenaRepository rankedArena = new RankedArenaRepository(database.dataSource(), rankedRuleset);
             rankedCommand = new PaperRankedCommand(
@@ -534,6 +545,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(sessionController, this);
+        getServer().getPluginManager().registerEvents(itemUseEligibilityController, this);
         getServer().getPluginManager().registerEvents(commodityDeliveryController, this);
         getServer().getPluginManager().registerEvents(uniqueDeliveryController, this);
         getServer().getPluginManager().registerEvents(rankedCommand, this);
