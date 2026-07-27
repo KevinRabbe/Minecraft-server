@@ -280,7 +280,7 @@ class CraftingIntegrityVerifierIntegrationTest {
                 material,
                 definitionId,
                 64,
-                ItemCategory.MATERIAL,
+                ItemCategory.MATERIALS,
                 ItemIdentityKind.COMMODITY
         );
     }
