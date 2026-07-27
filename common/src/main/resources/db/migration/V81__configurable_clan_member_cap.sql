@@ -100,8 +100,12 @@ BEGIN
     RETURNING member_count INTO remaining_count;
 
     IF remaining_count IS NULL THEN
-        RAISE EXCEPTION 'clan member counter underflow for clan %', OLD.clan_id
-            USING ERRCODE = 'integrity_constraint_violation';
+        -- During a parent-clan DELETE, PostgreSQL may cascade-delete the counter row before the membership row. That is
+        -- a valid terminal path. A missing/zero counter while the clan still exists is an invariant failure.
+        IF EXISTS (SELECT 1 FROM clans WHERE clan_id = OLD.clan_id) THEN
+            RAISE EXCEPTION 'clan member counter underflow for clan %', OLD.clan_id
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
     END IF;
 
     RETURN OLD;
