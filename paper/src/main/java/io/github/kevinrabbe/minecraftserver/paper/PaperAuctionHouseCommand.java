@@ -26,7 +26,6 @@ import java.math.RoundingMode;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,7 +33,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
-import java.util.stream.Collectors;
 
 /** Minimal player-facing fixed-price Auction House bridge for individualized items. */
 final class PaperAuctionHouseCommand implements CommandExecutor, TabCompleter {
@@ -324,8 +322,15 @@ final class PaperAuctionHouseCommand implements CommandExecutor, TabCompleter {
     }
 
     private String formatListing(AuctionBrowseListing listing) {
-        String rolls = formatRolls(listing.rollQualityBasisPoints());
-        return listing.listingId() + " — " + displayName(listing.definitionId())
+        ItemDefinition definition = itemCatalog.require(listing.definitionId());
+        String rolls = String.join(
+                ", ",
+                PaperItemRuntimePresentation.describeRolls(
+                        definition,
+                        listing.rollQualityBasisPoints()
+                )
+        );
+        return listing.listingId() + " — " + definition.displayName()
                 + (rolls.isEmpty() ? "" : " — " + rolls)
                 + " — upgrade +" + listing.upgradeLevel()
                 + " — " + formatCoin(listing.priceMinor());
@@ -333,13 +338,6 @@ final class PaperAuctionHouseCommand implements CommandExecutor, TabCompleter {
 
     private String displayName(String definitionId) {
         return itemCatalog.require(definitionId).displayName();
-    }
-
-    private static String formatRolls(Map<String, Integer> rolls) {
-        return rolls.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(entry -> entry.getKey() + " " + formatPercent(entry.getValue()))
-                .collect(Collectors.joining(", "));
     }
 
     private void runAsync(Runnable task) {
@@ -401,10 +399,6 @@ final class PaperAuctionHouseCommand implements CommandExecutor, TabCompleter {
         long whole = amountMinor / CoinCurrency.MINOR_UNITS_PER_COIN;
         long fraction = amountMinor % CoinCurrency.MINOR_UNITS_PER_COIN;
         return String.format(Locale.ROOT, "%d.%02d Coin", whole, fraction);
-    }
-
-    private static String formatPercent(int basisPoints) {
-        return String.format(Locale.ROOT, "%d.%02d%%", basisPoints / 100, basisPoints % 100);
     }
 
     private static String playerMessage(RuntimeException exception, String fallback) {
