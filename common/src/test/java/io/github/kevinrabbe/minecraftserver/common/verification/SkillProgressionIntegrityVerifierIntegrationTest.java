@@ -18,7 +18,9 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.UUID;
 
@@ -128,6 +130,26 @@ class SkillProgressionIntegrityVerifierIntegrationTest {
         }
     }
 
+    @Test
+    void stagedCapWithoutMatchingProcessedOperationIsCritical() throws Exception {
+        ProgressionStateRow original = readProgressionState();
+        setProgressionState(75, 1L, UUID.randomUUID(), Timestamp.from(java.time.Instant.now()));
+        try {
+            assertTrue(verifier.verify(10_000).stream().anyMatch(issue ->
+                    issue.severity() == IntegritySeverity.CRITICAL
+                            && issue.code().equals("SKILL_CAP_EVIDENCE_MISMATCH")
+                            && issue.subjectId().equals("progression_state")
+            ));
+        } finally {
+            setProgressionState(
+                    original.activeCap(),
+                    original.stateVersion(),
+                    original.sourceOperationId(),
+                    original.changedAt()
+            );
+        }
+    }
+
     private UUID player(String name) throws SQLException {
         return identities.ensurePlayer(UUID.randomUUID(), name);
     }
@@ -173,11 +195,62 @@ class SkillProgressionIntegrityVerifierIntegrationTest {
         }
     }
 
+    private ProgressionStateRow readProgressionState() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT active_skill_cap, state_version, source_operation_id, changed_at
+                     FROM progression_state
+                     WHERE singleton = TRUE
+                     """);
+             ResultSet row = statement.executeQuery()) {
+            if (!row.next()) {
+                throw new AssertionError("progression_state row is missing");
+            }
+            return new ProgressionStateRow(
+                    row.getInt("active_skill_cap"),
+                    row.getLong("state_version"),
+                    row.getObject("source_operation_id", UUID.class),
+                    row.getTimestamp("changed_at")
+            );
+        }
+    }
+
+    private void setProgressionState(
+            int activeCap,
+            long stateVersion,
+            UUID sourceOperationId,
+            Timestamp changedAt
+    ) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE progression_state
+                     SET active_skill_cap = ?,
+                         state_version = ?,
+                         source_operation_id = ?,
+                         changed_at = ?
+                     WHERE singleton = TRUE
+                     """)) {
+            statement.setInt(1, activeCap);
+            statement.setLong(2, stateVersion);
+            statement.setObject(3, sourceOperationId);
+            statement.setTimestamp(4, changedAt);
+            assertEquals(1, statement.executeUpdate());
+        }
+    }
+
     private static String requireEnvironment(String name) {
         String value = System.getenv(name);
         if (value == null || value.isBlank()) {
             throw new IllegalStateException("Missing environment variable: " + name);
         }
         return value;
+    }
+
+    private record ProgressionStateRow(
+            int activeCap,
+            long stateVersion,
+            UUID sourceOperationId,
+            Timestamp changedAt
+    ) {
     }
 }
