@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 
 $RuntimeRoot = $LocalNetwork.RuntimeRoot
 $RestoreMarker = Join-Path $RuntimeRoot "restore.in-progress"
+$LogoutDrainSeconds = 10
 if (Test-Path $RestoreMarker) {
     $detail = Get-Content -Raw $RestoreMarker -ErrorAction SilentlyContinue
     throw "Refusing to start the Minecraft network because a restore is incomplete. Rerun infra\local\restore.ps1 for the selected backup until it succeeds. Marker: $detail"
@@ -98,6 +99,21 @@ function Graceful-Shutdown {
     $velocity = $managed | Where-Object { $_.Name -eq "velocity" } | Select-Object -First 1
     if ($velocity -and -not $velocity.Process.HasExited) {
         try { $velocity.Process.StandardInput.WriteLine("shutdown") } catch {}
+
+        # Velocity disconnects players before Paper receives its own stop command. Keep the backends alive for the
+        # same bounded window Paper uses for controlled final commits so PlayerQuit finalization can finish while the
+        # plugin scheduler and persistence executor are still fully available.
+        $velocityDeadline = (Get-Date).AddSeconds(5)
+        while (-not $velocity.Process.HasExited -and (Get-Date) -lt $velocityDeadline) {
+            Start-Sleep -Milliseconds 100
+        }
+        if ($velocity.Process.HasExited) {
+            Write-Host "Draining final player logout checkpoints for up to $LogoutDrainSeconds seconds..."
+            Start-Sleep -Seconds $LogoutDrainSeconds
+        }
+        else {
+            Write-Warning "Velocity did not stop promptly; continuing backend shutdown without the logout drain delay."
+        }
     }
 
     foreach ($entry in @($managed | Where-Object { $_.Name -ne "velocity" })) {
