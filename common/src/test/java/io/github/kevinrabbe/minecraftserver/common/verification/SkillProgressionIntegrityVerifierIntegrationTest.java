@@ -62,7 +62,7 @@ class SkillProgressionIntegrityVerifierIntegrationTest {
 
     @Test
     void healthyCommittedAwardReconcilesAndAggregateVerifierIncludesProgression() throws Exception {
-        UUID playerId = player("VerifySkillHealthy");
+        UUID playerId = player("SkillHealthy");
         progression.awardExperience(UUID.randomUUID(), playerId, MINING, 250L, "verify.skill_integrity");
 
         String subject = playerId + "/" + MINING.value();
@@ -73,7 +73,7 @@ class SkillProgressionIntegrityVerifierIntegrationTest {
 
     @Test
     void mutableSkillStateThatNoLongerMatchesAppendOnlyAwardsIsCritical() throws Exception {
-        UUID playerId = player("VerifySkillEvidence");
+        UUID playerId = player("SkillEvidence");
         progression.awardExperience(UUID.randomUUID(), playerId, MINING, 250L, "verify.skill_integrity");
         SkillProgressSnapshot committed = progression.load(playerId, MINING);
 
@@ -93,7 +93,7 @@ class SkillProgressionIntegrityVerifierIntegrationTest {
 
     @Test
     void unknownPersistedSkillDefinitionIsCritical() throws Exception {
-        UUID playerId = player("VerifySkillUnknown");
+        UUID playerId = player("SkillUnknown");
         insertSkillState(playerId, UNKNOWN_SKILL, 0L, 0L);
         try {
             String subject = playerId + "/" + UNKNOWN_SKILL;
@@ -109,7 +109,7 @@ class SkillProgressionIntegrityVerifierIntegrationTest {
 
     @Test
     void persistedExperienceAboveCurrentActiveCapIsCritical() throws Exception {
-        UUID playerId = player("VerifySkillCap");
+        UUID playerId = player("SkillCap");
         progression.awardExperience(UUID.randomUUID(), playerId, MINING, 250L, "verify.skill_integrity");
         SkillProgressSnapshot committed = progression.load(playerId, MINING);
         ActiveSkillCapState activeCap = progression.loadActiveCap();
