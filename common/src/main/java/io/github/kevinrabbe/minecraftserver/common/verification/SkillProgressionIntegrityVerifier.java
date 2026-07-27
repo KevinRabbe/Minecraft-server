@@ -18,6 +18,7 @@ import java.util.UUID;
 /** Read-only bounded reconciliation of mutable skill state against append-only XP evidence and the loaded catalog. */
 public final class SkillProgressionIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
+    private static final String CAP_OPERATION = "SKILL_CAP_ADVANCE";
 
     private final DataSource dataSource;
     private final Optional<SkillProgressionCatalog> skillCatalog;
@@ -44,16 +45,17 @@ public final class SkillProgressionIntegrityVerifier {
             ArrayList<IntegrityIssue> issues = new ArrayList<>();
             verifyStateAgainstAwardEvidence(connection, issues, maxIssues);
 
-            Integer currentCap = readCurrentCap(connection, issues, maxIssues);
+            CapState currentCap = readCurrentCap(connection, issues, maxIssues);
             if (currentCap != null) {
-                verifyAwardCapChronology(connection, currentCap, issues, maxIssues);
+                verifyCurrentCapEvidence(connection, currentCap, issues, maxIssues);
+                verifyAwardCapChronology(connection, currentCap.activeCap(), issues, maxIssues);
             }
 
             if (skillCatalog.isPresent()) {
                 SkillProgressionCatalog catalog = skillCatalog.orElseThrow();
                 verifyKnownCurrentSkillIds(connection, catalog, issues, maxIssues);
                 if (currentCap != null) {
-                    verifyCurrentCapCeilings(connection, catalog, currentCap, issues, maxIssues);
+                    verifyCurrentCapCeilings(connection, catalog, currentCap.activeCap(), issues, maxIssues);
                 }
             }
             return List.copyOf(issues);
@@ -118,13 +120,13 @@ public final class SkillProgressionIntegrityVerifier {
         }
     }
 
-    private static Integer readCurrentCap(
+    private static CapState readCurrentCap(
             Connection connection,
             List<IntegrityIssue> issues,
             int maxIssues
     ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
-                SELECT active_skill_cap
+                SELECT active_skill_cap, state_version, source_operation_id
                 FROM progression_state
                 WHERE singleton = TRUE
                 """);
@@ -140,7 +142,83 @@ public final class SkillProgressionIntegrityVerifier {
                 }
                 return null;
             }
-            return row.getInt("active_skill_cap");
+            return new CapState(
+                    row.getInt("active_skill_cap"),
+                    row.getLong("state_version"),
+                    row.getObject("source_operation_id", UUID.class)
+            );
+        }
+    }
+
+    private static void verifyCurrentCapEvidence(
+            Connection connection,
+            CapState current,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        if (remaining(issues, maxIssues) == 0) return;
+
+        long expectedVersion = switch (current.activeCap()) {
+            case 50 -> 0L;
+            case 75 -> 1L;
+            case 100 -> 2L;
+            default -> -1L;
+        };
+        boolean sourceShapeValid = current.activeCap() == 50
+                ? current.sourceOperationId() == null
+                : current.sourceOperationId() != null;
+        if (expectedVersion < 0 || current.stateVersion() != expectedVersion || !sourceShapeValid) {
+            issues.add(new IntegrityIssue(
+                    IntegritySeverity.CRITICAL,
+                    "SKILL_CAP_EVIDENCE_MISMATCH",
+                    "progression_state",
+                    "Current staged cap state has invalid transition shape: cap=" + current.activeCap()
+                            + ", stateVersion=" + current.stateVersion()
+                            + ", sourceOperationId=" + current.sourceOperationId()
+            ));
+            if (remaining(issues, maxIssues) == 0) return;
+        }
+
+        if (current.activeCap() == 50 || current.sourceOperationId() == null) {
+            return;
+        }
+
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT operation_type,
+                       result ->> 'active_cap' AS active_cap,
+                       result ->> 'state_version' AS state_version,
+                       result ->> 'source_operation_id' AS source_operation_id
+                FROM processed_operations
+                WHERE operation_id = ?
+                """)) {
+            statement.setObject(1, current.sourceOperationId());
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "SKILL_CAP_EVIDENCE_MISMATCH",
+                            "progression_state",
+                            "Current staged cap references missing processed operation " + current.sourceOperationId()
+                    ));
+                    return;
+                }
+
+                String resultCap = row.getString("active_cap");
+                String resultVersion = row.getString("state_version");
+                String resultSource = row.getString("source_operation_id");
+                boolean matches = CAP_OPERATION.equals(row.getString("operation_type"))
+                        && Integer.toString(current.activeCap()).equals(resultCap)
+                        && Long.toString(current.stateVersion()).equals(resultVersion)
+                        && current.sourceOperationId().toString().equals(resultSource);
+                if (!matches) {
+                    issues.add(new IntegrityIssue(
+                            IntegritySeverity.CRITICAL,
+                            "SKILL_CAP_EVIDENCE_MISMATCH",
+                            "progression_state",
+                            "Current staged cap does not match processed operation " + current.sourceOperationId()
+                    ));
+                }
+            }
         }
     }
 
@@ -283,5 +361,8 @@ public final class SkillProgressionIntegrityVerifier {
 
     private static int remaining(List<IntegrityIssue> issues, int maxIssues) {
         return Math.max(0, maxIssues - issues.size());
+    }
+
+    private record CapState(int activeCap, long stateVersion, UUID sourceOperationId) {
     }
 }
