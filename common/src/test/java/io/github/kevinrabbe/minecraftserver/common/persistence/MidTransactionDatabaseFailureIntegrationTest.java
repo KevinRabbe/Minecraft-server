@@ -14,6 +14,7 @@ import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityReposit
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerStateRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
+import io.github.kevinrabbe.minecraftserver.common.verification.PersistentIntegrityVerifier;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -181,6 +182,12 @@ class MidTransactionDatabaseFailureIntegrationTest {
         assertArrayEquals(claimedPayload, states.load(playerId).statePayload());
         assertEquals(1L, countByOperation("processed_operations", claimOperationId));
         assertEquals(1L, countByOperation("item_provenance", claimOperationId));
+        assertGlobalIntegrityClean();
+    }
+
+    private void assertGlobalIntegrityClean() throws SQLException {
+        var issues = new PersistentIntegrityVerifier(dataSource, itemCatalog).verify(1_000);
+        assertTrue(issues.isEmpty(), () -> "global integrity issues after adversarial recovery: " + issues);
     }
 
     private long countByOperation(String table, UUID operationId) throws SQLException {
