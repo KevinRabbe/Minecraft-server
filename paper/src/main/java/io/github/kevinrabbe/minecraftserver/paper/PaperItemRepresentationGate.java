@@ -51,7 +51,7 @@ final class PaperItemRepresentationGate implements Listener {
                         player.getUniqueId(),
                         result.validatedIndividualSnapshots()
                 );
-                refreshPresentationBestEffort(player, result);
+                refreshPresentationBestEffort(player);
                 return;
             }
 
@@ -78,12 +78,9 @@ final class PaperItemRepresentationGate implements Listener {
         PaperItemRuntimeStatCache.clear(event.getPlayer().getUniqueId());
     }
 
-    private void refreshPresentationBestEffort(
-            Player player,
-            ItemRepresentationValidationResult result
-    ) {
+    private void refreshPresentationBestEffort(Player player) {
         try {
-            presentation.refresh(player, result.validatedIndividualSnapshots());
+            presentation.refresh(player);
         } catch (RuntimeException exception) {
             plugin.getLogger().log(
                     Level.WARNING,
