@@ -47,7 +47,13 @@
       "display_name": "Starter Sword",
       "max_stack_size": 1,
       "category": "EQUIPMENT",
-      "identity_kind": "INDIVIDUAL"
+      "identity_kind": "INDIVIDUAL",
+      "roll_properties": {
+        "damage": {
+          "minimum_basis_points": 10000,
+          "maximum_basis_points": 12000
+        }
+      }
     },
     {
       "definition_id": "map.forest_extermination",
