@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.verification;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -8,29 +9,47 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Bounded aggregate verifier across economy/custody, item state, persistent PvE, clans, and competitive evidence. */
+/** Bounded aggregate verifier across economy/custody, item/progression state, PvE, clans, and competitive evidence. */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
 
     private final EconomyIntegrityVerifier economy;
     private final ItemUpgradeIntegrityVerifier itemUpgrades;
+    private final SkillProgressionIntegrityVerifier skills;
     private final PersistentPveIntegrityVerifier pve;
     private final ClanIntegrityVerifier clans;
     private final CompetitiveIntegrityVerifier competitive;
     private final CompetitiveExecutionLoadoutIntegrityVerifier competitiveLoadouts;
 
-    /** Compatibility constructor for environments without a loaded item catalog. */
+    /** Compatibility constructor for environments without loaded item/skill catalogs. */
     public PersistentIntegrityVerifier(DataSource dataSource) {
-        this(dataSource, null);
+        this(dataSource, null, null);
     }
 
-    /** Strong aggregate verifier with item-definition-aware upgrade reconciliation. */
+    /** Compatibility constructor with item-definition-aware upgrade reconciliation only. */
     public PersistentIntegrityVerifier(DataSource dataSource, ItemCatalog itemCatalog) {
+        this(dataSource, itemCatalog, null);
+    }
+
+    /** Compatibility constructor with skill-definition-aware progression reconciliation only. */
+    public PersistentIntegrityVerifier(DataSource dataSource, SkillProgressionCatalog skillCatalog) {
+        this(dataSource, null, skillCatalog);
+    }
+
+    /** Strong aggregate verifier with both live item and skill catalogs. */
+    public PersistentIntegrityVerifier(
+            DataSource dataSource,
+            ItemCatalog itemCatalog,
+            SkillProgressionCatalog skillCatalog
+    ) {
         Objects.requireNonNull(dataSource, "dataSource");
         this.economy = new EconomyIntegrityVerifier(dataSource);
         this.itemUpgrades = itemCatalog == null
                 ? new ItemUpgradeIntegrityVerifier(dataSource)
                 : new ItemUpgradeIntegrityVerifier(dataSource, itemCatalog);
+        this.skills = skillCatalog == null
+                ? new SkillProgressionIntegrityVerifier(dataSource)
+                : new SkillProgressionIntegrityVerifier(dataSource, skillCatalog);
         this.pve = new PersistentPveIntegrityVerifier(dataSource);
         this.clans = new ClanIntegrityVerifier(dataSource);
         this.competitive = new CompetitiveIntegrityVerifier(dataSource);
@@ -45,6 +64,10 @@ public final class PersistentIntegrityVerifier {
         int remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(itemUpgrades.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(skills.verify(remaining));
         }
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
