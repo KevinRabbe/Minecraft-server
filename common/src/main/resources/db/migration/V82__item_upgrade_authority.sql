@@ -4,7 +4,7 @@ ALTER TABLE item_provenance
 
 ALTER TABLE item_provenance
     ADD CONSTRAINT item_provenance_event_type_check CHECK (
-        event_type IN ('CREATED', 'MOVED', 'QUARANTINED', 'DESTROYED', 'RECOVERED', 'UPGRADED')
+        event_type IN ('CREATED', 'MOVED', 'DELIVERED', 'QUARANTINED', 'DESTROYED', 'RECOVERED', 'UPGRADED')
     );
 
 -- Deliberately no FK edges from this append-only evidence table back to item_instances/players. Existing integration
