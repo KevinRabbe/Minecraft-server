@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRollProfile;
 import io.github.kevinrabbe.minecraftserver.common.item.RollRange;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillId;
@@ -133,10 +134,19 @@ public final class CraftingContentCatalogLoader {
                     rolls.put(propertyId, new RollRange(range.minimumBasisPoints(), range.maximumBasisPoints()));
                 });
 
+                ItemRollProfile declaredRollProfile = new ItemRollProfile(rolls);
+                ItemDefinition outputDefinition = itemCatalog.require(recipe.outputDefinitionId());
+                if (!declaredRollProfile.equals(outputDefinition.rollProfile())) {
+                    throw new IllegalArgumentException(
+                            "recipe roll profile must exactly match output item definition "
+                                    + outputDefinition.definitionId()
+                    );
+                }
+
                 recipes.add(new CraftRecipeVersion(
                         value.version(),
                         recipe,
-                        new ItemRollProfile(rolls)
+                        outputDefinition.rollProfile()
                 ));
                 experience.add(new CraftingExperienceDefinition(
                         value.recipeId(),
