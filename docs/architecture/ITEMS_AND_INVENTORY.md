@@ -88,6 +88,21 @@ Use/equip may be skill/content-gated.
 
 Crafting requirement is separate from use requirement. A specialist may craft an item they cannot personally use. Bounty-family materials may be bought and used economically without personally completing that bounty branch unless an explicit recipe/use rule says otherwise.
 
+The implemented skill-use requirement foundation is definition-owned content data:
+
+- one item definition may declare zero or more stable `skill_id -> minimum level` requirements;
+- zero configured requirements means unrestricted use and requires no progression lookup;
+- minimum levels use the same long-term 1..100 skill domain and the active 50 -> 75 -> 100 cap still applies normally;
+- missing player skill rows project as level 0 rather than being created merely by an eligibility check;
+- all configured skill requirements are conjunctive: every requirement must be met;
+- bundled item/skill content is cross-validated so shipped item requirements reference known skills;
+- bounded multi-skill reads load the relevant authoritative levels in one query rather than one PostgreSQL lookup per requirement;
+- the eligibility result exposes the exact unmet requirements so adapters can explain why use is denied without changing custody.
+
+Use/equip enforcement belongs at the relevant gameplay action boundary. It must not be implemented by blocking Auction House listing, Bazaar/material acquisition, storage, direct trade, salvage, or ordinary ownership. A newly configured requirement also must not become a hidden mandatory progression route for unrelated content.
+
+The current bundled item definitions remain unrestricted unless a requirement is explicitly added as content. Do not infer requirements from item material, name, category, crafting recipe, creator skill, or provenance.
+
 Soulbinding is not a default V1 mechanism. Introduce it only with a separately documented system reason.
 
 ## Equipment/stat model
@@ -238,7 +253,7 @@ Examples:
 - Zombie Pouch
 - Golem Pouch
 
-A bounty pouch accepts only fungible materials from its configured family. Capacity/QoL may improve with that family progression.
+A bounty pouch accepts only the fungible materials for its configured family. Capacity/QoL may improve with that family progression.
 
 Common pouch rules:
 
