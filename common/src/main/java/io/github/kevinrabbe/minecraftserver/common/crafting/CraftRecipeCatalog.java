@@ -54,12 +54,19 @@ public final class CraftRecipeCatalog {
         for (RecipeIngredient ingredient : recipe.ingredients()) {
             ItemDefinition definition = itemCatalog.require(ingredient.definitionId());
             if (definition.identityKind() != ItemIdentityKind.COMMODITY) {
-                throw new IllegalArgumentException("craft ingredients must be COMMODITY definitions: " + definition.definitionId());
+                throw new IllegalArgumentException(
+                        "craft ingredients must be COMMODITY definitions: " + definition.definitionId()
+                );
             }
         }
         ItemDefinition output = itemCatalog.require(recipe.outputDefinitionId());
         if (output.identityKind() == ItemIdentityKind.INDIVIDUAL && recipe.outputQuantity() != 1) {
             throw new IllegalArgumentException("INDIVIDUAL craft outputQuantity must be exactly 1");
+        }
+        if (!version.outputRollProfile().equals(output.rollProfile())) {
+            throw new IllegalArgumentException(
+                    "craft recipe roll profile must exactly match output item definition " + output.definitionId()
+            );
         }
         if (output.identityKind() == ItemIdentityKind.COMMODITY && version.outputRollProfile().rolled()) {
             throw new IllegalArgumentException("COMMODITY craft outputs cannot have intrinsic roll profiles");
