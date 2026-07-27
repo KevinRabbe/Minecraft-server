@@ -127,6 +127,33 @@ class ItemCatalogLoaderTest {
     }
 
     @Test
+    void rejectsIntrinsicRollProfileOutsideEquipmentCategory() {
+        ItemCatalogException exception = assertThrows(ItemCatalogException.class, () -> load("""
+                {
+                  "schema_version": 1,
+                  "items": [
+                    {
+                      "definition_id": "map.bad_rolled_map",
+                      "minecraft_material": "MAP",
+                      "display_name": "Bad Rolled Map",
+                      "max_stack_size": 1,
+                      "category": "progression",
+                      "identity_kind": "individual",
+                      "roll_properties": {
+                        "damage": {
+                          "minimum_basis_points": 10000,
+                          "maximum_basis_points": 12000
+                        }
+                      }
+                    }
+                  ]
+                }
+                """));
+
+        assertTrue(exception.getMessage().contains("only valid for EQUIPMENT"));
+    }
+
+    @Test
     void rejectsInvalidStableIdAndImpossibleStackSize() {
         assertThrows(ItemCatalogException.class, () -> load(singleItem(
                 "Bad ID",
