@@ -12,6 +12,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -59,6 +60,7 @@ class ClanMemberCapIntegrationTest {
                         clan_invitations,
                         clan_commodity_balances,
                         clan_treasuries,
+                        clan_member_counts,
                         clan_members,
                         clans,
                         processed_operations,
@@ -114,7 +116,37 @@ class ClanMemberCapIntegrationTest {
 
         assertEquals(1, successes);
         assertEquals(1, capRejections);
-        assertEquals(2L, memberCount(clan.clanId()));
+        assertCountsAgree(clan.clanId(), 2L);
+    }
+
+    @Test
+    void rawConcurrentMembershipInsertsCannotBypassDatabaseCap() throws Exception {
+        policy.configureMemberCap(2);
+        UUID leader = player("RawCapLeader");
+        UUID targetA = player("RawCapA");
+        UUID targetB = player("RawCapB");
+        ClanSnapshot clan = clans.createClan(UUID.randomUUID(), leader, "Raw Cap Clan", "RAW");
+
+        int successes = 0;
+        int capRejections = 0;
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Integer> a = executor.submit(() -> directMemberInsert(clan.clanId(), targetA));
+            Future<Integer> b = executor.submit(() -> directMemberInsert(clan.clanId(), targetB));
+
+            for (Future<Integer> future : java.util.List.of(a, b)) {
+                try {
+                    assertEquals(1, future.get());
+                    successes++;
+                } catch (ExecutionException exception) {
+                    assertTrue(exception.getCause() instanceof SQLException);
+                    capRejections++;
+                }
+            }
+        }
+
+        assertEquals(1, successes);
+        assertEquals(1, capRejections);
+        assertCountsAgree(clan.clanId(), 2L);
     }
 
     @Test
@@ -128,7 +160,7 @@ class ClanMemberCapIntegrationTest {
 
         accept(clan.clanId(), leader, first);
         accept(clan.clanId(), leader, second);
-        assertEquals(3L, memberCount(clan.clanId()));
+        assertCountsAgree(clan.clanId(), 3L);
 
         ClanPolicySnapshot lowered = policy.configureMemberCap(2);
         assertEquals(2, lowered.memberCap());
@@ -140,7 +172,38 @@ class ClanMemberCapIntegrationTest {
                 SQLException.class,
                 () -> clans.acceptInvite(UUID.randomUUID(), blockedInvite.inviteId(), blocked)
         );
-        assertEquals(3L, memberCount(clan.clanId()));
+        assertCountsAgree(clan.clanId(), 3L);
+    }
+
+    @Test
+    void memberRemovalReleasesExactlyOneReservedSlot() throws Exception {
+        policy.configureMemberCap(2);
+        UUID leader = player("ReleaseLeader");
+        UUID first = player("ReleaseFirst");
+        UUID replacement = player("ReleaseNext");
+        ClanSnapshot clan = clans.createClan(UUID.randomUUID(), leader, "Release Clan", "REL");
+        accept(clan.clanId(), leader, first);
+        assertCountsAgree(clan.clanId(), 2L);
+
+        clans.removeMember(UUID.randomUUID(), clan.clanId(), leader, first);
+        assertCountsAgree(clan.clanId(), 1L);
+
+        accept(clan.clanId(), leader, replacement);
+        assertCountsAgree(clan.clanId(), 2L);
+    }
+
+    @Test
+    void clanMemberIdentityCannotBeMovedAroundCounterAuthority() throws Exception {
+        UUID leaderA = player("IdentityLeaderA");
+        UUID leaderB = player("IdentityLeaderB");
+        UUID member = player("IdentityMember");
+        ClanSnapshot clanA = clans.createClan(UUID.randomUUID(), leaderA, "Identity A", "IDA");
+        ClanSnapshot clanB = clans.createClan(UUID.randomUUID(), leaderB, "Identity B", "IDB");
+        accept(clanA.clanId(), leaderA, member);
+
+        assertThrows(SQLException.class, () -> rewriteMemberClan(clanA.clanId(), clanB.clanId(), member));
+        assertCountsAgree(clanA.clanId(), 2L);
+        assertCountsAgree(clanB.clanId(), 1L);
     }
 
     @Test
@@ -161,9 +224,40 @@ class ClanMemberCapIntegrationTest {
         return identities.ensurePlayer(UUID.randomUUID(), name);
     }
 
+    private int directMemberInsert(UUID clanId, UUID playerId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     INSERT INTO clan_members(clan_id, player_id, role)
+                     VALUES (?, ?, 'MEMBER')
+                     """)) {
+            statement.setObject(1, clanId);
+            statement.setObject(2, playerId);
+            return statement.executeUpdate();
+        }
+    }
+
+    private void rewriteMemberClan(UUID sourceClanId, UUID targetClanId, UUID playerId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE clan_members
+                     SET clan_id = ?
+                     WHERE clan_id = ? AND player_id = ?
+                     """)) {
+            statement.setObject(1, targetClanId);
+            statement.setObject(2, sourceClanId);
+            statement.setObject(3, playerId);
+            statement.executeUpdate();
+        }
+    }
+
+    private void assertCountsAgree(UUID clanId, long expected) throws SQLException {
+        assertEquals(expected, memberCount(clanId));
+        assertEquals(expected, trackedCount(clanId));
+    }
+
     private long memberCount(UUID clanId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             java.sql.PreparedStatement statement = connection.prepareStatement("""
+             PreparedStatement statement = connection.prepareStatement("""
                      SELECT COUNT(*)
                      FROM clan_members
                      WHERE clan_id = ?
@@ -171,6 +265,21 @@ class ClanMemberCapIntegrationTest {
             statement.setObject(1, clanId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
+                return row.getLong(1);
+            }
+        }
+    }
+
+    private long trackedCount(UUID clanId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT member_count
+                     FROM clan_member_counts
+                     WHERE clan_id = ?
+                     """)) {
+            statement.setObject(1, clanId);
+            try (ResultSet row = statement.executeQuery()) {
+                assertTrue(row.next());
                 return row.getLong(1);
             }
         }
