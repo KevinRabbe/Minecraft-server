@@ -7,9 +7,15 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot "settings.ps1")
 
+$RuntimeRoot = $LocalNetwork.RuntimeRoot
+$RestoreMarker = Join-Path $RuntimeRoot "restore.in-progress"
+if (Test-Path $RestoreMarker) {
+    $detail = Get-Content -Raw $RestoreMarker -ErrorAction SilentlyContinue
+    throw "Refusing to start the Minecraft network because a restore is incomplete. Rerun infra\local\restore.ps1 for the selected backup until it succeeds. Marker: $detail"
+}
+
 & (Join-Path $PSScriptRoot "setup.ps1") -SkipBuild:$SkipBuild
 
-$RuntimeRoot = $LocalNetwork.RuntimeRoot
 $VelocityRoot = Join-Path $RuntimeRoot "velocity"
 $ServersRoot = Join-Path $RuntimeRoot "servers"
 $managed = New-Object System.Collections.ArrayList
