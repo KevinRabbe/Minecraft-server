@@ -87,6 +87,42 @@ The PostgreSQL integration proof uses real authority operations and covers both 
 - a real crossed Bazaar match at the test 1% fee -> `198` minor units of seller wallet credit/gross movement while exactly `2` minor units are classified as destroyed supply;
 - future, not-yet-observed windows -> zero flow.
 
+## Implemented Bazaar market baseline
+
+`BazaarMarketAnalyticsRepository` is a read-only projection over authoritative current `bazaar_orders` plus append-only `BAZAAR_MATCH` processed-operation results. It writes no analytics event, price cache, order copy, fill copy, or secondary order-book state.
+
+For one commodity it returns a **current book snapshot** containing:
+
+- best bid and best ask price when that side exists;
+- remaining quantity at the best bid and best ask price;
+- open buy-order and sell-order counts;
+- total remaining buy and sell quantity;
+- nullable quoted spread (`best ask - best bid`), which may be negative if the current book is crossed.
+
+The projection does not attach a policy interpretation to spread or depth. It does not define a healthy spread, target volume, liquidity score, or tuning threshold.
+
+For a requested execution-history window it separately returns:
+
+- observation-fenced match-pass count;
+- fill count;
+- filled commodity quantity;
+- gross trade value;
+- Bazaar fees destroyed.
+
+Historical execution is derived from the frozen aggregate fields persisted by each append-only `BAZAAR_MATCH` processed result: commodity ID, fill count, filled quantity, gross trade value, fee destruction, and operation completion time. It deliberately does not try to reconstruct matcher batches from per-fill delivery identities.
+
+The current order-book snapshot and the historical execution window are intentionally different time concepts. A future or not-yet-observed history window therefore reports zero observed execution while the current book can still be visible; current depth must never be presented as if it were historical depth.
+
+The PostgreSQL integration proof uses real Bazaar authority paths and demonstrates:
+
+- exact two-sided book state with multiple price levels, including best-level and total remaining depth;
+- a real crossed trade at the test 1% fee with one fill, quantity `2`, gross trade value `200`, and fee destruction `2`;
+- fully filled orders disappearing from current open-book depth while their append-only matcher result remains available to history analytics;
+- a future execution-history window returning zero observed execution without hiding current open orders;
+- temporary sell-order sessions being explicitly disconnected, while valid append-only market/economic evidence remains immutable rather than being deleted for test cleanup.
+
+This is the V1 market-microstructure baseline. More elaborate price-series, slippage curves, volatility measures, or dashboards should be added only when a concrete product question requires them.
+
 ## Event examples
 
 These are the stable event vocabulary that may be useful where an event is actually needed. Inclusion here does not mean every example must be persisted if the same question can be derived from existing authority.
@@ -129,7 +165,7 @@ The implemented session baseline deliberately derives start/end/player-time/rete
 - `NPC_SALVAGE`
 - `BOOTSTRAP_PURCHASE`
 
-Confirmed Coin faucet/sink analytics already derives from existing operation/ledger evidence. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` rows merely to reproduce facts that are already durable. A separate analytics event is justified only when it adds observational context the authoritative operation does not preserve.
+Confirmed Coin faucet/sink analytics already derives from existing operation/ledger evidence. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` rows merely to reproduce facts that are already durable. Likewise, current Bazaar depth and aggregate fill quantity/value/fees already derive from `bazaar_orders` plus append-only `BAZAAR_MATCH` results; do not persist duplicate `BAZAAR_FILL` analytics rows merely to recreate those facts. A separate analytics event is justified only when it adds observational context the authoritative operation does not preserve.
 
 ### Maps / PvE
 - `MAP_OPENED`
@@ -221,7 +257,9 @@ The implemented session projection directly answers total player-time, new/retur
 - suspicious sudden supply/currency creation
 - wealth concentration and transaction velocity
 
-The implemented Coin-flow projection answers confirmed creation/destruction/net supply change plus gross movement by stable reason and reports whether classification coverage is complete. It deliberately does not infer supply from one-sided escrow ledger entries. Holdings distribution, market microstructure, commodity supply, and wealth-distribution questions remain separate projections.
+The implemented Coin-flow projection answers confirmed creation/destruction/net supply change plus gross movement by stable reason and reports whether classification coverage is complete. It deliberately does not infer supply from one-sided escrow ledger entries.
+
+The implemented Bazaar market projection now answers current best bid/ask/spread, best-level and total open depth, and observation-fenced matcher/fill quantity/value/fee activity per commodity. Holdings distribution, commodity creation/consumption, Auction-House price distributions, wealth concentration, and richer market behavior such as slippage/volatility remain separate questions.
 
 ### Maps
 - run starts/completions/failures by difficulty/configuration
@@ -276,6 +314,7 @@ Similarly:
 
 - network session rows are session ownership/lifecycle authority; session analytics is a read-only product projection;
 - Coin-flow analytics combines stable operation type with Coin ledger/custody-specific evidence; raw ledger net alone is not global supply authority;
+- Bazaar order rows are current market authority and append-only `BAZAAR_MATCH` processed results are frozen execution summaries; Bazaar market analytics is a read-only projection of those sources;
 - Map clear records are authoritative leaderboard/history source;
 - analytics about Map clears is observational;
 - ballots/vote resolution are authoritative world-state source;
@@ -285,7 +324,7 @@ Similarly:
 
 Store only data needed to operate, secure, debug, and improve the game. Avoid unnecessary personal data in analytics records.
 
-The implemented session and Coin-flow summaries return aggregate counts/time/value only; they do not expose player names, Minecraft UUIDs, or serialized player state.
+The implemented session, Coin-flow, and Bazaar-market summaries return aggregate counts/time/value/depth only; they do not expose player names, Minecraft UUIDs, or serialized player state.
 
 ## Expansion rule
 
