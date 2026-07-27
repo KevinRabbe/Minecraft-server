@@ -13,6 +13,7 @@ import io.github.kevinrabbe.minecraftserver.common.progression.SkillXpAwardResul
 import java.sql.SQLException;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,9 @@ final class PaperItemUseEligibilityCache {
     private final Set<SkillId> relevantSkillSet;
     private final int maxPlayers;
     private final Map<UUID, PlayerSnapshot> snapshots = new HashMap<>();
+    private final Set<UUID> refreshInFlight = new HashSet<>();
+    private final Map<UUID, PlayerSnapshot> refreshBaselines = new HashMap<>();
+    private final Map<UUID, Map<SkillId, LevelState>> pendingAwards = new HashMap<>();
 
     PaperItemUseEligibilityCache(
             ItemCatalog itemCatalog,
@@ -74,38 +78,48 @@ final class PaperItemUseEligibilityCache {
         return !relevantSkills.isEmpty();
     }
 
-    /** Loads every skill used by the current item catalog in one bounded authoritative projection. */
+    /**
+     * Loads every skill used by the current item catalog in one bounded authoritative projection. The published
+     * snapshot is hidden while the read is in flight; committed XP results racing the read are buffered by state
+     * version and folded into the replacement before it becomes visible.
+     */
     void refresh(UUID playerId) throws SQLException {
         Objects.requireNonNull(playerId, "playerId");
         if (relevantSkills.isEmpty()) {
             return;
         }
 
-        Map<SkillId, SkillProgressSnapshot> loaded = skillLoader.load(playerId, relevantSkills);
-        LinkedHashMap<SkillId, LevelState> incoming = new LinkedHashMap<>();
-        for (SkillId skillId : relevantSkills) {
-            SkillProgressSnapshot snapshot = loaded.get(skillId);
-            if (snapshot == null) {
-                throw new IllegalStateException("Progression projection omitted required skill " + skillId);
-            }
-            if (!playerId.equals(snapshot.playerId()) || !skillId.equals(snapshot.skillId())) {
-                throw new IllegalStateException("Progression projection returned mismatched player/skill identity");
-            }
-            incoming.put(skillId, new LevelState(snapshot.level(), snapshot.stateVersion()));
-        }
-
-        synchronized (snapshots) {
-            PlayerSnapshot current = snapshots.get(playerId);
-            if (current == null && snapshots.size() >= maxPlayers) {
-                throw new IllegalStateException("Item-use eligibility cache is full");
+        beginRefresh(playerId);
+        try {
+            Map<SkillId, SkillProgressSnapshot> loaded = skillLoader.load(playerId, relevantSkills);
+            LinkedHashMap<SkillId, LevelState> incoming = new LinkedHashMap<>();
+            for (SkillId skillId : relevantSkills) {
+                SkillProgressSnapshot snapshot = loaded.get(skillId);
+                if (snapshot == null) {
+                    throw new IllegalStateException("Progression projection omitted required skill " + skillId);
+                }
+                if (!playerId.equals(snapshot.playerId()) || !skillId.equals(snapshot.skillId())) {
+                    throw new IllegalStateException("Progression projection returned mismatched player/skill identity");
+                }
+                incoming.put(skillId, new LevelState(snapshot.level(), snapshot.stateVersion()));
             }
 
-            try {
-                snapshots.put(playerId, merge(current, incoming));
-            } catch (RuntimeException exception) {
+            synchronized (snapshots) {
+                PlayerSnapshot baseline = refreshBaselines.get(playerId);
+                PlayerSnapshot merged = merge(baseline, incoming);
+                Map<SkillId, LevelState> awards = pendingAwards.getOrDefault(playerId, Map.of());
+                for (Map.Entry<SkillId, LevelState> award : awards.entrySet()) {
+                    merged = applyLevelState(merged, award.getKey(), award.getValue());
+                }
+                snapshots.put(playerId, merged);
+                clearRefreshState(playerId);
+            }
+        } catch (SQLException | RuntimeException exception) {
+            synchronized (snapshots) {
                 snapshots.remove(playerId);
-                throw exception;
+                clearRefreshState(playerId);
             }
+            throw exception;
         }
     }
 
@@ -147,55 +161,74 @@ final class PaperItemUseEligibilityCache {
         ));
     }
 
-    /** Advances an attached snapshot from a result that has already committed in progression authority. */
+    /** Advances a local projection only from a result that has already committed in progression authority. */
     void applyCommittedAward(SkillXpAwardResult award) {
         Objects.requireNonNull(award, "award");
         if (!relevantSkillSet.contains(award.skillId())) {
             return;
         }
 
+        LevelState committed = new LevelState(award.newLevel(), award.stateVersion());
         synchronized (snapshots) {
             PlayerSnapshot current = snapshots.get(award.playerId());
-            if (current == null) {
-                return;
-            }
-            LevelState previous = current.skills().get(award.skillId());
-            if (previous == null) {
-                snapshots.remove(award.playerId());
-                return;
-            }
-
-            if (award.stateVersion() < previous.stateVersion()) {
-                return;
-            }
-            if (award.stateVersion() == previous.stateVersion()) {
-                if (award.newLevel() != previous.level()) {
-                    snapshots.remove(award.playerId());
+            if (current != null) {
+                try {
+                    snapshots.put(award.playerId(), applyLevelState(current, award.skillId(), committed));
+                } catch (RuntimeException exception) {
+                    invalidateLocked(award.playerId());
                 }
                 return;
             }
-            if (award.newLevel() < previous.level()) {
-                // A future non-monotonic progression mechanic must define a new cache contract; fail closed meanwhile.
-                snapshots.remove(award.playerId());
+
+            if (!refreshInFlight.contains(award.playerId())) {
                 return;
             }
-
-            LinkedHashMap<SkillId, LevelState> next = new LinkedHashMap<>(current.skills());
-            next.put(award.skillId(), new LevelState(award.newLevel(), award.stateVersion()));
-            snapshots.put(award.playerId(), new PlayerSnapshot(next));
+            Map<SkillId, LevelState> buffered = pendingAwards.computeIfAbsent(
+                    award.playerId(),
+                    ignored -> new HashMap<>()
+            );
+            LevelState previous = buffered.get(award.skillId());
+            if (previous == null || committed.stateVersion() > previous.stateVersion()) {
+                buffered.put(award.skillId(), committed);
+                return;
+            }
+            if (committed.stateVersion() == previous.stateVersion() && committed.level() != previous.level()) {
+                invalidateLocked(award.playerId());
+            }
         }
     }
 
     void invalidate(UUID playerId) {
         Objects.requireNonNull(playerId, "playerId");
         synchronized (snapshots) {
-            snapshots.remove(playerId);
+            invalidateLocked(playerId);
         }
     }
 
     int cachedPlayerCount() {
         synchronized (snapshots) {
             return snapshots.size();
+        }
+    }
+
+    private void beginRefresh(UUID playerId) {
+        synchronized (snapshots) {
+            if (refreshInFlight.contains(playerId)) {
+                throw new IllegalStateException("Item-use eligibility refresh already in flight");
+            }
+            boolean alreadyCounted = snapshots.containsKey(playerId);
+            if (!alreadyCounted && snapshots.size() + refreshInFlight.size() >= maxPlayers) {
+                throw new IllegalStateException("Item-use eligibility cache is full");
+            }
+
+            PlayerSnapshot baseline = snapshots.remove(playerId);
+            refreshInFlight.add(playerId);
+            if (baseline != null) {
+                refreshBaselines.put(playerId, baseline);
+            } else {
+                refreshBaselines.remove(playerId);
+            }
+            pendingAwards.remove(playerId);
         }
     }
 
@@ -211,20 +244,50 @@ final class PaperItemUseEligibilityCache {
             if (previous == null || loaded == null) {
                 throw new IllegalStateException("Incomplete item-use eligibility snapshot for " + skillId);
             }
-            if (loaded.stateVersion() < previous.stateVersion()) {
-                merged.put(skillId, previous);
-                continue;
-            }
-            if (loaded.stateVersion() > previous.stateVersion() && loaded.level() < previous.level()) {
-                throw new IllegalStateException("Non-monotonic skill progression detected for " + skillId);
-            }
-            if (loaded.stateVersion() == previous.stateVersion() && loaded.level() < previous.level()) {
-                merged.put(skillId, previous);
-                continue;
-            }
-            merged.put(skillId, loaded);
+            merged.put(skillId, newerLevelState(skillId, previous, loaded));
         }
         return new PlayerSnapshot(merged);
+    }
+
+    private PlayerSnapshot applyLevelState(PlayerSnapshot current, SkillId skillId, LevelState incoming) {
+        LevelState previous = current.skills().get(skillId);
+        if (previous == null) {
+            throw new IllegalStateException("Incomplete item-use eligibility snapshot for " + skillId);
+        }
+        LevelState resolved = newerLevelState(skillId, previous, incoming);
+        if (resolved.equals(previous)) {
+            return current;
+        }
+        LinkedHashMap<SkillId, LevelState> next = new LinkedHashMap<>(current.skills());
+        next.put(skillId, resolved);
+        return new PlayerSnapshot(next);
+    }
+
+    private static LevelState newerLevelState(SkillId skillId, LevelState previous, LevelState incoming) {
+        if (incoming.stateVersion() < previous.stateVersion()) {
+            return previous;
+        }
+        if (incoming.stateVersion() == previous.stateVersion()) {
+            if (incoming.level() != previous.level()) {
+                throw new IllegalStateException("Conflicting skill state at version for " + skillId);
+            }
+            return previous;
+        }
+        if (incoming.level() < previous.level()) {
+            throw new IllegalStateException("Non-monotonic skill progression detected for " + skillId);
+        }
+        return incoming;
+    }
+
+    private void clearRefreshState(UUID playerId) {
+        refreshInFlight.remove(playerId);
+        refreshBaselines.remove(playerId);
+        pendingAwards.remove(playerId);
+    }
+
+    private void invalidateLocked(UUID playerId) {
+        snapshots.remove(playerId);
+        clearRefreshState(playerId);
     }
 
     private static SkillProjectionLoader queryLoader(SkillProgressionQueryRepository skills) {
