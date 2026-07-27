@@ -9,7 +9,7 @@ See [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) for the complete milestone map.
 The active branch has moved materially beyond the original architecture-only checkpoint:
 
 - economy/value Paper surfaces are live for Bank Manager, Bazaar, Auction House, secure direct trade, salvage, personal crafting, and crafting commissions;
-- persistent MMO clans expose membership/roles, treasury, and shared commodity/unique-item storage using the existing custody/delivery authorities;
+- persistent MMO clans expose membership/roles/roster, network-wide bounded clan chat, a shared concurrency-safe configurable member cap (bundled `100` remains provisional tuning), treasury, shared commodity/unique-item storage, and player-facing Clan-War rating/history/leaderboard read models; clan member-count authority is reconciled by the global integrity verifier;
 - starter gathering and ordinary managed PvE feed authoritative commodity/XP progression; the first Bounty family has contract, kill-progress, summon/boss, reward, and pouch gameplay bridges;
 - Portal/Maps now have individualized persistent Map identity, exact open consumption, disposable-instance reservation/handoff, auto-pinned transfer evidence, managed Forest/Spider Extermination gameplay, exactly-once successor-Map rewards, persisted return routing, abandoned/completed recovery, `/map open`, and Persistent-MMO Map leaderboards;
 - the first-Map acquisition source remains intentionally unresolved in [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md); do not create a hidden mandatory Bounty/crafting/vendor route just to make the first Map appear;
