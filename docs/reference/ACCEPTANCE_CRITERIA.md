@@ -91,9 +91,17 @@ For at least one commodity before broad content expansion:
 4. changing balance definitions changes derived current stats without changing historical roll quality;
 5. configured roll ranges remain bounded per item (target envelope roughly 10–30% low-to-high relevant value);
 6. most ordinary rolls remain usable; perfect rolls are not required for progression;
-7. upgrade state is separate from intrinsic roll quality;
-8. salvage destroys exactly the intended unique item and creates configured output once;
-9. craft/Bazaar/transfer races cannot spend the same commodity twice.
+7. upgrade state is separate from intrinsic roll quality and upgrading never rerolls intrinsic quality;
+8. one committed upgrade step advances the exact item's `upgrade_level` and item `state_version` exactly once without changing custody;
+9. carried-item upgrades commit the serialized player-state authority-version change and the item authority head atomically under the owning live session;
+10. stale/concurrent upgrade attempts from the same item/session head result in at most one commit;
+11. replaying one upgrade operation returns the original result and cannot bind that operation to another item, payload, version, level, or session context;
+12. an uncommitted/failed upgrade attempt leaves the item intact and does not silently degrade, destroy, reroll, or ambiguously advance it;
+13. upgrade evidence/provenance is append-only enough for the global integrity verifier to detect live-item chain/provenance corruption;
+14. salvage destroys exactly the intended unique item and creates configured output once;
+15. craft/Bazaar/transfer races cannot spend the same commodity twice.
+
+Exact upgrade cost/progression/power values are tuning/content decisions, not substitutes for these authority invariants.
 
 ## H. Skills and staged caps
 
@@ -246,9 +254,10 @@ Deliberately test at minimum:
 - Paper crash during/around transfer;
 - repeated transfer ticket replay;
 - database response lost after a successful transaction commit;
-- duplicate economic/crafting/XP/Map/Bounty/vote operation requests;
+- duplicate economic/crafting/XP/Map/Bounty/vote/upgrade operation requests;
 - Bazaar cancel/fill and AH cancel/buy races;
 - simultaneous bank/spend/death-loss operations;
+- concurrent carried-item upgrades from one stale item/session head;
 - player disconnect during sensitive operations;
 - Velocity restart;
 - PostgreSQL temporary unavailability;
