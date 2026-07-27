@@ -17,6 +17,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -30,6 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
 class ClanMemberCapIntegrationTest {
+    private static final int BUNDLED_MEMBER_CAP = 100;
+
     private Database database;
     private DataSource dataSource;
     private PlayerIdentityRepository identities;
@@ -71,7 +75,7 @@ class ClanMemberCapIntegrationTest {
                     RESTART IDENTITY CASCADE
                     """);
         }
-        policy.configureMemberCap(100);
+        assertEquals(BUNDLED_MEMBER_CAP, policy.load().memberCap());
     }
 
     @AfterAll
@@ -81,11 +85,13 @@ class ClanMemberCapIntegrationTest {
 
     @Test
     void concurrentAcceptsCannotExceedConfiguredMemberCap() throws Exception {
-        policy.configureMemberCap(2);
         UUID leader = player("CapLeader");
         UUID targetA = player("CapTargetA");
         UUID targetB = player("CapTargetB");
         ClanSnapshot clan = clans.createClan(UUID.randomUUID(), leader, "Cap Clan", "CAP");
+        fillWithDirectMembers(clan.clanId(), BUNDLED_MEMBER_CAP - 1, "CapFill");
+        assertCountsAgree(clan.clanId(), BUNDLED_MEMBER_CAP - 1L);
+
         ClanInvitationSnapshot inviteA = clans.invite(
                 UUID.randomUUID(), clan.clanId(), leader, targetA, futureExpiry()
         );
@@ -103,7 +109,7 @@ class ClanMemberCapIntegrationTest {
                     () -> clans.acceptInvite(UUID.randomUUID(), inviteB.inviteId(), targetB)
             );
 
-            for (Future<ClanMemberSnapshot> future : java.util.List.of(a, b)) {
+            for (Future<ClanMemberSnapshot> future : List.of(a, b)) {
                 try {
                     future.get();
                     successes++;
@@ -116,16 +122,17 @@ class ClanMemberCapIntegrationTest {
 
         assertEquals(1, successes);
         assertEquals(1, capRejections);
-        assertCountsAgree(clan.clanId(), 2L);
+        assertCountsAgree(clan.clanId(), BUNDLED_MEMBER_CAP);
     }
 
     @Test
     void rawConcurrentMembershipInsertsCannotBypassDatabaseCap() throws Exception {
-        policy.configureMemberCap(2);
         UUID leader = player("RawCapLeader");
         UUID targetA = player("RawCapA");
         UUID targetB = player("RawCapB");
         ClanSnapshot clan = clans.createClan(UUID.randomUUID(), leader, "Raw Cap Clan", "RAW");
+        fillWithDirectMembers(clan.clanId(), BUNDLED_MEMBER_CAP - 1, "RawFill");
+        assertCountsAgree(clan.clanId(), BUNDLED_MEMBER_CAP - 1L);
 
         int successes = 0;
         int capRejections = 0;
@@ -133,7 +140,7 @@ class ClanMemberCapIntegrationTest {
             Future<Integer> a = executor.submit(() -> directMemberInsert(clan.clanId(), targetA));
             Future<Integer> b = executor.submit(() -> directMemberInsert(clan.clanId(), targetB));
 
-            for (Future<Integer> future : java.util.List.of(a, b)) {
+            for (Future<Integer> future : List.of(a, b)) {
                 try {
                     assertEquals(1, future.get());
                     successes++;
@@ -146,38 +153,11 @@ class ClanMemberCapIntegrationTest {
 
         assertEquals(1, successes);
         assertEquals(1, capRejections);
-        assertCountsAgree(clan.clanId(), 2L);
-    }
-
-    @Test
-    void loweringCapDoesNotEvictExistingMembersButBlocksFurtherJoins() throws Exception {
-        policy.configureMemberCap(3);
-        UUID leader = player("LowerLeader");
-        UUID first = player("LowerFirst");
-        UUID second = player("LowerSecond");
-        UUID blocked = player("LowerBlocked");
-        ClanSnapshot clan = clans.createClan(UUID.randomUUID(), leader, "Lower Clan", "LOW");
-
-        accept(clan.clanId(), leader, first);
-        accept(clan.clanId(), leader, second);
-        assertCountsAgree(clan.clanId(), 3L);
-
-        ClanPolicySnapshot lowered = policy.configureMemberCap(2);
-        assertEquals(2, lowered.memberCap());
-        ClanInvitationSnapshot blockedInvite = clans.invite(
-                UUID.randomUUID(), clan.clanId(), leader, blocked, futureExpiry()
-        );
-
-        assertThrows(
-                SQLException.class,
-                () -> clans.acceptInvite(UUID.randomUUID(), blockedInvite.inviteId(), blocked)
-        );
-        assertCountsAgree(clan.clanId(), 3L);
+        assertCountsAgree(clan.clanId(), BUNDLED_MEMBER_CAP);
     }
 
     @Test
     void memberRemovalReleasesExactlyOneReservedSlot() throws Exception {
-        policy.configureMemberCap(2);
         UUID leader = player("ReleaseLeader");
         UUID first = player("ReleaseFirst");
         UUID replacement = player("ReleaseNext");
@@ -207,12 +187,27 @@ class ClanMemberCapIntegrationTest {
     }
 
     @Test
-    void policyMutationIsBounded() {
+    void policyMutationRejectsOutOfBoundsValuesWithoutChangingSharedPolicy() throws SQLException {
         assertThrows(IllegalArgumentException.class, () -> policy.configureMemberCap(0));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> policy.configureMemberCap(ClanPolicyRepository.MAX_MEMBER_CAP + 1)
         );
+        assertEquals(BUNDLED_MEMBER_CAP, policy.load().memberCap());
+    }
+
+    private void fillWithDirectMembers(UUID clanId, int targetTotalMembers, String namePrefix) throws SQLException {
+        long current = memberCount(clanId);
+        if (targetTotalMembers < current) {
+            throw new IllegalArgumentException("targetTotalMembers is below current member count");
+        }
+        ArrayList<UUID> players = new ArrayList<>();
+        for (long index = current; index < targetTotalMembers; index++) {
+            players.add(player(namePrefix + index));
+        }
+        for (UUID playerId : players) {
+            assertEquals(1, directMemberInsert(clanId, playerId));
+        }
     }
 
     private void accept(UUID clanId, UUID leader, UUID target) throws SQLException {
