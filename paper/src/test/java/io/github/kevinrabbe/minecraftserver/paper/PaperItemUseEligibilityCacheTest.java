@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -77,13 +78,45 @@ class PaperItemUseEligibilityCacheTest {
         assertFalse(before.allowed());
         assertEquals(4, before.currentSkillLevels().get(COMBAT));
 
-        // A stale attached snapshot is conservative: newly-earned permission is delayed until the commit is applied.
-        assertFalse(cache.evaluate(playerId, COMBAT_FIVE).orElseThrow().allowed());
         cache.applyCommittedAward(award(playerId, 4, 5, 2));
 
         ItemUseEligibility after = cache.evaluate(playerId, COMBAT_FIVE).orElseThrow();
         assertTrue(after.allowed());
         assertEquals(5, after.currentSkillLevels().get(COMBAT));
+    }
+
+    @Test
+    void committedAwardDuringRefreshWinsOverStaleLoadedProjection() throws Exception {
+        UUID playerId = UUID.randomUUID();
+        AtomicReference<PaperItemUseEligibilityCache> cacheRef = new AtomicReference<>();
+        PaperItemUseEligibilityCache.SkillProjectionLoader loader = (requestedPlayer, skillIds) -> {
+            cacheRef.get().applyCommittedAward(award(playerId, 4, 5, 2));
+            return Map.of(COMBAT, skillSnapshot(playerId, COMBAT, 4, 1));
+        };
+        PaperItemUseEligibilityCache cache = new PaperItemUseEligibilityCache(itemCatalog(), loader, 2);
+        cacheRef.set(cache);
+
+        cache.refresh(playerId);
+
+        ItemUseEligibility after = cache.evaluate(playerId, COMBAT_FIVE).orElseThrow();
+        assertTrue(after.allowed());
+        assertEquals(5, after.currentSkillLevels().get(COMBAT));
+    }
+
+    @Test
+    void invalidationDuringRefreshCannotRepublishDetachedSnapshot() {
+        UUID playerId = UUID.randomUUID();
+        AtomicReference<PaperItemUseEligibilityCache> cacheRef = new AtomicReference<>();
+        PaperItemUseEligibilityCache.SkillProjectionLoader loader = (requestedPlayer, skillIds) -> {
+            cacheRef.get().invalidate(playerId);
+            return Map.of(COMBAT, skillSnapshot(playerId, COMBAT, 5, 1));
+        };
+        PaperItemUseEligibilityCache cache = new PaperItemUseEligibilityCache(itemCatalog(), loader, 2);
+        cacheRef.set(cache);
+
+        assertThrows(IllegalStateException.class, () -> cache.refresh(playerId));
+        assertTrue(cache.evaluate(playerId, COMBAT_FIVE).isEmpty());
+        assertEquals(0, cache.cachedPlayerCount());
     }
 
     @Test
@@ -96,7 +129,6 @@ class PaperItemUseEligibilityCacheTest {
         cache.applyCommittedAward(award(playerId, 4, 5, 2));
         assertTrue(cache.evaluate(playerId, COMBAT_FIVE).orElseThrow().allowed());
 
-        // Simulates a DB projection that began before the level-5 commit and completes afterward.
         loader.set(playerId, COMBAT, 4, 1);
         cache.refresh(playerId);
 
@@ -213,6 +245,22 @@ class PaperItemUseEligibilityCacheTest {
         );
     }
 
+    private static SkillProgressSnapshot skillSnapshot(
+            UUID playerId,
+            SkillId skillId,
+            int level,
+            long stateVersion
+    ) {
+        return new SkillProgressSnapshot(
+                playerId,
+                skillId,
+                level * 10L,
+                level,
+                50,
+                stateVersion
+        );
+    }
+
     private static final class MutableSkillLoader implements PaperItemUseEligibilityCache.SkillProjectionLoader {
         private final Map<UUID, Map<SkillId, SkillProgressSnapshot>> snapshots = new HashMap<>();
         private int loadCount;
@@ -220,14 +268,7 @@ class PaperItemUseEligibilityCacheTest {
         void set(UUID playerId, SkillId skillId, int level, long stateVersion) {
             snapshots.computeIfAbsent(playerId, ignored -> new HashMap<>()).put(
                     skillId,
-                    new SkillProgressSnapshot(
-                            playerId,
-                            skillId,
-                            level * 10L,
-                            level,
-                            50,
-                            stateVersion
-                    )
+                    skillSnapshot(playerId, skillId, level, stateVersion)
             );
         }
 
