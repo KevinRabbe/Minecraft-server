@@ -28,7 +28,7 @@ public final class SkillProgressionIntegrityVerifier {
         this.skillCatalog = Optional.empty();
     }
 
-    /** Strong verifier that also validates persisted skill IDs and cap ceilings against the loaded catalog. */
+    /** Strong verifier that also validates current persisted skill IDs and cap ceilings against the loaded catalog. */
     public SkillProgressionIntegrityVerifier(DataSource dataSource, SkillProgressionCatalog skillCatalog) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.skillCatalog = Optional.of(Objects.requireNonNull(skillCatalog, "skillCatalog"));
@@ -45,15 +45,16 @@ public final class SkillProgressionIntegrityVerifier {
             verifyStateAgainstAwardEvidence(connection, issues, maxIssues);
 
             Integer currentCap = readCurrentCap(connection, issues, maxIssues);
+            if (currentCap != null) {
+                verifyAwardCapChronology(connection, currentCap, issues, maxIssues);
+            }
+
             if (skillCatalog.isPresent()) {
                 SkillProgressionCatalog catalog = skillCatalog.orElseThrow();
-                verifyKnownSkillIds(connection, catalog, issues, maxIssues);
+                verifyKnownCurrentSkillIds(connection, catalog, issues, maxIssues);
                 if (currentCap != null) {
                     verifyCurrentCapCeilings(connection, catalog, currentCap, issues, maxIssues);
-                    verifyHistoricalAwardCeilings(connection, catalog, currentCap, issues, maxIssues);
                 }
-            } else if (currentCap != null) {
-                verifyAwardCapChronology(connection, currentCap, issues, maxIssues);
             }
             return List.copyOf(issues);
         }
@@ -177,7 +178,7 @@ public final class SkillProgressionIntegrityVerifier {
         }
     }
 
-    private static void verifyKnownSkillIds(
+    private static void verifyKnownCurrentSkillIds(
             Connection connection,
             SkillProgressionCatalog catalog,
             List<IntegrityIssue> issues,
@@ -194,42 +195,24 @@ public final class SkillProgressionIntegrityVerifier {
             try (PreparedStatement statement = connection.prepareStatement("""
                     WITH known(skill_id) AS (
                         SELECT UNNEST(?::TEXT[])
-                    ), unknown AS (
-                        SELECT 'STATE' AS source,
-                               state.player_id,
-                               state.skill_id,
-                               NULL::UUID AS operation_id
-                        FROM player_skills state
-                        WHERE NOT EXISTS (SELECT 1 FROM known WHERE known.skill_id = state.skill_id)
-                        UNION ALL
-                        SELECT 'AWARD' AS source,
-                               award.player_id,
-                               award.skill_id,
-                               award.operation_id
-                        FROM skill_xp_awards award
-                        WHERE NOT EXISTS (SELECT 1 FROM known WHERE known.skill_id = award.skill_id)
                     )
-                    SELECT source, player_id, skill_id, operation_id
-                    FROM unknown
-                    ORDER BY skill_id, player_id, source
+                    SELECT state.player_id, state.skill_id
+                    FROM player_skills state
+                    WHERE NOT EXISTS (SELECT 1 FROM known WHERE known.skill_id = state.skill_id)
+                    ORDER BY state.skill_id, state.player_id
                     LIMIT ?
                     """)) {
                 statement.setArray(1, known);
                 statement.setInt(2, remaining);
                 try (ResultSet rows = statement.executeQuery()) {
                     while (rows.next()) {
-                        String source = rows.getString("source");
                         UUID playerId = rows.getObject("player_id", UUID.class);
-                        UUID operationId = rows.getObject("operation_id", UUID.class);
-                        String subject = operationId == null
-                                ? playerId + "/" + rows.getString("skill_id")
-                                : operationId.toString();
+                        String skillId = rows.getString("skill_id");
                         issues.add(new IntegrityIssue(
                                 IntegritySeverity.CRITICAL,
                                 "SKILL_DEFINITION_UNKNOWN",
-                                subject,
-                                source + " progression state for player " + playerId
-                                        + " references unknown skill " + rows.getString("skill_id")
+                                playerId + "/" + skillId,
+                                "Current progression state references unknown skill " + skillId
                         ));
                     }
                 }
@@ -295,89 +278,6 @@ public final class SkillProgressionIntegrityVerifier {
         } finally {
             ids.free();
             maximums.free();
-        }
-    }
-
-    private static void verifyHistoricalAwardCeilings(
-            Connection connection,
-            SkillProgressionCatalog catalog,
-            int currentCap,
-            List<IntegrityIssue> issues,
-            int maxIssues
-    ) throws SQLException {
-        int remaining = remaining(issues, maxIssues);
-        if (remaining == 0) return;
-
-        List<SkillProgressionDefinition> definitions = catalog.all();
-        String[] skillIds = new String[definitions.size()];
-        Long[] cap50 = new Long[definitions.size()];
-        Long[] cap75 = new Long[definitions.size()];
-        Long[] cap100 = new Long[definitions.size()];
-        for (int index = 0; index < definitions.size(); index++) {
-            SkillProgressionDefinition definition = definitions.get(index);
-            skillIds[index] = definition.skillId().value();
-            cap50[index] = definition.experienceForLevel(50);
-            cap75[index] = definition.experienceForLevel(75);
-            cap100[index] = definition.experienceForLevel(100);
-        }
-
-        Array ids = connection.createArrayOf("text", skillIds);
-        Array maximum50 = connection.createArrayOf("bigint", cap50);
-        Array maximum75 = connection.createArrayOf("bigint", cap75);
-        Array maximum100 = connection.createArrayOf("bigint", cap100);
-        try {
-            try (PreparedStatement statement = connection.prepareStatement("""
-                    WITH limits(skill_id, cap_50, cap_75, cap_100) AS (
-                        SELECT * FROM UNNEST(?::TEXT[], ?::BIGINT[], ?::BIGINT[], ?::BIGINT[])
-                    )
-                    SELECT award.operation_id,
-                           award.player_id,
-                           award.skill_id,
-                           award.new_experience,
-                           award.active_skill_cap,
-                           CASE award.active_skill_cap
-                               WHEN 50 THEN limits.cap_50
-                               WHEN 75 THEN limits.cap_75
-                               WHEN 100 THEN limits.cap_100
-                           END AS max_experience
-                    FROM skill_xp_awards award
-                    JOIN limits ON limits.skill_id = award.skill_id
-                    WHERE award.active_skill_cap > ?
-                       OR award.new_experience > CASE award.active_skill_cap
-                               WHEN 50 THEN limits.cap_50
-                               WHEN 75 THEN limits.cap_75
-                               WHEN 100 THEN limits.cap_100
-                           END
-                    ORDER BY award.created_at, award.operation_id
-                    LIMIT ?
-                    """)) {
-                statement.setArray(1, ids);
-                statement.setArray(2, maximum50);
-                statement.setArray(3, maximum75);
-                statement.setArray(4, maximum100);
-                statement.setInt(5, currentCap);
-                statement.setInt(6, remaining);
-                try (ResultSet rows = statement.executeQuery()) {
-                    while (rows.next()) {
-                        UUID operationId = rows.getObject("operation_id", UUID.class);
-                        issues.add(new IntegrityIssue(
-                                IntegritySeverity.CRITICAL,
-                                "SKILL_AWARD_CAP_EXCEEDED",
-                                operationId.toString(),
-                                "XP award for player " + rows.getObject("player_id", UUID.class)
-                                        + "/" + rows.getString("skill_id") + " ended at XP "
-                                        + rows.getLong("new_experience") + " beyond cap "
-                                        + rows.getInt("active_skill_cap") + " ceiling "
-                                        + rows.getLong("max_experience")
-                        ));
-                    }
-                }
-            }
-        } finally {
-            ids.free();
-            maximum50.free();
-            maximum75.free();
-            maximum100.free();
         }
     }
 
