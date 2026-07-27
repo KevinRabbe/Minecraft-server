@@ -102,6 +102,23 @@ Every order escrows the value required to fulfill its remaining quantity. A play
 
 Bounty materials remain fully Bazaar-tradable. The market connects specialists to players who do not personally farm that bounty family.
 
+### Bazaar integrity/recovery evidence
+
+Bazaar order rows are mutable operational state while fills and processed-operation results are durable evidence. Recovery must be able to detect a restored order book whose current escrow/remainder no longer agrees with that evidence.
+
+The bounded Bazaar integrity pass therefore verifies:
+
+- every BUY/SELL order retains its matching creation operation and frozen identity/initial-order evidence;
+- BUY creation retains the exact initial Coin escrow ledger debit while SELL creation carries no Coin escrow ledger entry;
+- every immutable fill remains within the referenced BUY/SELL limits and has exactly one matching buyer commodity delivery using the fill's `fill_operation_id`;
+- current order remaining quantity is reconstructed from original quantity minus immutable fill quantities;
+- open BUY reserve equals the remaining maximum notional, open SELL reserve stays zero, and FILLED/CANCELLED state agrees with immutable fill history;
+- cancelled BUY orders return the exact remaining Coin escrow with matching ledger evidence;
+- cancelled SELL orders create the exact remaining commodity delivery to the seller;
+- each `BAZAAR_MATCH` processed result has a valid bounded aggregate shape, including fill-count, quantity, gross value and destroyed-fee relationships.
+
+The current schema intentionally does **not** persist a direct per-fill -> `BAZAAR_MATCH` operation relationship: each fill's `fill_operation_id` identifies buyer commodity delivery, while one enclosing match pass records aggregate match evidence under a different operation ID. Integrity verification therefore does not invent that missing relationship. A future schema may add an explicit link if per-match reconstruction becomes necessary.
+
 ## Auction House
 
 Default market for individualized/non-fungible items.
