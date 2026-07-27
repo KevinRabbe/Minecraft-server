@@ -4,6 +4,7 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationAuthorityValidator;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationIssue;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationValidationResult;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
@@ -17,7 +18,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Extracts custom identity claims from one loaded player inventory and validates them against PostgreSQL authority. */
+/** Extracts custom identity claims from loaded player inventory and validates them against PostgreSQL authority. */
 final class PaperPlayerItemRepresentationValidator {
     private final DataSource dataSource;
     private final PaperItemIdentityCodec identityCodec;
@@ -37,18 +38,34 @@ final class PaperPlayerItemRepresentationValidator {
     }
 
     List<ItemRepresentationIssue> validate(Player player) throws SQLException {
-        Objects.requireNonNull(player, "player");
+        return validateAndSnapshot(player).issues();
+    }
 
+    ItemRepresentationValidationResult validateAndSnapshot(Player player) throws SQLException {
+        Objects.requireNonNull(player, "player");
+        return validateAndSnapshot(player.getUniqueId(), collectClaims(player));
+    }
+
+    List<ItemRepresentationClaim> collectClaims(Player player) {
+        Objects.requireNonNull(player, "player");
         ArrayList<ItemRepresentationClaim> claims = new ArrayList<>();
         collect(player.getInventory().getStorageContents(), "storage", claims);
         collect(player.getInventory().getArmorContents(), "armor", claims);
         collect(player.getInventory().getExtraContents(), "extra", claims);
-        if (claims.isEmpty()) {
-            return List.of();
-        }
+        return List.copyOf(claims);
+    }
 
-        UUID playerId = requirePlayerId(player.getUniqueId());
-        return authorityValidator.validate(playerId, claims);
+    ItemRepresentationValidationResult validateAndSnapshot(
+            UUID minecraftUuid,
+            List<ItemRepresentationClaim> claims
+    ) throws SQLException {
+        Objects.requireNonNull(minecraftUuid, "minecraftUuid");
+        Objects.requireNonNull(claims, "claims");
+        if (claims.isEmpty()) {
+            return new ItemRepresentationValidationResult(List.of(), java.util.Map.of());
+        }
+        UUID playerId = requirePlayerId(minecraftUuid);
+        return authorityValidator.validateAndSnapshot(playerId, claims);
     }
 
     private UUID requirePlayerId(UUID minecraftUuid) throws SQLException {
