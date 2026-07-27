@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.economy;
 
+import io.github.kevinrabbe.minecraftserver.common.item.UpgradeState;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -33,9 +35,7 @@ public record AuctionBrowseListing(
                 throw new IllegalArgumentException("invalid normalized roll quality");
             }
         });
-        if (upgradeLevel < 0 || upgradeLevel > 100) {
-            throw new IllegalArgumentException("upgradeLevel must be between 0 and 100");
-        }
+        new UpgradeState(upgradeLevel);
         createdAt = Objects.requireNonNull(createdAt, "createdAt");
     }
 }
