@@ -59,6 +59,7 @@ final class PaperCraftingCommissionCommand implements CommandExecutor, TabComple
     private final CraftingCommissionCompletionRepository completion;
     private final CraftingCommissionQueryRepository queries;
     private final CraftingExperienceFulfillmentRepository experience;
+    private final PaperItemUseEligibilityController itemUseEligibility;
     private final CraftRecipeCatalog recipes;
     private final ItemCatalog itemCatalog;
     private final PaperCommodityBatchStateMutator ingredientMutator;
@@ -74,6 +75,7 @@ final class PaperCraftingCommissionCommand implements CommandExecutor, TabComple
             CraftingCommissionCompletionRepository completion,
             CraftingCommissionQueryRepository queries,
             CraftingExperienceFulfillmentRepository experience,
+            PaperItemUseEligibilityController itemUseEligibility,
             CraftRecipeCatalog recipes,
             ItemCatalog itemCatalog,
             PaperCommodityBatchStateMutator ingredientMutator
@@ -87,6 +89,7 @@ final class PaperCraftingCommissionCommand implements CommandExecutor, TabComple
         this.completion = Objects.requireNonNull(completion, "completion");
         this.queries = Objects.requireNonNull(queries, "queries");
         this.experience = Objects.requireNonNull(experience, "experience");
+        this.itemUseEligibility = Objects.requireNonNull(itemUseEligibility, "itemUseEligibility");
         this.recipes = Objects.requireNonNull(recipes, "recipes");
         this.itemCatalog = Objects.requireNonNull(itemCatalog, "itemCatalog");
         this.ingredientMutator = Objects.requireNonNull(ingredientMutator, "ingredientMutator");
@@ -337,7 +340,9 @@ final class PaperCraftingCommissionCommand implements CommandExecutor, TabComple
 
     private long fulfillExperience(CraftingCommissionCompletionResult result) {
         try {
-            return experience.fulfill(result.craft().craftId()).experienceAward().grantedExperience();
+            var fulfilled = experience.fulfill(result.craft().craftId());
+            itemUseEligibility.applyCommittedAward(fulfilled.experienceAward());
+            return fulfilled.experienceAward().grantedExperience();
         } catch (SQLException | RuntimeException exception) {
             plugin.getLogger().log(
                     Level.WARNING,
