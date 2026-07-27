@@ -22,7 +22,7 @@ Correctness-critical evidence always remains in the owning subsystem's authority
 
 `SessionAnalyticsRepository` is the first concrete product/operations projection. It reads authoritative `player_sessions` only and writes no analytics state.
 
-For any requested time window it returns:
+For any requested activity window it returns:
 
 - observed-through timestamp, clipped to the current time for an in-progress window;
 - unique active players;
@@ -32,9 +32,18 @@ For any requested time window it returns:
 - network sessions ended;
 - total observed player-seconds, using exact overlap with the window rather than assigning a whole cross-boundary session to one day.
 
-This gives the first direct denominator for the product metric without creating a second session lifecycle. A currently active/otherwise not-yet-ended session can contribute only already-observed time, never future player-hours.
+It also exposes cohort retention for any completed first-session cohort and later non-overlapping return window:
 
-The PostgreSQL integration proof covers new versus returning players, a session crossing into the window, a session extending beyond the observation cutoff, completed historical windows, and future windows with zero observed time.
+- cohort membership is based only on each player's first-ever network session;
+- the cohort window must already be fully observed;
+- the return window may still be in progress and is clipped at the current observation time;
+- a player counts as returned only when a separate network session **starts** in the return window;
+- one unusually long initial session crossing into the return window therefore cannot fake retention;
+- zero-size cohorts return no synthetic percentage rather than pretending retention is `0%`.
+
+This gives the first direct denominator and retention signal for the product metric without creating a second session lifecycle. A currently active/otherwise not-yet-ended session can contribute only already-observed time, never future player-hours.
+
+The PostgreSQL integration proof covers new versus returning players, a session crossing into the window, a session extending beyond the observation cutoff, completed historical windows, future windows with zero observed time, partial cohort-return observation, and the long-first-session retention edge case.
 
 ## Event examples
 
@@ -48,7 +57,7 @@ These are the stable event vocabulary that may be useful where an event is actua
 - `INSTANCE_CREATED`
 - `INSTANCE_RETIRED`
 
-The implemented session baseline deliberately derives start/end/player-time metrics from `player_sessions`; it does not persist duplicate `PLAYER_SESSION_STARTED`/`PLAYER_SESSION_ENDED` analytics rows.
+The implemented session baseline deliberately derives start/end/player-time/retention metrics from `player_sessions`; it does not persist duplicate `PLAYER_SESSION_STARTED`/`PLAYER_SESSION_ENDED` analytics rows.
 
 ### Progression / production
 - `RESOURCE_GATHERED`
@@ -129,7 +138,7 @@ Not every low-value hot-path event must be persisted individually forever. Use a
 - which systems are used together?
 - which content creates repeatable player-hours relative to implementation/maintenance cost?
 
-The implemented session projection directly answers total player-time and new/returning participation for arbitrary windows. Activity attribution and cohort-retention analysis should be added only when the required underlying observations are defined.
+The implemented session projection directly answers total player-time, new/returning participation, and arbitrary D1/D7-style first-session cohort retention without additional event storage. Activity attribution and cross-system path analysis should be added only when their required underlying observations are explicitly defined.
 
 ### Zone/instance scaling
 - concurrent players by zone
@@ -231,7 +240,7 @@ Similarly:
 
 Store only data needed to operate, secure, debug, and improve the game. Avoid unnecessary personal data in analytics records.
 
-The implemented session summary returns aggregate counts/time only; it does not expose player names, Minecraft UUIDs, or serialized player state.
+The implemented session summaries return aggregate counts/time only; they do not expose player names, Minecraft UUIDs, or serialized player state.
 
 ## Expansion rule
 
