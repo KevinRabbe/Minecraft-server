@@ -79,9 +79,10 @@ For at least one commodity before broad content expansion:
 3. simultaneous buyers result in at most one successful purchase;
 4. cancel/purchase races cannot give the item to both seller and buyer;
 5. sale/cancel settlement works while the other party is offline;
-6. exact item roll quality/upgrades are visible/inspectable before purchase where relevant;
-7. finished gear remains tradable unless an explicit documented exception exists;
-8. retry/restart cannot duplicate the listed item or Coin proceeds.
+6. exact item roll quality/upgrades and any configured static use/equip requirements are visible/inspectable before purchase where relevant;
+7. purchase/ownership authority does not depend on satisfying a configured use/equip requirement;
+8. finished gear remains tradable unless an explicit documented exception exists;
+9. retry/restart cannot duplicate the listed item or Coin proceeds.
 
 ## G. Crafting, rolls, upgrade, and salvage
 
@@ -116,7 +117,8 @@ For Mining and Crafting first, then all launch skills:
 7. XP does not accumulate invisibly beyond the active cap;
 8. test transition 50 -> 75 reopens progression without duplicating earlier rewards;
 9. test transition 75 -> 100 behaves the same way;
-10. use requirements may block use without blocking ownership/trading.
+10. a configured use/equip requirement is enforced at the relevant use/equip boundary without blocking ownership, transfer, listing, or purchase;
+11. eligibility is derived from authoritative committed skill progression rather than item possession or client presentation.
 
 Enchanting/brewing retain their separately documented Minecraft integration and may not bypass staged-cap or source-gating invariants.
 
@@ -296,6 +298,7 @@ The public world may open when:
 - recovery/restore has been proven;
 - core Map + Bounty PvE loops work end-to-end;
 - markets/crafting/skills/clans/voting survive required acceptance tests;
+- configured item use/equip requirements are inspectable before purchase and enforceable independently of ownership/trade authority;
 - structural feature set is frozen for release;
 - remaining numerical uncertainty is tuning-scale rather than architecture-scale.
 
