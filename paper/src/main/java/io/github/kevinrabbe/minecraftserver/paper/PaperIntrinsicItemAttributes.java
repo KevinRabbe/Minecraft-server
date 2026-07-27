@@ -93,7 +93,12 @@ final class PaperIntrinsicItemAttributes {
         int replaced = 0;
         for (ItemAttributeModifiers.Entry entry : defaults.modifiers()) {
             AttributeModifier modifier = entry.modifier();
-            if (isScalableMainHandDamage(entry)) {
+            if (isMainHandAttackDamage(entry)) {
+                if (!isScalableMainHandDamage(entry)) {
+                    throw new PaperItemRepresentationException(
+                            "Unexpected main-hand attack-damage attribute shape for " + definition.definitionId()
+                    );
+                }
                 replaced++;
                 double rolledAmount = rolledItemAttackContribution(
                         playerBaseDamage,
@@ -157,10 +162,14 @@ final class PaperIntrinsicItemAttributes {
         return value;
     }
 
-    private static boolean isScalableMainHandDamage(ItemAttributeModifiers.Entry entry) {
+    private static boolean isMainHandAttackDamage(ItemAttributeModifiers.Entry entry) {
         return entry.attribute().equals(Attribute.ATTACK_DAMAGE)
+                && entry.getGroup().test(EquipmentSlot.HAND);
+    }
+
+    private static boolean isScalableMainHandDamage(ItemAttributeModifiers.Entry entry) {
+        return isMainHandAttackDamage(entry)
                 && entry.modifier().getOperation() == AttributeModifier.Operation.ADD_NUMBER
-                && entry.getGroup().test(EquipmentSlot.HAND)
                 && !entry.getGroup().test(EquipmentSlot.OFF_HAND);
     }
 
