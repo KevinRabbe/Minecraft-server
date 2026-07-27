@@ -5,10 +5,14 @@ import io.github.kevinrabbe.minecraftserver.common.economy.BazaarOrderSide;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
-import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -18,8 +22,10 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import javax.sql.DataSource;
 import java.math.BigInteger;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,10 +37,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CoinFlowAnalyticsRepositoryIntegrationTest {
     private static final Instant WINDOW_START = Instant.parse("2020-01-01T00:00:00Z");
     private static final Instant WINDOW_END = Instant.parse("2030-01-01T00:00:00Z");
+    private static final String TEST_COMMODITY = "verify.coin_material";
+    private static final String TEST_BACKEND = "analytics-coin-test";
 
     private Database database;
     private DataSource dataSource;
     private PlayerIdentityRepository identities;
+    private PlayerSessionRepository sessions;
     private CoinWalletRepository wallets;
     private BazaarRepository bazaar;
 
@@ -49,8 +58,16 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         database.migrate();
         dataSource = database.dataSource();
         identities = new PlayerIdentityRepository(dataSource);
+        sessions = new PlayerSessionRepository(dataSource);
         wallets = new CoinWalletRepository(dataSource);
-        ItemCatalog items = new ItemCatalogLoader().loadResource("/content/items.json");
+        ItemCatalog items = new ItemCatalog(List.of(new ItemDefinition(
+                TEST_COMMODITY,
+                "IRON_INGOT",
+                "Analytics Coin Material",
+                64,
+                ItemCategory.MATERIALS,
+                ItemIdentityKind.COMMODITY
+        )));
         bazaar = new BazaarRepository(dataSource, items, (playerId, definitionId, quantity, before, after) -> { }, 100);
     }
 
@@ -60,15 +77,18 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
     }
 
     @Test
-    void classifiedSupplySeparatesFaucetSinkTransferAndBazaarEscrow() throws Exception {
+    void classifiedSupplySeparatesFaucetSinkTransferEscrowAndBazaarFee() throws Exception {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String faucetReason = "verify.analytics.reward." + suffix;
         String transferReason = "verify.analytics.transfer." + suffix;
         String sinkReason = "verify.analytics.sink." + suffix;
         String escrowReason = "verify.analytics.escrow." + suffix;
+        String sellReason = "verify.analytics.sell." + suffix;
+        String matchReason = "verify.analytics.match." + suffix;
 
         UUID sourcePlayer = identities.ensurePlayer(UUID.randomUUID(), "CoinMetricA");
         UUID targetPlayer = identities.ensurePlayer(UUID.randomUUID(), "CoinMetricB");
+        UUID sellerPlayer = identities.ensurePlayer(UUID.randomUUID(), "CoinMetricC");
 
         wallets.creditFromSystem(UUID.randomUUID(), sourcePlayer, 1_000L, faucetReason);
         wallets.transfer(UUID.randomUUID(), sourcePlayer, targetPlayer, 200L, transferReason);
@@ -76,9 +96,30 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         bazaar.createBuyOrder(
                 UUID.randomUUID(),
                 sourcePlayer,
-                new BazaarOrderRequest("material.raw_iron", BazaarOrderSide.BUY, 2L, 100L),
+                new BazaarOrderRequest(TEST_COMMODITY, BazaarOrderSide.BUY, 2L, 100L),
                 escrowReason
         );
+
+        SessionLease sellerSession = sessions.openSession(
+                sellerPlayer,
+                TEST_BACKEND,
+                null,
+                Duration.ofMinutes(5)
+        );
+        bazaar.createSellOrder(
+                UUID.randomUUID(),
+                sellerSession.sessionId(),
+                TEST_BACKEND,
+                sellerSession.stateVersion(),
+                new BazaarOrderRequest(TEST_COMMODITY, BazaarOrderSide.SELL, 2L, 100L),
+                null,
+                null,
+                new byte[]{1},
+                sellReason
+        );
+        sessions.disconnect(sellerSession.sessionId(), TEST_BACKEND);
+
+        bazaar.matchCommodity(UUID.randomUUID(), TEST_COMMODITY, 1, matchReason);
 
         CoinFlowAnalyticsRepository analytics = new CoinFlowAnalyticsRepository(
                 dataSource,
@@ -117,8 +158,15 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         assertEquals(BigInteger.valueOf(200L), escrow.grossMovementMinor());
         assertEquals(1L, escrow.operationCount());
 
+        CoinFlowReasonSummary match = reason(summary, matchReason);
+        assertEquals(BigInteger.ZERO, match.createdMinor());
+        assertEquals(BigInteger.valueOf(2L), match.destroyedMinor());
+        assertEquals(BigInteger.valueOf(-2L), match.netSupplyChangeMinor());
+        assertEquals(BigInteger.valueOf(198L), match.grossMovementMinor());
+        assertEquals(1L, match.operationCount());
+
         assertTrue(summary.confirmedCreatedMinor().compareTo(BigInteger.valueOf(1_000L)) >= 0);
-        assertTrue(summary.confirmedDestroyedMinor().compareTo(BigInteger.valueOf(150L)) >= 0);
+        assertTrue(summary.confirmedDestroyedMinor().compareTo(BigInteger.valueOf(152L)) >= 0);
     }
 
     @Test
