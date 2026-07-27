@@ -27,7 +27,7 @@ final class PaperItemRuntimeStatCache {
         return GENERATIONS.computeIfAbsent(minecraftUuid, ignored -> new AtomicLong()).incrementAndGet();
     }
 
-    static void replaceIfCurrent(
+    static boolean replaceIfCurrent(
             UUID minecraftUuid,
             long generation,
             Map<UUID, ItemRuntimeStatSnapshot> snapshots
@@ -35,8 +35,9 @@ final class PaperItemRuntimeStatCache {
         Objects.requireNonNull(minecraftUuid, "minecraftUuid");
         Objects.requireNonNull(snapshots, "snapshots");
         AtomicLong current = GENERATIONS.get(minecraftUuid);
-        if (current == null || current.get() != generation) return;
+        if (current == null || current.get() != generation) return false;
         PLAYERS.put(minecraftUuid, new PlayerCache(generation, Map.copyOf(snapshots)));
+        return true;
     }
 
     static void replaceNow(UUID minecraftUuid, Map<UUID, ItemRuntimeStatSnapshot> snapshots) {
