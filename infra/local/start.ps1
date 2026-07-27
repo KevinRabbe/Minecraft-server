@@ -130,6 +130,7 @@ try {
             BOOTSTRAP_ZONE_TEMPLATE = $server.ZoneTemplate
             BOOTSTRAP_ZONE_SOFT_CAPACITY = $server.ZoneSoftCapacity
             BOOTSTRAP_ZONE_HARD_CAPACITY = $server.ZoneHardCapacity
+            DEV_TOOLS_ENABLED = "true"
         } | Out-Null
     }
 
