@@ -47,37 +47,43 @@ The PostgreSQL integration proof covers new versus returning players, a session 
 
 ## Implemented Coin-flow baseline
 
-`CoinFlowAnalyticsRepository` derives currency supply/movement directly from append-only `economic_ledger` Coin lines and writes no analytics state.
+`CoinFlowAnalyticsRepository` reads authoritative `processed_operations`, append-only Coin `economic_ledger` evidence, immutable Bazaar fill fees, and salvage evidence. It writes no analytics state.
 
-The important unit is the **economic operation**, not one ledger line. Coin lines belonging to one operation are netted first:
+A raw Coin-ledger operation net is **not** automatically a faucet or sink. Several valid custody systems move Coin into durable escrow in one operation and return/settle that escrow in another. For example, creating a Bazaar buy order debits the player's wallet now, but the Coin still exists in buy-order escrow; treating that debit as destruction would be wrong.
 
-- positive operation net = Coin created by that operation;
-- negative operation net = Coin destroyed by that operation;
-- zero operation net = internal movement with no supply change;
-- gross movement remains the sum of every Coin line and is reported separately from supply impact.
+The projection therefore classifies the stable V1 Coin-bearing operation types explicitly:
 
-This means a normal player transfer, Bank deposit, or Bank withdrawal can move a large amount of Coin while contributing exactly zero faucet/sink volume. Bank interest, controlled system rewards, upgrade fees, contract fees, death loss, and similar one-sided economic effects remain visible as actual supply change when their authoritative operation produces a non-zero net.
+- confirmed faucets include controlled system credit, Bank interest, and configured salvage Coin return;
+- confirmed sinks include controlled system debit, Bank tier upgrade cost, Bounty contract fee, and Bazaar execution fees;
+- player transfer, Bank deposit/withdrawal, Bazaar buy escrow/cancel, Auction House purchase, secure-trade Coin escrow/settlement/cancel, crafting-commission payment escrow/cancel/completion, and clan-treasury deposit/withdrawal are classified as neutral custody/movement;
+- Bazaar execution fee is derived from immutable `bazaar_fills.fee_minor`, not from the match operation's wallet-credit net;
+- any current/future Coin-bearing operation that is unknown, missing processed-operation identity, or has malformed/mismatched faucet/sink evidence is **unclassified**, never guessed.
 
 For a requested time window the projection returns:
 
 - observed-through timestamp, clipped to the current time;
-- total Coin created;
-- total Coin destroyed;
-- net Coin supply change;
-- gross Coin movement;
-- number of Coin-bearing economic operations;
-- a bounded reason breakdown with the same created/destroyed/net/gross distinction and operation counts;
-- an explicit `reasonsTruncated` signal if the requested reason limit does not contain the full breakdown.
+- **confirmed** Coin created;
+- **confirmed** Coin destroyed;
+- confirmed net supply change;
+- total gross Coin-ledger movement;
+- classified operation count;
+- unclassified operation count and its gross movement;
+- a bounded reason breakdown for classified operations;
+- explicit reason-list truncation;
+- `supplyClassificationComplete()`, which is true only when the unclassified operation count is zero.
 
-Totals are never truncated when the reason list is bounded. The totals and reason rows are read in one read-only repeatable-read snapshot, so concurrent economic activity cannot make one response internally disagree. PostgreSQL aggregate arithmetic uses `NUMERIC` and the Java projection uses `BigInteger`, so long-lived aggregate metrics are not constrained by one wallet's `BIGINT` balance range.
+Therefore confirmed faucet/sink totals may still be useful when coverage is incomplete, but they must not be presented as the complete world Coin-supply change unless `supplyClassificationComplete()` is true.
 
-Normal authority operations carry one stable reason. If corrupted/unusual evidence puts multiple reasons on one Coin operation, analytics keeps the operation net intact and groups that operation under the synthetic `<mixed>` reason rather than misclassifying individual lines as independent faucets/sinks.
+Totals and reason rows are read in one read-only repeatable-read snapshot, so concurrent economic activity cannot make one response internally disagree. PostgreSQL aggregate arithmetic uses `NUMERIC` and Java uses `BigInteger`, so long-lived aggregate metrics are not constrained by one wallet's `BIGINT` balance range.
 
-The PostgreSQL integration proof uses real `CoinWalletRepository` operations and demonstrates:
+Normal authority operations carry one stable reason. If unusual evidence puts multiple reasons on one Coin operation, the ledger-side observation uses the synthetic `<mixed>` reason rather than splitting one economic operation into several fake supply events. A fee-only Bazaar match with no Coin credit line still has the stable fallback reason `bazaar.match.fee`.
 
-- controlled system credit -> positive supply creation;
-- balanced player transfer -> zero created/destroyed supply with non-zero gross movement;
-- controlled system debit -> positive supply destruction;
+The PostgreSQL integration proof uses real authority operations and includes the original escrow counterexample:
+
+- controlled system credit -> confirmed supply creation;
+- balanced player transfer -> zero supply change with non-zero gross movement;
+- controlled system debit -> confirmed supply destruction;
+- real Bazaar buy-order escrow debit -> zero supply destruction with non-zero gross movement;
 - future, not-yet-observed windows -> zero flow.
 
 ## Event examples
@@ -122,7 +128,7 @@ The implemented session baseline deliberately derives start/end/player-time/rete
 - `NPC_SALVAGE`
 - `BOOTSTRAP_PURCHASE`
 
-Coin faucet/sink totals already derive losslessly from the economic ledger. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` analytics rows merely to reproduce those totals. A separate event is justified only if it adds observational context the authoritative operation/ledger does not preserve.
+Confirmed Coin faucet/sink analytics already derives from existing operation/ledger/fill evidence. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` rows merely to reproduce facts that are already durable. A separate analytics event is justified only when it adds observational context the authoritative operation does not preserve.
 
 ### Maps / PvE
 - `MAP_OPENED`
@@ -214,7 +220,7 @@ The implemented session projection directly answers total player-time, new/retur
 - suspicious sudden supply/currency creation
 - wealth concentration and transaction velocity
 
-The implemented Coin-flow projection directly answers total created/destroyed/net supply change and gross movement by stable reason without a second currency ledger. Holdings distribution, market microstructure, commodity supply, and wealth-distribution questions remain separate projections.
+The implemented Coin-flow projection answers confirmed creation/destruction/net supply change plus gross movement by stable reason and reports whether classification coverage is complete. It deliberately does not infer supply from one-sided escrow ledger entries. Holdings distribution, market microstructure, commodity supply, and wealth-distribution questions remain separate projections.
 
 ### Maps
 - run starts/completions/failures by difficulty/configuration
@@ -268,7 +274,7 @@ The economic ledger is correctness/audit evidence for important value movement. 
 Similarly:
 
 - network session rows are session ownership/lifecycle authority; session analytics is a read-only product projection;
-- the economic ledger is Coin/value movement authority/evidence; Coin-flow analytics nets its Coin lines by operation without becoming another currency ledger;
+- Coin-flow analytics combines stable operation type with Coin ledger/custody-specific evidence; raw ledger net alone is not global supply authority;
 - Map clear records are authoritative leaderboard/history source;
 - analytics about Map clears is observational;
 - ballots/vote resolution are authoritative world-state source;
