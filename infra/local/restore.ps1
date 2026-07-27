@@ -71,6 +71,25 @@ function Invoke-DockerCompose([string[]]$Arguments) {
     }
 }
 
+function Start-PostgresReady {
+    Invoke-DockerCompose -Arguments @("up", "-d", "postgres")
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+        Push-Location $ComposeRoot
+        try {
+            & docker compose exec -T postgres pg_isready -U $DatabaseUser -d $DatabaseName *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+        }
+        finally {
+            Pop-Location
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "Timed out waiting for local PostgreSQL to become ready."
+}
+
 function Get-GitState {
     $git = Get-Command "git" -ErrorAction SilentlyContinue
     if (-not $git) {
@@ -96,6 +115,23 @@ function Get-GitState {
     }
 }
 
+function Resolve-BackupPath([string]$Root, [string]$RelativePath) {
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) {
+        throw "Backup manifest/checksum contains a blank path."
+    }
+    $portable = $RelativePath.Trim()
+    if ([System.IO.Path]::IsPathRooted($portable)) {
+        throw "Backup path must be relative: $portable"
+    }
+    $relative = $portable.Replace('/', '\')
+    $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    $full = [System.IO.Path]::GetFullPath((Join-Path $Root $relative))
+    if (-not $full.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Backup path escapes the selected snapshot: $portable"
+    }
+    return $full
+}
+
 function Assert-Checksums([string]$Root) {
     $checksumPath = Join-Path $Root "checksums.sha256"
     if (-not (Test-Path $checksumPath)) {
@@ -109,8 +145,8 @@ function Assert-Checksums([string]$Root) {
             throw "Malformed checksum line: $line"
         }
         $expected = $Matches[1].ToLowerInvariant()
-        $relative = $Matches[2].Replace('/', '\')
-        $path = Join-Path $Root $relative
+        $relative = $Matches[2]
+        $path = Resolve-BackupPath $Root $relative
         if (-not (Test-Path $path -PathType Leaf)) {
             throw "Backup checksum references missing file: $relative"
         }
@@ -146,6 +182,8 @@ function Assert-VersionCompatibility($Manifest) {
 }
 
 function Stage-Worlds($Manifest, [string]$Root, [string]$StageRoot) {
+    $configuredServerIds = @($LocalNetwork.Servers | ForEach-Object { [string]$_.Id })
+    $targetKeys = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
     $staged = New-Object System.Collections.Generic.List[object]
     foreach ($world in @($Manifest.worlds)) {
         $serverId = [string]$world.server_id
@@ -153,10 +191,17 @@ function Stage-Worlds($Manifest, [string]$Root, [string]$StageRoot) {
         if ([string]::IsNullOrWhiteSpace($serverId) -or [string]::IsNullOrWhiteSpace($worldName)) {
             throw "Backup manifest contains an invalid world entry."
         }
-        if ($serverId -match '[\\/]' -or $worldName -match '[\\/]') {
+        if ($configuredServerIds -notcontains $serverId) {
+            throw "Backup world references backend not present in current local settings: $serverId"
+        }
+        if ($serverId -match '[\\/]' -or $worldName -match '[\\/]' -or $worldName -in @('.', '..')) {
             throw "Backup manifest world path escapes are not allowed: $serverId / $worldName"
         }
-        $source = Join-Path $Root ([string]$world.backup_path).Replace('/', '\')
+        $targetKey = "$serverId/$worldName"
+        if (-not $targetKeys.Add($targetKey)) {
+            throw "Backup manifest contains duplicate world target: $targetKey"
+        }
+        $source = Resolve-BackupPath $Root ([string]$world.backup_path)
         if (-not (Test-Path (Join-Path $source "level.dat") -PathType Leaf)) {
             throw "Backup world is missing level.dat: $source"
         }
@@ -200,14 +245,27 @@ function Restore-Database([string]$DumpPath, [string]$SnapshotId) {
     }
 }
 
+function Remove-CurrentWorldSet {
+    foreach ($server in $LocalNetwork.Servers) {
+        $serverRoot = Join-Path $ServersRoot $server.Id
+        if (-not (Test-Path $serverRoot -PathType Container)) {
+            continue
+        }
+        $currentWorlds = @(Get-ChildItem -Path $serverRoot -Directory | Where-Object {
+            Test-Path (Join-Path $_.FullName "level.dat") -PathType Leaf
+        })
+        foreach ($world in $currentWorlds) {
+            Remove-Item -Recurse -Force $world.FullName
+        }
+    }
+}
+
 function Install-StagedWorlds([object[]]$StagedWorlds) {
+    Remove-CurrentWorldSet
     foreach ($world in $StagedWorlds) {
         $serverRoot = Join-Path $ServersRoot $world.server_id
         $target = Join-Path $serverRoot $world.world_name
         New-Item -ItemType Directory -Force -Path $serverRoot | Out-Null
-        if (Test-Path $target) {
-            Remove-Item -Recurse -Force $target
-        }
         Move-Item -Force $world.staged_path $target
     }
 }
@@ -230,38 +288,42 @@ $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
 if ([int]$manifest.schema_version -ne 1 -or [string]$manifest.mode -ne "offline-coherent") {
     throw "Unsupported backup manifest schema/mode."
 }
+$snapshotId = [string]$manifest.snapshot_id
+if ($snapshotId -notmatch '^[0-9]{8}T[0-9]{6}Z$') {
+    throw "Backup manifest contains invalid snapshot_id: $snapshotId"
+}
 Assert-Checksums $ResolvedBackup
 Assert-VersionCompatibility $manifest
 
-$dumpPath = Join-Path $ResolvedBackup ([string]$manifest.database.dump).Replace('/', '\')
+$dumpPath = Resolve-BackupPath $ResolvedBackup ([string]$manifest.database.dump)
 if (-not (Test-Path $dumpPath -PathType Leaf)) {
     throw "Backup PostgreSQL dump is missing: $dumpPath"
 }
 
-$stageRoot = Join-Path (Join-Path $RuntimeRoot "restore-staging") ([string]$manifest.snapshot_id)
+$stageRoot = Join-Path (Join-Path $RuntimeRoot "restore-staging") $snapshotId
 if (Test-Path $stageRoot) {
     Remove-Item -Recurse -Force $stageRoot
 }
 New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
 
-Write-Host "Staging world snapshot before destructive restore..."
+Write-Host "Staging exact world snapshot before destructive restore..."
 $stagedWorlds = Stage-Worlds $manifest $ResolvedBackup $stageRoot
 
 $marker = [ordered]@{
-    snapshot_id = [string]$manifest.snapshot_id
+    snapshot_id = $snapshotId
     backup_path = $ResolvedBackup
     started_at_utc = (Get-Date).ToUniversalTime().ToString("o")
 }
 $marker | ConvertTo-Json | Set-Content -Encoding UTF8 $RestoreMarker
 
 try {
-    Write-Host "Ensuring local PostgreSQL is running..."
-    Invoke-DockerCompose -Arguments @("up", "-d", "postgres")
+    Write-Host "Ensuring local PostgreSQL is ready..."
+    Start-PostgresReady
 
     Write-Host "Restoring PostgreSQL authority..."
-    Restore-Database $dumpPath ([string]$manifest.snapshot_id)
+    Restore-Database $dumpPath $snapshotId
 
-    Write-Host "Installing staged Paper worlds..."
+    Write-Host "Replacing Paper worlds with the exact snapshot set..."
     Install-StagedWorlds $stagedWorlds
 
     if (Test-Path $stageRoot) {
@@ -270,7 +332,7 @@ try {
     Remove-Item -Force $RestoreMarker
 
     Write-Host ""
-    Write-Host "Restore completed: $($manifest.snapshot_id)" -ForegroundColor Green
+    Write-Host "Restore completed: $snapshotId" -ForegroundColor Green
     Write-Host "Next: start the local network, reconnect through Velocity, then run /integrity 100 and the representative recovery acceptance checks."
 }
 catch {
