@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.verification.IntegrityIssue;
 import io.github.kevinrabbe.minecraftserver.common.verification.PersistentIntegrityVerifier;
 import net.kyori.adventure.text.Component;
@@ -17,7 +18,7 @@ import java.util.Objects;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 
-/** Explicit bounded operator diagnostic over persistent economy/custody and PvE evidence. */
+/** Explicit bounded operator diagnostic over persistent economy/custody, item, PvE, clan, and competitive evidence. */
 final class PaperIntegrityCommand implements CommandExecutor {
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_COMMAND_LIMIT = 100;
@@ -30,14 +31,25 @@ final class PaperIntegrityCommand implements CommandExecutor {
         this.verifier = Objects.requireNonNull(verifier, "verifier");
     }
 
+    /** Compatibility installer for environments that do not expose the loaded item catalog. */
     static void install(JavaPlugin plugin, DataSource dataSource) {
-        Objects.requireNonNull(plugin, "plugin");
+        install(plugin, new PersistentIntegrityVerifier(dataSource));
+    }
+
+    /** Production installer: includes catalog-aware item-definition invariants. */
+    static void install(JavaPlugin plugin, DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
+        Objects.requireNonNull(itemCatalog, "itemCatalog");
+        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog));
+    }
+
+    private static void install(JavaPlugin plugin, PersistentIntegrityVerifier verifier) {
+        Objects.requireNonNull(plugin, "plugin");
         PluginCommand command = Objects.requireNonNull(
                 plugin.getCommand("integrity"),
                 "integrity command missing from plugin.yml"
         );
-        command.setExecutor(new PaperIntegrityCommand(plugin, new PersistentIntegrityVerifier(dataSource)));
+        command.setExecutor(new PaperIntegrityCommand(plugin, verifier));
     }
 
     @Override
