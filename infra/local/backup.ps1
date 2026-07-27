@@ -175,23 +175,23 @@ New-Item -ItemType Directory -Force -Path $databaseDir, $worldsDir, $sourceDir |
 
 try {
     Write-Host "Ensuring local PostgreSQL is running..."
-    Invoke-DockerCompose @("up", "-d", "postgres")
+    Invoke-DockerCompose -Arguments @("up", "-d", "postgres")
 
     $containerDump = "/tmp/minecraft-$SnapshotId.dump"
     Write-Host "Creating PostgreSQL custom-format dump..."
-    Invoke-DockerCompose @(
+    Invoke-DockerCompose -Arguments @(
         "exec", "-T", "postgres",
         "pg_dump", "-U", $DatabaseUser, "-d", $DatabaseName,
         "--format=custom", "--no-owner", "--no-privileges", "--file=$containerDump"
     )
     try {
-        & docker cp "$PostgresContainer`:$containerDump" (Join-Path $databaseDir "minecraft.dump")
+        & docker cp "${PostgresContainer}:$containerDump" (Join-Path $databaseDir "minecraft.dump")
         if ($LASTEXITCODE -ne 0) {
             throw "docker cp failed while retrieving PostgreSQL dump."
         }
     }
     finally {
-        Invoke-DockerCompose @("exec", "-T", "postgres", "rm", "-f", $containerDump)
+        Invoke-DockerCompose -Arguments @("exec", "-T", "postgres", "rm", "-f", $containerDump)
     }
 
     Write-Host "Copying stopped Paper world state..."
