@@ -42,6 +42,7 @@ final class PaperResourceGatheringListener implements Listener {
     private final PaperSessionController sessions;
     private final PaperResourceSessionResolver sessionResolver;
     private final PaperCommodityDeliveryController commodityDeliveries;
+    private final PaperItemUseEligibilityController itemUseEligibility;
     private final ResourceSourceRepository sourceRepository;
     private final ResourceGatheringService gathering;
     private final Map<PaperResourceSourcePlacement.BlockKey, RegisteredSource> sourcesByBlock;
@@ -55,7 +56,8 @@ final class PaperResourceGatheringListener implements Listener {
             ResourceSourceRepository sourceRepository,
             ResourceGatheringService gathering,
             PaperResourceSessionResolver sessionResolver,
-            PaperCommodityDeliveryController commodityDeliveries
+            PaperCommodityDeliveryController commodityDeliveries,
+            PaperItemUseEligibilityController itemUseEligibility
     ) throws SQLException {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         if (backendId == null || backendId.isBlank()) {
@@ -67,6 +69,7 @@ final class PaperResourceGatheringListener implements Listener {
         this.gathering = Objects.requireNonNull(gathering, "gathering");
         this.sessionResolver = Objects.requireNonNull(sessionResolver, "sessionResolver");
         this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
+        this.itemUseEligibility = Objects.requireNonNull(itemUseEligibility, "itemUseEligibility");
         Objects.requireNonNull(zoneInstance, "zoneInstance");
         Objects.requireNonNull(placements, "placements");
 
@@ -159,6 +162,9 @@ final class PaperResourceGatheringListener implements Listener {
                     registered.sourceId(),
                     HARVEST_REASON
             );
+            if (result.experienceAward() != null) {
+                itemUseEligibility.applyCommittedAward(result.experienceAward());
+            }
             ResourceSourceSnapshot source = sourceRepository.loadSource(registered.sourceId());
             runOnMainThread(() -> reconcileVisualOnMainThread(registered, source));
             commodityDeliveries.requestDrain(minecraftUuid);
