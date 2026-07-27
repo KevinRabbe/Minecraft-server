@@ -51,7 +51,7 @@ final class PaperItemRepresentationGate implements Listener {
                         player.getUniqueId(),
                         result.validatedIndividualSnapshots()
                 );
-                presentation.refresh(player, result.validatedIndividualSnapshots());
+                refreshPresentationBestEffort(player, result);
                 return;
             }
 
@@ -76,6 +76,21 @@ final class PaperItemRepresentationGate implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         PaperItemRuntimeStatCache.clear(event.getPlayer().getUniqueId());
+    }
+
+    private void refreshPresentationBestEffort(
+            Player player,
+            ItemRepresentationValidationResult result
+    ) {
+        try {
+            presentation.refresh(player, result.validatedIndividualSnapshots());
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.WARNING,
+                    "Could not refresh derived managed-item presentation for player " + player.getUniqueId(),
+                    exception
+            );
+        }
     }
 
     private void quarantineMalformed(Player player, RuntimeException exception) {
