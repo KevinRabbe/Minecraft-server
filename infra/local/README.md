@@ -53,7 +53,7 @@ Connect Minecraft to:
 localhost:25565
 ```
 
-Keep the PowerShell supervisor window open. Press `Ctrl+C` there to gracefully stop Velocity and every Paper backend.
+Keep the PowerShell supervisor window open. Press `Ctrl+C` there to gracefully stop the network. The supervisor stops Velocity first so no new local sessions can enter; once the proxy is stopped, it keeps Paper alive for a bounded 10-second logout-drain window so `PlayerQuit` final checkpoints can finish before backend `stop` is sent. An already-crashed/stopped Velocity process uses the same drain window. If Velocity itself fails to stop promptly, the supervisor warns and proceeds with backend shutdown rather than hanging indefinitely.
 
 ## Coherent local backup
 
@@ -127,7 +127,6 @@ The current `settings.ps1` development topology is:
 Velocity  127.0.0.1:25565
 ├─ paper-01 / city           127.0.0.1:25566
 └─ paper-02 / starter-woods  127.0.0.1:25567
-
 PostgreSQL runs from infra/compose.
 ```
 
@@ -145,5 +144,5 @@ The local development boundary is accepted only when:
 4. persistent-state transfer uses the trusted transfer flow rather than direct backend switching;
 5. every backend loads the same Paper plugin with its configured backend/zone identity;
 6. direct backend access remains loopback-only;
-7. `Ctrl+C` shuts the local network down cleanly;
+7. `Ctrl+C` stops Velocity, permits the bounded Paper logout-drain window, and then shuts every backend down cleanly;
 8. the backup/restore rehearsal has demonstrated that PostgreSQL and persistent world state can be recovered to the same selected recovery point without duplication or authority corruption.
