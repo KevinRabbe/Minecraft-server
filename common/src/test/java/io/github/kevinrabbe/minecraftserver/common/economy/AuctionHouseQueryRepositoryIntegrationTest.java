@@ -96,9 +96,7 @@ class AuctionHouseQueryRepositoryIntegrationTest {
 
     @AfterAll
     void closeDatabase() {
-        if (database != null) {
-            database.close();
-        }
+        if (database != null) database.close();
     }
 
     @Test
@@ -120,6 +118,7 @@ class AuctionHouseQueryRepositoryIntegrationTest {
         assertEquals(SWORD, visible.definitionId());
         assertEquals(4_500, visible.priceMinor());
         assertEquals(java.util.Map.of(), visible.rollQualityBasisPoints());
+        assertEquals(0, visible.upgradeLevel());
     }
 
     @Test
