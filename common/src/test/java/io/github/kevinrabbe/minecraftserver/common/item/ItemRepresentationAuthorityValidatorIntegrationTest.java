@@ -53,6 +53,14 @@ class ItemRepresentationAuthorityValidatorIntegrationTest {
                         ItemIdentityKind.INDIVIDUAL
                 ),
                 new ItemDefinition(
+                        "map.test",
+                        "MAP",
+                        "Test Map",
+                        1,
+                        ItemCategory.PROGRESSION,
+                        ItemIdentityKind.INDIVIDUAL
+                ),
+                new ItemDefinition(
                         "material.test_ore",
                         "RAW_IRON",
                         "Test Ore",
@@ -71,6 +79,7 @@ class ItemRepresentationAuthorityValidatorIntegrationTest {
              Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
+                        item_upgrade_events,
                         item_provenance,
                         item_instances,
                         transfer_tickets,
@@ -238,6 +247,43 @@ class ItemRepresentationAuthorityValidatorIntegrationTest {
         assertEquals(Set.of(ItemRepresentationIssueCode.INSTANCE_DEFINITION_MISMATCH), codes(issues));
     }
 
+    @Test
+    void nonEquipmentGenericUpgradeCorruptionIsRejectedBeforeRuntimeSnapshot() throws SQLException {
+        UUID playerId = createPlayer("MapUpgradeCorrupt");
+        UniqueItemAuthorityResult map = itemAuthority.createForPlayer(
+                UUID.randomUUID(),
+                "map.test",
+                playerId,
+                "test.create_map",
+                playerId
+        );
+
+        // Simulate operator/disk corruption beyond normal write APIs. The live trust boundary must still reject it.
+        try (Connection connection = dataSource.getConnection(); Statement control = connection.createStatement()) {
+            control.execute("ALTER TABLE item_instances DISABLE TRIGGER item_instances_validate_upgrade_state_transition");
+            control.execute("ALTER TABLE item_instances DISABLE TRIGGER item_instances_require_upgrade_event");
+            try (var update = connection.prepareStatement("""
+                    UPDATE item_instances
+                    SET upgrade_level = 1
+                    WHERE item_instance_id = ?
+                    """)) {
+                update.setObject(1, map.itemInstanceId());
+                assertEquals(1, update.executeUpdate());
+            } finally {
+                control.execute("ALTER TABLE item_instances ENABLE TRIGGER item_instances_require_upgrade_event");
+                control.execute("ALTER TABLE item_instances ENABLE TRIGGER item_instances_validate_upgrade_state_transition");
+            }
+        }
+
+        ItemRepresentationValidationResult result = validator.validateAndSnapshot(
+                playerId,
+                List.of(mapIndividual("storage[0]", map.itemInstanceId(), map.stateVersion()))
+        );
+
+        assertEquals(Set.of(ItemRepresentationIssueCode.AUTHORITY_STAT_STATE_INVALID), codes(result.issues()));
+        assertTrue(result.validatedIndividualSnapshots().isEmpty());
+    }
+
     private UniqueItemAuthorityResult createSword(UUID ownerPlayerId) throws SQLException {
         return itemAuthority.createForPlayer(
                 UUID.randomUUID(),
@@ -264,6 +310,17 @@ class ItemRepresentationAuthorityValidatorIntegrationTest {
                 source,
                 "equipment.test_sword",
                 "IRON_SWORD",
+                1,
+                itemInstanceId,
+                authorityVersion
+        );
+    }
+
+    private static ItemRepresentationClaim mapIndividual(String source, UUID itemInstanceId, long authorityVersion) {
+        return new ItemRepresentationClaim(
+                source,
+                "map.test",
+                "MAP",
                 1,
                 itemInstanceId,
                 authorityVersion
