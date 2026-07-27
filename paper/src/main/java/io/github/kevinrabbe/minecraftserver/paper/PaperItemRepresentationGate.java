@@ -29,6 +29,7 @@ final class PaperItemRepresentationGate implements Listener {
 
     private final MinecraftServerPlugin plugin;
     private final PaperPlayerItemRepresentationValidator validator;
+    private final PaperItemRuntimeMaterializer materializer;
     private final PaperItemRuntimePresentation presentation;
 
     PaperItemRepresentationGate(
@@ -37,6 +38,7 @@ final class PaperItemRepresentationGate implements Listener {
     ) {
         this.plugin = plugin;
         this.validator = validator;
+        this.materializer = new PaperItemRuntimeMaterializer(plugin, plugin.itemCatalog());
         this.presentation = new PaperItemRuntimePresentation(plugin, plugin.itemCatalog());
     }
 
@@ -51,6 +53,8 @@ final class PaperItemRepresentationGate implements Listener {
                         player.getUniqueId(),
                         result.validatedIndividualSnapshots()
                 );
+                // Gameplay-relevant derived attributes are part of this hard authority gate, not best-effort lore.
+                materializer.refresh(player);
                 refreshPresentationBestEffort(player);
                 return;
             }
@@ -94,7 +98,7 @@ final class PaperItemRepresentationGate implements Listener {
         PaperItemRuntimeStatCache.clear(player.getUniqueId());
         plugin.getLogger().log(
                 Level.SEVERE,
-                "Malformed or unreadable custom item identity metadata for player " + player.getUniqueId(),
+                "Malformed or unreadable custom item/runtime state for player " + player.getUniqueId(),
                 exception
         );
         player.kick(QUARANTINED_MESSAGE);
