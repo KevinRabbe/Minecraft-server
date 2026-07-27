@@ -53,7 +53,7 @@ final class PaperItemRuntimePresentation {
             ItemDefinition definition = itemCatalog.require(snapshot.definitionId());
             List<String> descriptions = describe(definition, snapshot);
             if (descriptions.isEmpty()) {
-                // This presenter owns rolled/upgrade gear lines only. Do not erase Map/artifact/other-system lore.
+                // This presenter owns gear presentation only. Do not erase Map/artifact/other-system lore.
                 continue;
             }
             boolean edited = stack.editMeta(meta -> meta.lore(
@@ -85,6 +85,9 @@ final class PaperItemRuntimePresentation {
 
         ArrayList<String> lines = new ArrayList<>(rollLines);
         describeUpgrade(definition, snapshot.upgradeState().level()).ifPresent(lines::add);
+        if (definition.category() == ItemCategory.EQUIPMENT) {
+            lines.addAll(describeUseRequirements(definition));
+        }
         return List.copyOf(lines);
     }
 
@@ -124,6 +127,14 @@ final class PaperItemRuntimePresentation {
             );
         }
         return Optional.empty();
+    }
+
+    static List<String> describeUseRequirements(ItemDefinition definition) {
+        Objects.requireNonNull(definition, "definition");
+        return definition.useRequirements().skillRequirements().stream()
+                .map(requirement -> "Requires " + requirement.skillId().value()
+                        + " level " + requirement.minimumLevel())
+                .toList();
     }
 
     private static String formatPercent(int basisPoints) {
