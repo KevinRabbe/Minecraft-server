@@ -20,18 +20,19 @@ Evidence to capture:
 
 1. Create representative persistent state that spans multiple authorities: carried commodity + individualized item, Coin pocket/bank, skill XP, at least one market/crafting/provenance record, Map/Bounty state, clan state, and vote/history state where available.
 2. Make a small recognizable persistent-world change in City so database and world recovery can be compared to one exact point.
-3. Gracefully stop the network through the PowerShell supervisor; confirm Velocity and every configured Paper backend are no longer reachable.
-4. Run `infra/local/backup.ps1` and retain its snapshot ID, `manifest.json`, `checksums.sha256`, `COMPLETE`, PostgreSQL dump and captured world set.
-5. Restart the network and deliberately change both database-backed player/economic state and the recognizable persistent-world state after the backup point.
-6. Stop the network again and restore the selected snapshot using `restore.ps1 -BackupPath <snapshot> -ConfirmRestore`.
-7. Start through Velocity and verify the post-backup mutations are gone while the pre-backup representative state and City world change are restored together to the same recovery point.
-8. Run `/integrity 100`; no unexplained CRITICAL issue may remain. Verify specifically inventory/item custody, Coin/bank, Bazaar/AH or equivalent market evidence, crafting/provenance, skills, Map/Bounty state, clan custody, voting/world-era/history read models and session ownership after reconnect.
-9. Verify valuable recovery does not require any disposable Map/Bounty/competitive runtime world to survive. A disposable instance may be absent/recreated while persistent value/history remains correct.
-10. Tamper with one copied backup file and prove checksum verification rejects the snapshot before destructive restore begins.
-11. Remove or omit `COMPLETE` on a copied backup and prove restore rejects it before destructive work.
-12. Simulate an interrupted restore only in a disposable test setup: leave/create `runtime/restore.in-progress`, then prove both `setup.ps1` and `start.ps1` refuse to proceed until the selected restore completes and clears the marker.
-13. Prove a repository commit mismatch is rejected by default. Exercise `-AllowVersionMismatch` only as an explicit test escape hatch and never treat it as normal recovery procedure.
-14. Repeat one restore after a deliberate first-attempt interruption/failure and verify the final successful recovery still produces one coherent authoritative state with no duplicate value.
+3. Immediately before a controlled stop, move a recognizable carried item to a different inventory slot after normal play has settled. Press `Ctrl+C` in the PowerShell supervisor and capture the shutdown output: Velocity must stop first, the supervisor must announce the bounded 10-second final-player logout drain, and Paper must receive its backend stop only after that drain completes.
+4. Start once through Velocity and verify the just-before-stop inventory-slot change survived reconnect. This is the empirical proof that proxy-first `PlayerQuit` finalization completed before Paper shutdown. Stop cleanly again before taking the backup.
+5. Confirm Velocity and every configured Paper backend are no longer reachable, then run `infra/local/backup.ps1` and retain its snapshot ID, `manifest.json`, `checksums.sha256`, `COMPLETE`, PostgreSQL dump and captured world set.
+6. Restart the network and deliberately change both database-backed player/economic state and the recognizable persistent-world state after the backup point.
+7. Stop the network again and restore the selected snapshot using `restore.ps1 -BackupPath <snapshot> -ConfirmRestore`.
+8. Start through Velocity and verify the post-backup mutations are gone while the pre-backup representative state and City world change are restored together to the same recovery point.
+9. Run `/integrity 100`; no unexplained CRITICAL issue may remain. Verify specifically inventory/item custody, Coin/bank, Bazaar/AH or equivalent market evidence, crafting/provenance, skill state versus XP evidence/current cap, Map/Bounty state, clan custody, voting/world-era/history read models and session ownership after reconnect.
+10. Verify valuable recovery does not require any disposable Map/Bounty/competitive runtime world to survive. A disposable instance may be absent/recreated while persistent value/history remains correct.
+11. Tamper with one copied backup file and prove checksum verification rejects the snapshot before destructive restore begins.
+12. Remove or omit `COMPLETE` on a copied backup and prove restore rejects it before destructive work.
+13. Simulate an interrupted restore only in a disposable test setup: leave/create `runtime/restore.in-progress`, then prove both `setup.ps1` and `start.ps1` refuse to proceed until the selected restore completes and clears the marker.
+14. Prove a repository commit mismatch is rejected by default. Exercise `-AllowVersionMismatch` only as an explicit test escape hatch and never treat it as normal recovery procedure.
+15. Repeat one restore after a deliberate first-attempt interruption/failure and verify the final successful recovery still produces one coherent authoritative state with no duplicate value.
 
 Acceptance result to record:
 
@@ -39,6 +40,7 @@ Acceptance result to record:
 - backup snapshot ID;
 - Windows/Docker/PostgreSQL versions;
 - selected representative state before backup, after mutation, and after restore;
+- captured supervisor logout-drain output and the just-before-stop inventory-slot result after reconnect;
 - `/integrity` output;
 - whether any manual intervention was required;
 - every observed mismatch or recovery ambiguity, even if the final restore succeeded.
