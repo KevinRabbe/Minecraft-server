@@ -136,6 +136,31 @@ class PlayerSessionIntegrityVerifierIntegrationTest {
     }
 
     @Test
+    void liveSessionOwnerInstanceMatchesItsBackendIdentity() throws Exception {
+        OwnedSessionFixture fixture = ownedSessionFixture("SessOwnInst");
+
+        assertFalse(verifier.verify(10_000).stream().anyMatch(issue ->
+                fixture.session().sessionId().toString().equals(issue.subjectId())
+        ));
+    }
+
+    @Test
+    void liveSessionCannotClaimInstanceOwnedByDifferentBackend() throws Exception {
+        OwnedSessionFixture fixture = ownedSessionFixture("SessOwnBad");
+        String corruptBackend = "wrong-" + UUID.randomUUID().toString().substring(0, 8);
+        setSessionOwnerBackend(fixture.session().sessionId(), corruptBackend);
+        try {
+            assertTrue(verifier.verify(10_000).stream().anyMatch(issue ->
+                    issue.severity() == IntegritySeverity.CRITICAL
+                            && issue.code().equals("LIVE_SESSION_INSTANCE_IDENTITY_MISMATCH")
+                            && fixture.session().sessionId().toString().equals(issue.subjectId())
+            ));
+        } finally {
+            setSessionOwnerBackend(fixture.session().sessionId(), fixture.backendId());
+        }
+    }
+
+    @Test
     void transferringSessionMatchesItsOneOpenTicket() throws Exception {
         UUID playerId = player("SessTransfer");
         SessionLease session = sessions.openSession(playerId, BACKEND, null, LEASE);
@@ -212,6 +237,18 @@ class PlayerSessionIntegrityVerifierIntegrationTest {
         }
     }
 
+    private OwnedSessionFixture ownedSessionFixture(String playerName) throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String backendId = "owner-" + suffix;
+        String zoneId = "owner-zone-" + suffix;
+        UUID instanceId = UUID.randomUUID();
+        backends.registerOnline(backendId, 0);
+        zoneInstances.registerStarting(instanceId, zoneId, "v1", backendId, 10, 20);
+        zoneInstances.heartbeat(instanceId, ZoneInstanceStatus.ACTIVE, 0);
+        SessionLease session = sessions.openSession(player(playerName), backendId, instanceId, LEASE);
+        return new OwnedSessionFixture(session, backendId);
+    }
+
     private RoutedFixture routedFixture(String playerName) throws Exception {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String targetBackend = "route-" + suffix;
@@ -277,6 +314,19 @@ class PlayerSessionIntegrityVerifierIntegrationTest {
         }
     }
 
+    private void setSessionOwnerBackend(UUID sessionId, String backendId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE player_sessions
+                     SET owner_backend_id = ?
+                     WHERE network_session_id = ?
+                     """)) {
+            statement.setString(1, backendId);
+            statement.setObject(2, sessionId);
+            assertEquals(1, statement.executeUpdate());
+        }
+    }
+
     private void setTicketExpectedVersion(UUID transferId, long stateVersion) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
@@ -322,6 +372,9 @@ class PlayerSessionIntegrityVerifierIntegrationTest {
             throw new IllegalStateException("Missing environment variable: " + name);
         }
         return value;
+    }
+
+    private record OwnedSessionFixture(SessionLease session, String backendId) {
     }
 
     private record RoutedFixture(TransferTicket ticket, UUID instanceId, String targetZone) {
