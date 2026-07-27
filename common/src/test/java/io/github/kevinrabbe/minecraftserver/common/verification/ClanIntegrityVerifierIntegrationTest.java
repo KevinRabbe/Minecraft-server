@@ -76,7 +76,7 @@ class ClanIntegrityVerifierIntegrationTest {
 
     @Test
     void healthyClanCountersProduceNoIssuesAndAggregateVerifierIncludesClanCheck() throws Exception {
-        UUID leader = identities.ensurePlayer(UUID.randomUUID(), "VerifyClanHealthy");
+        UUID leader = identities.ensurePlayer(UUID.randomUUID(), "VerifyHealthy");
         clans.createClan(UUID.randomUUID(), leader, "Healthy Clan", "HCL");
 
         assertTrue(verifier.verify(10).isEmpty());
@@ -101,7 +101,7 @@ class ClanIntegrityVerifierIntegrationTest {
 
     @Test
     void missingCounterRowIsReportedAsCriticalMismatch() throws Exception {
-        ClanSnapshot clan = createClan("VerifyClanMissing", "Missing Clan", "MCL");
+        ClanSnapshot clan = createClan("VerifyMissing", "Missing Clan", "MCL");
         deleteTrackedCount(clan.clanId());
 
         List<IntegrityIssue> issues = verifier.verify(10);
