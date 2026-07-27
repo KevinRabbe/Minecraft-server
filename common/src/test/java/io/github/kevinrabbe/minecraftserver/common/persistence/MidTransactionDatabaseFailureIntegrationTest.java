@@ -89,6 +89,10 @@ class MidTransactionDatabaseFailureIntegrationTest {
              Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
+                        player_attunement_state,
+                        player_artifact_discoveries,
+                        artifact_locations,
+                        artifact_definitions,
                         pending_unique_deliveries,
                         item_provenance,
                         item_instances,
