@@ -13,6 +13,7 @@ public record AuctionBrowseListing(
         String definitionId,
         long priceMinor,
         Map<String, Integer> rollQualityBasisPoints,
+        int upgradeLevel,
         Instant createdAt
 ) {
     public AuctionBrowseListing {
@@ -32,6 +33,9 @@ public record AuctionBrowseListing(
                 throw new IllegalArgumentException("invalid normalized roll quality");
             }
         });
+        if (upgradeLevel < 0 || upgradeLevel > 100) {
+            throw new IllegalArgumentException("upgradeLevel must be between 0 and 100");
+        }
         createdAt = Objects.requireNonNull(createdAt, "createdAt");
     }
 }
