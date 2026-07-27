@@ -71,6 +71,11 @@ final class PaperItemRuntimePresentation {
         if (!definition.definitionId().equals(snapshot.definitionId())) {
             throw new IllegalArgumentException("snapshot definition does not match item definition");
         }
+        if (definition.category() != ItemCategory.EQUIPMENT && snapshot.upgradeState().level() != 0) {
+            throw new IllegalArgumentException(
+                    "non-equipment definition carries generic upgrade state: " + snapshot.upgradeState().level()
+            );
+        }
 
         List<String> rollLines = describeRolls(definition, snapshot.normalizedRollQualityBasisPoints());
         Map<String, Integer> currentMultipliers = IntrinsicRollResolver.resolveMultipliers(
@@ -82,7 +87,7 @@ final class PaperItemRuntimePresentation {
         }
 
         ArrayList<String> lines = new ArrayList<>(rollLines);
-        if (definition.category() == ItemCategory.EQUIPMENT || snapshot.upgradeState().level() > 0) {
+        if (definition.category() == ItemCategory.EQUIPMENT) {
             lines.add("Upgrade: +" + snapshot.upgradeState().level());
         }
         return List.copyOf(lines);
