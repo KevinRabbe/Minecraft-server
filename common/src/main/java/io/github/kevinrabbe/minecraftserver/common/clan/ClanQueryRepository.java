@@ -21,6 +21,11 @@ public final class ClanQueryRepository {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
+    /** Package-local persistence context for other clan repositories; never exposes the DataSource to adapters. */
+    DataSource dataSource() {
+        return dataSource;
+    }
+
     public List<ClanMemberView> listMembers(UUID clanId, int limit) throws SQLException {
         Objects.requireNonNull(clanId, "clanId");
         requireLimit(limit);
