@@ -167,7 +167,7 @@ class CraftingIntegrityVerifierIntegrationTest {
     void missingPersonalCraftProcessedOperationIsDetected() throws Exception {
         PlayerContext player = playerWithSession("CraftEvidenceA");
         CraftExecutionResult craft = personalCraft(player, BAR_RECIPE, new byte[]{4});
-        deleteProcessedOperation(craft.operationId());
+        truncateProcessedOperations();
 
         assertContainsOnly("CRAFT_RECORD_EVIDENCE_MISMATCH", craft.craftId());
     }
@@ -237,13 +237,9 @@ class CraftingIntegrityVerifierIntegrationTest {
         assertEquals(craftId.toString(), issue.subjectId());
     }
 
-    private void deleteProcessedOperation(UUID operationId) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     DELETE FROM processed_operations WHERE operation_id = ?
-                     """)) {
-            statement.setObject(1, operationId);
-            assertEquals(1, statement.executeUpdate());
+    private void truncateProcessedOperations() throws SQLException {
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            statement.execute("TRUNCATE TABLE processed_operations");
         }
     }
 
