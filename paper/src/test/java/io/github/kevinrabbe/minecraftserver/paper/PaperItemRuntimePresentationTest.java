@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PaperItemRuntimePresentationTest {
     @Test
@@ -46,14 +47,7 @@ class PaperItemRuntimePresentationTest {
 
     @Test
     void nonEquipmentUniqueObjectDoesNotAdvertiseMeaninglessZeroUpgrade() {
-        ItemDefinition definition = new ItemDefinition(
-                "map.test",
-                "MAP",
-                "Test Map",
-                1,
-                ItemCategory.PROGRESSION,
-                ItemIdentityKind.INDIVIDUAL
-        );
+        ItemDefinition definition = mapDefinition();
 
         assertEquals(
                 List.of(),
@@ -61,6 +55,27 @@ class PaperItemRuntimePresentationTest {
                         definition,
                         snapshot(definition.definitionId(), Map.of(), Map.of(), 0)
                 )
+        );
+    }
+
+    @Test
+    void nonEquipmentGenericUpgradeStateFailsClosed() {
+        ItemDefinition definition = mapDefinition();
+
+        assertThrows(IllegalArgumentException.class, () -> PaperItemRuntimePresentation.describe(
+                definition,
+                snapshot(definition.definitionId(), Map.of(), Map.of(), 1)
+        ));
+    }
+
+    private static ItemDefinition mapDefinition() {
+        return new ItemDefinition(
+                "map.test",
+                "MAP",
+                "Test Map",
+                1,
+                ItemCategory.PROGRESSION,
+                ItemIdentityKind.INDIVIDUAL
         );
     }
 
