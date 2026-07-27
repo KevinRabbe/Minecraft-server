@@ -48,7 +48,7 @@ Status values:
 | Implemented operator command isolation | PROVEN | `PERMISSIONS.md`; named `/integrity` and `/devzone` capabilities are enforced inside their executors, YAML capability wiring is regression-tested, and development routing remains additionally closed by runtime policy |
 | Value-changing staff/recovery mutation | CONTRACTED | `PERMISSIONS.md`, `FAILURE_RECOVERY.md`; no generic persistent-value repair/mint/override command exists and any future operation requires narrow authorization plus append-only audit evidence |
 | Configuration/version validation | PROVEN for current content lanes | strict item/skill/resource/crafting/attunement/placement loaders; broader operational configuration remains contracted |
-| Analytics/observability separation from authority | CONTRACTED | `ANALYTICS.md` |
+| Analytics/observability separation from authority | PROVEN baseline | `ANALYTICS.md`; read-only session analytics derives observed player-time plus unique/new/returning participation directly from authoritative `player_sessions`, with partial-window clipping and no duplicate analytics lifecycle; broader question-driven instrumentation remains incremental |
 | Backup/restore/failure semantics | CONTRACTED | `FAILURE_RECOVERY.md`; offline coherent backup/restore tooling, checksum/version validation, incomplete-restore startup fencing and bounded proxy-first local logout drain are CI-qualified structurally; actual Windows/Docker restore/shutdown rehearsal remains empirical before release |
 | Extension/new-content reuse rules | CONTRACTED | `EXTENSION_POINTS.md` |
 
@@ -83,6 +83,7 @@ Player-facing/adapter and operations work already includes:
 - isolated Ranked 1v1 and baseline Clan-War 1.8.9 execution paths;
 - validated rolled-item runtime snapshots/presentation and fail-closed intrinsic-damage combat materialization plus structurally safe carried-item upgrade authority;
 - bounded reconnect-fenced item-use eligibility projection that stays dormant for unrestricted content and advances directly from committed XP results;
+- read-only session analytics for observed player-time and new/returning participation without duplicating session authority;
 - operator-triggered bounded `/integrity` verification including session/transfer identity+version checks, skill progression XP/cap evidence/catalog checks, and expansion resolution/history/feature/world-era consequence checks, plus fail-closed development-route capability isolation;
 - offline coherent local backup/restore scripts with manifest/checksum/version validation, a fail-closed incomplete-restore startup fence, and a bounded proxy-first logout drain before local Paper shutdown.
 
