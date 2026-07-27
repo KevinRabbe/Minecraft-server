@@ -34,7 +34,7 @@ import java.util.UUID;
  */
 final class PaperItemUseEligibilityCache {
     private final ItemCatalog itemCatalog;
-    private final SkillProgressionQueryRepository skills;
+    private final SkillProjectionLoader skillLoader;
     private final List<SkillId> relevantSkills;
     private final Set<SkillId> relevantSkillSet;
     private final int maxPlayers;
@@ -45,8 +45,16 @@ final class PaperItemUseEligibilityCache {
             SkillProgressionQueryRepository skills,
             int maxPlayers
     ) {
+        this(itemCatalog, queryLoader(skills), maxPlayers);
+    }
+
+    PaperItemUseEligibilityCache(
+            ItemCatalog itemCatalog,
+            SkillProjectionLoader skillLoader,
+            int maxPlayers
+    ) {
         this.itemCatalog = Objects.requireNonNull(itemCatalog, "itemCatalog");
-        this.skills = Objects.requireNonNull(skills, "skills");
+        this.skillLoader = Objects.requireNonNull(skillLoader, "skillLoader");
         if (maxPlayers < 1) {
             throw new IllegalArgumentException("maxPlayers must be >= 1");
         }
@@ -69,12 +77,15 @@ final class PaperItemUseEligibilityCache {
             return;
         }
 
-        Map<SkillId, SkillProgressSnapshot> loaded = skills.load(playerId, relevantSkills);
+        Map<SkillId, SkillProgressSnapshot> loaded = skillLoader.load(playerId, relevantSkills);
         LinkedHashMap<SkillId, LevelState> incoming = new LinkedHashMap<>();
         for (SkillId skillId : relevantSkills) {
             SkillProgressSnapshot snapshot = loaded.get(skillId);
             if (snapshot == null) {
                 throw new IllegalStateException("Progression projection omitted required skill " + skillId);
+            }
+            if (!playerId.equals(snapshot.playerId()) || !skillId.equals(snapshot.skillId())) {
+                throw new IllegalStateException("Progression projection returned mismatched player/skill identity");
             }
             incoming.put(skillId, new LevelState(snapshot.level(), snapshot.stateVersion()));
         }
@@ -210,6 +221,16 @@ final class PaperItemUseEligibilityCache {
             merged.put(skillId, loaded);
         }
         return new PlayerSnapshot(merged);
+    }
+
+    private static SkillProjectionLoader queryLoader(SkillProgressionQueryRepository skills) {
+        SkillProgressionQueryRepository nonNull = Objects.requireNonNull(skills, "skills");
+        return nonNull::load;
+    }
+
+    @FunctionalInterface
+    interface SkillProjectionLoader {
+        Map<SkillId, SkillProgressSnapshot> load(UUID playerId, List<SkillId> skillIds) throws SQLException;
     }
 
     private record PlayerSnapshot(Map<SkillId, LevelState> skills) {
