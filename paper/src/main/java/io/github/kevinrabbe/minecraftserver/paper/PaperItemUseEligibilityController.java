@@ -32,7 +32,9 @@ final class PaperItemUseEligibilityController implements Listener {
     private final JavaPlugin plugin;
     private final PaperPlayerIdentityResolver identities;
     private final PaperItemUseEligibilityCache cache;
+    private final AtomicLong lifecycleSequence = new AtomicLong();
     private final AtomicLong refreshSequence = new AtomicLong();
+    private final ConcurrentHashMap<UUID, Long> lifecycleEpochByMinecraftUuid = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long> activeTokenByMinecraftUuid = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, UUID> playerIdByMinecraftUuid = new ConcurrentHashMap<>();
 
@@ -52,12 +54,18 @@ final class PaperItemUseEligibilityController implements Listener {
             return;
         }
         UUID minecraftUuid = event.getPlayer().getUniqueId();
-        runOnMainThreadLater(() -> beginRefresh(minecraftUuid, 1), INITIAL_REFRESH_DELAY_TICKS);
+        long lifecycleEpoch = lifecycleSequence.incrementAndGet();
+        lifecycleEpochByMinecraftUuid.put(minecraftUuid, lifecycleEpoch);
+        runOnMainThreadLater(
+                () -> beginRefresh(minecraftUuid, lifecycleEpoch, 1),
+                INITIAL_REFRESH_DELAY_TICKS
+        );
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID minecraftUuid = event.getPlayer().getUniqueId();
+        lifecycleEpochByMinecraftUuid.remove(minecraftUuid);
         activeTokenByMinecraftUuid.remove(minecraftUuid);
         UUID playerId = playerIdByMinecraftUuid.remove(minecraftUuid);
         if (playerId != null) {
@@ -65,8 +73,10 @@ final class PaperItemUseEligibilityController implements Listener {
         }
     }
 
-    private void beginRefresh(UUID minecraftUuid, int attempt) {
-        if (!plugin.isEnabled() || !cache.requiresProgressionSnapshot()) {
+    private void beginRefresh(UUID minecraftUuid, long lifecycleEpoch, int attempt) {
+        if (!plugin.isEnabled()
+                || !cache.requiresProgressionSnapshot()
+                || !isCurrentLifecycle(minecraftUuid, lifecycleEpoch)) {
             return;
         }
         Player player = plugin.getServer().getPlayer(minecraftUuid);
@@ -79,17 +89,17 @@ final class PaperItemUseEligibilityController implements Listener {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(
                     plugin,
-                    () -> refreshOffThread(minecraftUuid, token, attempt)
+                    () -> refreshOffThread(minecraftUuid, lifecycleEpoch, token, attempt)
             );
         } catch (RejectedExecutionException | IllegalStateException exception) {
             if (activeTokenByMinecraftUuid.remove(minecraftUuid, token)) {
                 plugin.getLogger().log(Level.WARNING, "Could not schedule item-use eligibility refresh", exception);
-                scheduleRetry(minecraftUuid, attempt);
+                scheduleRetry(minecraftUuid, lifecycleEpoch, attempt);
             }
         }
     }
 
-    private void refreshOffThread(UUID minecraftUuid, long token, int attempt) {
+    private void refreshOffThread(UUID minecraftUuid, long lifecycleEpoch, long token, int attempt) {
         UUID playerId = null;
         try {
             Optional<UUID> resolved = identities.resolve(minecraftUuid);
@@ -98,7 +108,7 @@ final class PaperItemUseEligibilityController implements Listener {
             }
             playerId = resolved.orElseThrow();
 
-            if (!isCurrent(minecraftUuid, token)) {
+            if (!isCurrentLifecycle(minecraftUuid, lifecycleEpoch) || !isCurrentRefresh(minecraftUuid, token)) {
                 return;
             }
 
@@ -112,14 +122,34 @@ final class PaperItemUseEligibilityController implements Listener {
             cache.refresh(playerId);
 
             UUID completedPlayerId = playerId;
-            runOnMainThread(() -> completeSuccess(minecraftUuid, completedPlayerId, token));
+            runOnMainThread(() -> completeSuccess(
+                    minecraftUuid,
+                    completedPlayerId,
+                    lifecycleEpoch,
+                    token
+            ));
         } catch (SQLException | RuntimeException exception) {
             UUID failedPlayerId = playerId;
-            runOnMainThread(() -> completeFailure(minecraftUuid, failedPlayerId, token, attempt, exception));
+            runOnMainThread(() -> completeFailure(
+                    minecraftUuid,
+                    failedPlayerId,
+                    lifecycleEpoch,
+                    token,
+                    attempt,
+                    exception
+            ));
         }
     }
 
-    private void completeSuccess(UUID minecraftUuid, UUID playerId, long token) {
+    private void completeSuccess(UUID minecraftUuid, UUID playerId, long lifecycleEpoch, long token) {
+        if (!isCurrentLifecycle(minecraftUuid, lifecycleEpoch)) {
+            if (!lifecycleEpochByMinecraftUuid.containsKey(minecraftUuid)) {
+                playerIdByMinecraftUuid.remove(minecraftUuid, playerId);
+                cache.invalidate(playerId);
+            }
+            return;
+        }
+
         Long current = activeTokenByMinecraftUuid.get(minecraftUuid);
         if (current == null) {
             // Quit occurred after the worker's last token check; no live attachment may retain the completed projection.
@@ -128,13 +158,14 @@ final class PaperItemUseEligibilityController implements Listener {
             return;
         }
         if (current.longValue() != token) {
-            // A newer attachment/refresh owns lifecycle state. The cache merge is version-fenced and monotonic, so the
-            // old read cannot overgrant; the newer refresh is responsible for final freshness.
+            // A newer refresh owns this same attachment. The cache merge is version-fenced and monotonic, so the old
+            // read cannot overgrant; the newer refresh is responsible for final freshness.
             return;
         }
 
         Player player = plugin.getServer().getPlayer(minecraftUuid);
         if (player == null || !player.isOnline()) {
+            lifecycleEpochByMinecraftUuid.remove(minecraftUuid, lifecycleEpoch);
             activeTokenByMinecraftUuid.remove(minecraftUuid, token);
             playerIdByMinecraftUuid.remove(minecraftUuid, playerId);
             cache.invalidate(playerId);
@@ -144,10 +175,19 @@ final class PaperItemUseEligibilityController implements Listener {
     private void completeFailure(
             UUID minecraftUuid,
             UUID playerId,
+            long lifecycleEpoch,
             long token,
             int attempt,
             Throwable failure
     ) {
+        if (!isCurrentLifecycle(minecraftUuid, lifecycleEpoch)) {
+            if (!lifecycleEpochByMinecraftUuid.containsKey(minecraftUuid) && playerId != null) {
+                playerIdByMinecraftUuid.remove(minecraftUuid, playerId);
+                cache.invalidate(playerId);
+            }
+            return;
+        }
+
         Long current = activeTokenByMinecraftUuid.get(minecraftUuid);
         if (current == null) {
             if (playerId != null) {
@@ -171,17 +211,25 @@ final class PaperItemUseEligibilityController implements Listener {
                         + " (attempt " + attempt + "/" + MAX_REFRESH_ATTEMPTS + ")",
                 failure
         );
-        scheduleRetry(minecraftUuid, attempt);
+        scheduleRetry(minecraftUuid, lifecycleEpoch, attempt);
     }
 
-    private void scheduleRetry(UUID minecraftUuid, int completedAttempt) {
+    private void scheduleRetry(UUID minecraftUuid, long lifecycleEpoch, int completedAttempt) {
         if (completedAttempt >= MAX_REFRESH_ATTEMPTS || !plugin.isEnabled()) {
             return;
         }
-        runOnMainThreadLater(() -> beginRefresh(minecraftUuid, completedAttempt + 1), RETRY_DELAY_TICKS);
+        runOnMainThreadLater(
+                () -> beginRefresh(minecraftUuid, lifecycleEpoch, completedAttempt + 1),
+                RETRY_DELAY_TICKS
+        );
     }
 
-    private boolean isCurrent(UUID minecraftUuid, long token) {
+    private boolean isCurrentLifecycle(UUID minecraftUuid, long lifecycleEpoch) {
+        Long current = lifecycleEpochByMinecraftUuid.get(minecraftUuid);
+        return current != null && current.longValue() == lifecycleEpoch;
+    }
+
+    private boolean isCurrentRefresh(UUID minecraftUuid, long token) {
         Long current = activeTokenByMinecraftUuid.get(minecraftUuid);
         return current != null && current.longValue() == token;
     }
