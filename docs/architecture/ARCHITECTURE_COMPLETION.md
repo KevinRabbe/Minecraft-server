@@ -13,7 +13,7 @@ Status values:
 | Area | Status | Canonical contract / evidence |
 |---|---|---|
 | Stable player identity | PROVEN | `AUTHORITY_MODEL.md`, player identity/session repositories and integration tests |
-| Single-writer session ownership/version fencing | PROVEN | `PLAYER_STATE_AND_TRANSFERS.md`, session/transfer integration tests, Paper authoritative-state mutation lane |
+| Single-writer session ownership/version fencing | PROVEN | `PLAYER_STATE_AND_TRANSFERS.md`, session/transfer integration tests, Paper authoritative-state mutation lane, plus bounded reconciliation of live session↔player-state versions, lifecycle custody, owner-instance/backend identity, open transfer tickets and routed target identity |
 | Zone/backend routing | PROVEN | `WORLD_ZONES_INSTANCES.md`, control/transfer repositories; single-active-instance bootstrap attachment is implemented while multi-instance scheduling remains explicit future routing work |
 | PostgreSQL migrations/operation locking | PROVEN | `DATA_MODEL.md`, `TRANSACTIONS_AND_ANTI_DUPE.md`, migration/operation-lock code |
 | Unique-item identity/custody/provenance | PROVEN | `ITEMS_AND_INVENTORY.md`, unique-item authority/provenance tests |
@@ -44,7 +44,7 @@ Status values:
 | Optional explicit Community Project boundary | CONTRACTED | `COMMUNITY_PROJECTS.md` |
 | Hidden Artifact discovery + Attunement | PROVEN | persistent definitions/location revisions/discoveries/profile authority plus Paper interaction and `/attune` bridge |
 | Chronicle/historical-event source model | PROVEN | append-only Chronicle authority, source uniqueness tests and player read projection |
-| Persistent integrity diagnostics | PROVEN | bounded read-only aggregate verifier across economy/custody, item-upgrade definition/evidence, skill-state↔XP-evidence reconciliation/current catalog+cap invariants, persistent PvE, clans and competitive state; Paper `/integrity` loads the bundled item/skill catalogs for the catalog-aware checks |
+| Persistent integrity diagnostics | PROVEN | bounded read-only aggregate verifier across session/transfer authority, economy/custody, item-upgrade definition/evidence, skill-state↔XP-evidence reconciliation/current catalog+cap invariants, persistent PvE, clans and competitive state; Paper `/integrity` loads bundled item/skill catalogs for catalog-aware checks |
 | Implemented operator command isolation | PROVEN | `PERMISSIONS.md`; named `/integrity` and `/devzone` capabilities are enforced inside their executors, YAML capability wiring is regression-tested, and development routing remains additionally closed by runtime policy |
 | Value-changing staff/recovery mutation | CONTRACTED | `PERMISSIONS.md`, `FAILURE_RECOVERY.md`; no generic persistent-value repair/mint/override command exists and any future operation requires narrow authorization plus append-only audit evidence |
 | Configuration/version validation | PROVEN for current content lanes | strict item/skill/resource/crafting/attunement/placement loaders; broader operational configuration remains contracted |
@@ -83,7 +83,7 @@ Player-facing/adapter and operations work already includes:
 - isolated Ranked 1v1 and baseline Clan-War 1.8.9 execution paths;
 - validated rolled-item runtime snapshots/presentation and fail-closed intrinsic-damage combat materialization plus structurally safe carried-item upgrade authority;
 - bounded reconnect-fenced item-use eligibility projection that stays dormant for unrestricted content and advances directly from committed XP results;
-- operator-triggered bounded `/integrity` verification including skill progression evidence/catalog/cap checks, plus fail-closed development-route capability isolation;
+- operator-triggered bounded `/integrity` verification including session/transfer identity+version checks and skill progression evidence/catalog/cap checks, plus fail-closed development-route capability isolation;
 - offline coherent local backup/restore scripts with manifest/checksum/version validation, a fail-closed incomplete-restore startup fence, and a bounded proxy-first logout drain before local Paper shutdown.
 
 The highest-value remaining recovery boundary is now **empirical coherent restore proof on the actual Windows/Docker development machine**, not more backup-script architecture. Upgrade economics/power, broader Clan-War gear representation, real-client competitive feel, first-Map acquisition and concrete skill-gated item content remain intentionally behind explicit content/tuning or empirical decisions rather than being guessed into architecture.
