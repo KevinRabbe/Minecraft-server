@@ -22,13 +22,12 @@ import java.util.Objects;
  * <p>Wallet, Bank, market, trade, commission, and clan-treasury custody do not all balance inside one ledger
  * operation: some durable escrows debit now and credit later. Supply therefore must never be inferred from raw ledger
  * net alone. This projection classifies the stable V1 Coin-bearing operation types explicitly, derives the special
- * Bazaar fee sink from immutable fill evidence, and exposes every unknown/malformed Coin-bearing operation as
- * unclassified rather than guessing its supply effect.</p>
+ * Bazaar fee sink from the append-only match operation result, and exposes every unknown/malformed Coin-bearing
+ * operation as unclassified rather than guessing its supply effect.</p>
  */
 public final class CoinFlowAnalyticsRepository {
     private static final int MAX_REASON_ROWS = 500;
     private static final String MIXED_REASON = "<mixed>";
-    private static final String BAZAAR_FEE_REASON = "bazaar.match.fee";
 
     private static final String CLASSIFIED_OPERATIONS_CTE = """
             WITH params AS (
@@ -53,11 +52,6 @@ public final class CoinFlowAnalyticsRepository {
                   AND ledger.created_at >= params.window_start
                   AND ledger.created_at < params.observed_end
                 GROUP BY ledger.operation_id
-            ), bazaar_fees AS (
-                SELECT fill.match_operation_id AS operation_id,
-                       SUM(fill.fee_minor::NUMERIC) AS fee_minor
-                FROM bazaar_fills fill
-                GROUP BY fill.match_operation_id
             ), salvage_returns AS (
                 SELECT salvage.operation_id,
                        salvage.coin_return_minor::NUMERIC AS coin_return_minor
@@ -71,7 +65,6 @@ public final class CoinFlowAnalyticsRepository {
                        COALESCE(ledger.ledger_net_minor, 0::NUMERIC) AS ledger_net_minor,
                        COALESCE(ledger.gross_minor, 0::NUMERIC) AS gross_minor,
                        ledger.operation_id IS NOT NULL AS has_coin_ledger,
-                       COALESCE(bazaar.fee_minor, 0::NUMERIC) AS bazaar_fill_fee_minor,
                        CASE
                            WHEN operation.operation_type IN ('COIN_SYSTEM_CREDIT', 'COIN_SYSTEM_DEBIT')
                                 AND COALESCE(operation.result ->> 'amount_minor', '') ~ '^[0-9]+$'
@@ -95,7 +88,6 @@ public final class CoinFlowAnalyticsRepository {
                 FROM processed_operations operation
                 CROSS JOIN params
                 LEFT JOIN ledger_ops ledger ON ledger.operation_id = operation.operation_id
-                LEFT JOIN bazaar_fees bazaar ON bazaar.operation_id = operation.operation_id
                 LEFT JOIN salvage_returns salvage ON salvage.operation_id = operation.operation_id
                 WHERE operation.completed_at >= params.window_start
                   AND operation.completed_at < params.observed_end
@@ -108,7 +100,6 @@ public final class CoinFlowAnalyticsRepository {
                        ) AS operation_reason,
                        processed.ledger_net_minor,
                        processed.gross_minor,
-                       processed.bazaar_fill_fee_minor,
                        processed.expected_amount_minor,
                        CASE
                            WHEN processed.operation_type = 'COIN_SYSTEM_CREDIT'
@@ -162,7 +153,6 @@ public final class CoinFlowAnalyticsRepository {
                            ) THEN TRUE
                            WHEN processed.operation_type = 'BAZAAR_MATCH'
                                THEN processed.expected_amount_minor IS NOT NULL
-                                AND processed.expected_amount_minor = processed.bazaar_fill_fee_minor
                            WHEN processed.operation_type IN (
                                'COIN_SYSTEM_CREDIT',
                                'BANK_INTEREST_CREDIT',
@@ -186,7 +176,6 @@ public final class CoinFlowAnalyticsRepository {
                        ledger.ledger_reason AS operation_reason,
                        ledger.ledger_net_minor,
                        ledger.gross_minor,
-                       0::NUMERIC AS bazaar_fill_fee_minor,
                        NULL::NUMERIC AS expected_amount_minor,
                        NULL::NUMERIC AS supply_change_minor,
                        FALSE AS classified
