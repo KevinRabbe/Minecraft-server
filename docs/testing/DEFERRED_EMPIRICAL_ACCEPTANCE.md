@@ -26,7 +26,7 @@ Evidence to capture:
 6. Restart the network and deliberately change both database-backed player/economic state and the recognizable persistent-world state after the backup point.
 7. Stop the network again and restore the selected snapshot using `restore.ps1 -BackupPath <snapshot> -ConfirmRestore`.
 8. Start through Velocity and verify the post-backup mutations are gone while the pre-backup representative state and City world change are restored together to the same recovery point.
-9. Run `/integrity 100`; no unexplained CRITICAL issue may remain. Verify specifically inventory/item custody, Coin/bank, Bazaar/AH or equivalent market evidence, crafting/provenance, skill state versus XP evidence/current cap, Map/Bounty state, clan custody, voting/world-era/history read models and session ownership after reconnect.
+9. Run `/integrity 100`; no unexplained CRITICAL issue may remain. Verify specifically inventory/item custody, Coin/bank, Bazaar/AH or equivalent market evidence, crafting/provenance, skill state versus XP/cap evidence, Map/Bounty state, clan custody, session ownership, and any resolved expansion vote's append-only resolution operation + Chronicle event + winning feature/world-era consequences after reconnect. Player-facing vote/Chronicle/world-progression reads should agree with that same reconciled state.
 10. Verify valuable recovery does not require any disposable Map/Bounty/competitive runtime world to survive. A disposable instance may be absent/recreated while persistent value/history remains correct.
 11. Tamper with one copied backup file and prove checksum verification rejects the snapshot before destructive restore begins.
 12. Remove or omit `COMPLETE` on a copied backup and prove restore rejects it before destructive work.
