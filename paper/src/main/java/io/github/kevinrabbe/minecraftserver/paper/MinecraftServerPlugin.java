@@ -38,6 +38,7 @@ import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeResolution
 import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeWithdrawalRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemUseRequirementCatalogValidator;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillLeaderboardRepository;
@@ -148,6 +149,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             itemCatalog = new ItemCatalogLoader().loadResource(ITEM_CATALOG_RESOURCE);
             PaperItemCatalogValidator.validate(itemCatalog);
             skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
+            ItemUseRequirementCatalogValidator.validate(itemCatalog, skillCatalog);
             BankTierCatalog bankTiers = new BankTierCatalogLoader().loadResource(BANK_TIER_CATALOG_RESOURCE);
             bazaarPolicy = new BazaarPolicyLoader().loadResource(BAZAAR_POLICY_RESOURCE);
             SalvageCatalog salvageCatalog = new SalvageCatalogLoader().loadResource(
