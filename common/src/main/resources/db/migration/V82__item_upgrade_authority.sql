@@ -26,7 +26,8 @@ CREATE TABLE item_upgrade_events (
         AND to_state_version = from_state_version + 1
     ),
     CONSTRAINT item_upgrade_events_levels_check CHECK (
-        from_upgrade_level BETWEEN 0 AND 10000
+        from_upgrade_level BETWEEN 0 AND 9999
+        AND to_upgrade_level BETWEEN 1 AND 10000
         AND to_upgrade_level = from_upgrade_level + 1
     ),
     CONSTRAINT item_upgrade_events_reason_check CHECK (
