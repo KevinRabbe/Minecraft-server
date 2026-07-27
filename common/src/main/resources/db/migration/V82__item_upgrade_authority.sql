@@ -7,16 +7,19 @@ ALTER TABLE item_provenance
         event_type IN ('CREATED', 'MOVED', 'QUARANTINED', 'DESTROYED', 'RECOVERED', 'UPGRADED')
     );
 
+-- Deliberately no FK edges from this append-only evidence table back to item_instances/players. Existing integration
+-- fixtures truncate those authority roots directly. Equivalent existence checks are enforced by the insert trigger,
+-- while retaining historical UUID evidence independently of lifecycle/fixture cleanup.
 CREATE TABLE item_upgrade_events (
     upgrade_event_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    item_instance_id UUID NOT NULL REFERENCES item_instances(item_instance_id) ON DELETE RESTRICT,
+    item_instance_id UUID NOT NULL,
     operation_id UUID NOT NULL UNIQUE,
     from_state_version BIGINT NOT NULL,
     to_state_version BIGINT NOT NULL,
     from_upgrade_level INTEGER NOT NULL,
     to_upgrade_level INTEGER NOT NULL,
     reason TEXT NOT NULL,
-    actor_player_id UUID REFERENCES players(player_id),
+    actor_player_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT item_upgrade_events_state_versions_check CHECK (
         from_state_version >= 0
@@ -96,6 +99,12 @@ BEGIN
 
     IF current_state_version IS NULL THEN
         RAISE EXCEPTION 'upgrade event references missing item %', NEW.item_instance_id
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    IF NEW.actor_player_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM players WHERE player_id = NEW.actor_player_id) THEN
+        RAISE EXCEPTION 'upgrade event references missing actor player %', NEW.actor_player_id
             USING ERRCODE = 'foreign_key_violation';
     END IF;
 
