@@ -50,10 +50,12 @@ final class PaperItemRuntimePresentation {
 
             ItemDefinition definition = itemCatalog.require(snapshot.definitionId());
             List<String> descriptions = describe(definition, snapshot);
+            if (descriptions.isEmpty()) {
+                // This presenter owns rolled/upgrade gear lines only. Do not erase Map/artifact/other-system lore.
+                continue;
+            }
             boolean edited = stack.editMeta(meta -> meta.lore(
-                    descriptions.isEmpty()
-                            ? null
-                            : descriptions.stream().map(Component::text).toList()
+                    descriptions.stream().map(Component::text).toList()
             ));
             if (!edited) {
                 throw new PaperItemRepresentationException(
