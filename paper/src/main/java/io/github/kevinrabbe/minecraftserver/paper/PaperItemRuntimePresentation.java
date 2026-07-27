@@ -4,7 +4,6 @@ import io.github.kevinrabbe.minecraftserver.common.item.IntrinsicRollResolver;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
-import io.github.kevinrabbe.minecraftserver.common.item.ItemRepresentationClaim;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemRuntimeStatSnapshot;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
@@ -16,43 +15,38 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 
 /** Central owner of derived presentation for managed individualized ItemStack representations and market inspection. */
 final class PaperItemRuntimePresentation {
     private final ItemCatalog itemCatalog;
-    private final PaperItemIdentityCodec identityCodec;
+    private final PaperManagedItemRuntimeResolver runtimeResolver;
 
     PaperItemRuntimePresentation(MinecraftServerPlugin plugin, ItemCatalog itemCatalog) {
         this.itemCatalog = Objects.requireNonNull(itemCatalog, "itemCatalog");
-        this.identityCodec = new PaperItemIdentityCodec(Objects.requireNonNull(plugin, "plugin"));
+        this.runtimeResolver = new PaperManagedItemRuntimeResolver(
+                Objects.requireNonNull(plugin, "plugin"),
+                itemCatalog
+        );
     }
 
-    void refresh(Player player, Map<UUID, ItemRuntimeStatSnapshot> snapshots) {
+    void refresh(Player player) {
         Objects.requireNonNull(player, "player");
-        Objects.requireNonNull(snapshots, "snapshots");
-        refreshSection(player.getInventory().getStorageContents(), "storage", snapshots);
-        refreshSection(player.getInventory().getArmorContents(), "armor", snapshots);
-        refreshSection(player.getInventory().getExtraContents(), "extra", snapshots);
+        refreshSection(player, player.getInventory().getStorageContents(), "storage");
+        refreshSection(player, player.getInventory().getArmorContents(), "armor");
+        refreshSection(player, player.getInventory().getExtraContents(), "extra");
     }
 
     private void refreshSection(
+            Player player,
             ItemStack[] contents,
-            String section,
-            Map<UUID, ItemRuntimeStatSnapshot> snapshots
+            String section
     ) {
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack stack = contents[slot];
             if (stack == null || stack.isEmpty()) continue;
-            ItemRepresentationClaim claim = identityCodec.readClaim(stack, section + "[" + slot + "]").orElse(null);
-            if (claim == null || claim.itemInstanceId() == null || claim.authorityVersion() == null) continue;
-
-            ItemRuntimeStatSnapshot snapshot = snapshots.get(claim.itemInstanceId());
-            if (snapshot == null
-                    || snapshot.stateVersion() != claim.authorityVersion()
-                    || !snapshot.definitionId().equals(claim.definitionId())) {
-                continue;
-            }
+            String source = section + "[" + slot + "]";
+            ItemRuntimeStatSnapshot snapshot = runtimeResolver.find(player, stack, source).orElse(null);
+            if (snapshot == null) continue;
 
             ItemDefinition definition = itemCatalog.require(snapshot.definitionId());
             List<String> descriptions = describe(definition, snapshot);
