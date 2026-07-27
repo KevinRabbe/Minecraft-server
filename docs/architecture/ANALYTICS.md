@@ -20,7 +20,7 @@ Correctness-critical evidence always remains in the owning subsystem's authority
 
 ## Implemented session baseline
 
-`SessionAnalyticsRepository` is the first concrete product/operations projection. It reads authoritative `player_sessions` only and writes no analytics state.
+`SessionAnalyticsRepository` reads authoritative `player_sessions` only and writes no analytics state.
 
 For any requested activity window it returns:
 
@@ -44,6 +44,41 @@ It also exposes cohort retention for any completed first-session cohort and late
 This gives the first direct denominator and retention signal for the product metric without creating a second session lifecycle. A currently active/otherwise not-yet-ended session can contribute only already-observed time, never future player-hours.
 
 The PostgreSQL integration proof covers new versus returning players, a session crossing into the window, a session extending beyond the observation cutoff, completed historical windows, future windows with zero observed time, partial cohort-return observation, and the long-first-session retention edge case.
+
+## Implemented Coin-flow baseline
+
+`CoinFlowAnalyticsRepository` derives currency supply/movement directly from append-only `economic_ledger` Coin lines and writes no analytics state.
+
+The important unit is the **economic operation**, not one ledger line. Coin lines belonging to one operation are netted first:
+
+- positive operation net = Coin created by that operation;
+- negative operation net = Coin destroyed by that operation;
+- zero operation net = internal movement with no supply change;
+- gross movement remains the sum of every Coin line and is reported separately from supply impact.
+
+This means a normal player transfer, Bank deposit, or Bank withdrawal can move a large amount of Coin while contributing exactly zero faucet/sink volume. Bank interest, controlled system rewards, upgrade fees, contract fees, death loss, and similar one-sided economic effects remain visible as actual supply change when their authoritative operation produces a non-zero net.
+
+For a requested time window the projection returns:
+
+- observed-through timestamp, clipped to the current time;
+- total Coin created;
+- total Coin destroyed;
+- net Coin supply change;
+- gross Coin movement;
+- number of Coin-bearing economic operations;
+- a bounded reason breakdown with the same created/destroyed/net/gross distinction and operation counts;
+- an explicit `reasonsTruncated` signal if the requested reason limit does not contain the full breakdown.
+
+Totals are never truncated when the reason list is bounded. The totals and reason rows are read in one read-only repeatable-read snapshot, so concurrent economic activity cannot make one response internally disagree. PostgreSQL aggregate arithmetic uses `NUMERIC` and the Java projection uses `BigInteger`, so long-lived aggregate metrics are not constrained by one wallet's `BIGINT` balance range.
+
+Normal authority operations carry one stable reason. If corrupted/unusual evidence puts multiple reasons on one Coin operation, analytics keeps the operation net intact and groups that operation under the synthetic `<mixed>` reason rather than misclassifying individual lines as independent faucets/sinks.
+
+The PostgreSQL integration proof uses real `CoinWalletRepository` operations and demonstrates:
+
+- controlled system credit -> positive supply creation;
+- balanced player transfer -> zero created/destroyed supply with non-zero gross movement;
+- controlled system debit -> positive supply destruction;
+- future, not-yet-observed windows -> zero flow.
 
 ## Event examples
 
@@ -86,6 +121,8 @@ The implemented session baseline deliberately derives start/end/player-time/rete
 - `TRADE_COMPLETED`
 - `NPC_SALVAGE`
 - `BOOTSTRAP_PURCHASE`
+
+Coin faucet/sink totals already derive losslessly from the economic ledger. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` analytics rows merely to reproduce those totals. A separate event is justified only if it adds observational context the authoritative operation/ledger does not preserve.
 
 ### Maps / PvE
 - `MAP_OPENED`
@@ -177,6 +214,8 @@ The implemented session projection directly answers total player-time, new/retur
 - suspicious sudden supply/currency creation
 - wealth concentration and transaction velocity
 
+The implemented Coin-flow projection directly answers total created/destroyed/net supply change and gross movement by stable reason without a second currency ledger. Holdings distribution, market microstructure, commodity supply, and wealth-distribution questions remain separate projections.
+
 ### Maps
 - run starts/completions/failures by difficulty/configuration
 - clear-time distribution
@@ -224,13 +263,12 @@ Map/Bounty/world events should reference authoritative run/contract/vote/feature
 
 ## Economic ledger versus analytics
 
-The economic ledger is correctness/audit evidence for important value movement. Analytics events are product/behavior observations.
-
-They may reference the same operation IDs but must not be conflated into one purpose.
+The economic ledger is correctness/audit evidence for important value movement. Analytics is a read-only interpretation/projection of that evidence where possible, and separate observational events only where necessary.
 
 Similarly:
 
 - network session rows are session ownership/lifecycle authority; session analytics is a read-only product projection;
+- the economic ledger is Coin/value movement authority/evidence; Coin-flow analytics nets its Coin lines by operation without becoming another currency ledger;
 - Map clear records are authoritative leaderboard/history source;
 - analytics about Map clears is observational;
 - ballots/vote resolution are authoritative world-state source;
@@ -240,7 +278,7 @@ Similarly:
 
 Store only data needed to operate, secure, debug, and improve the game. Avoid unnecessary personal data in analytics records.
 
-The implemented session summaries return aggregate counts/time only; they do not expose player names, Minecraft UUIDs, or serialized player state.
+The implemented session and Coin-flow summaries return aggregate counts/time/value only; they do not expose player names, Minecraft UUIDs, or serialized player state.
 
 ## Expansion rule
 
