@@ -4,8 +4,6 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
-import io.github.kevinrabbe.minecraftserver.common.item.ItemLocation;
-import io.github.kevinrabbe.minecraftserver.common.item.ItemUpgradeRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.UniqueItemAuthorityRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.UniqueItemAuthorityResult;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
@@ -40,7 +38,6 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
     private DataSource dataSource;
     private PlayerIdentityRepository identities;
     private UniqueItemAuthorityRepository items;
-    private ItemUpgradeRepository upgrades;
     private ItemUpgradeIntegrityVerifier verifier;
 
     @BeforeAll
@@ -63,7 +60,6 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
                 ItemIdentityKind.INDIVIDUAL
         )));
         items = new UniqueItemAuthorityRepository(dataSource, catalog);
-        upgrades = new ItemUpgradeRepository(dataSource, catalog);
         verifier = new ItemUpgradeIntegrityVerifier(dataSource);
     }
 
@@ -152,16 +148,79 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
         UniqueItemAuthorityResult item = items.createForPlayer(
                 UUID.randomUUID(), SWORD, owner, "verify.create", owner
         );
-        upgrades.upgradeOneLevel(
-                UUID.randomUUID(),
-                item.itemInstanceId(),
-                item.stateVersion(),
-                ItemLocation.playerInventory(owner),
-                0,
-                REASON,
-                owner
-        );
+        insertValidUpgradeFixture(item.itemInstanceId(), owner);
         return item;
+    }
+
+    /** Test-only direct fixture: creates the same database evidence a valid +1 upgrade transaction must leave behind. */
+    private void insertValidUpgradeFixture(UUID itemId, UUID owner) throws SQLException {
+        UUID operationId = UUID.randomUUID();
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement update = connection.prepareStatement("""
+                        UPDATE item_instances
+                        SET upgrade_level = 1,
+                            state_version = 1,
+                            updated_at = NOW()
+                        WHERE item_instance_id = ?
+                          AND state_version = 0
+                          AND upgrade_level = 0
+                          AND location_kind = 'PLAYER_INVENTORY'
+                          AND location_id = ?
+                        """)) {
+                    update.setObject(1, itemId);
+                    update.setObject(2, owner);
+                    assertEquals(1, update.executeUpdate());
+                }
+                try (PreparedStatement event = connection.prepareStatement("""
+                        INSERT INTO item_upgrade_events(
+                            item_instance_id,
+                            operation_id,
+                            from_state_version,
+                            to_state_version,
+                            from_upgrade_level,
+                            to_upgrade_level,
+                            reason,
+                            actor_player_id
+                        ) VALUES (?, ?, 0, 1, 0, 1, ?, ?)
+                        """)) {
+                    event.setObject(1, itemId);
+                    event.setObject(2, operationId);
+                    event.setString(3, REASON);
+                    event.setObject(4, owner);
+                    assertEquals(1, event.executeUpdate());
+                }
+                try (PreparedStatement provenance = connection.prepareStatement("""
+                        INSERT INTO item_provenance(
+                            item_instance_id,
+                            sequence_no,
+                            operation_id,
+                            event_type,
+                            from_location_kind,
+                            from_location_id,
+                            to_location_kind,
+                            to_location_id,
+                            reason,
+                            actor_player_id
+                        ) VALUES (?, 1, ?, 'UPGRADED', 'PLAYER_INVENTORY', ?, 'PLAYER_INVENTORY', ?, ?, ?)
+                        """)) {
+                    provenance.setObject(1, itemId);
+                    provenance.setObject(2, operationId);
+                    provenance.setObject(3, owner);
+                    provenance.setObject(4, owner);
+                    provenance.setString(5, REASON);
+                    provenance.setObject(6, owner);
+                    assertEquals(1, provenance.executeUpdate());
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                throw exception;
+            } finally {
+                connection.setAutoCommit(true);
+            }
+        }
     }
 
     private void deleteUpgradeEventAsCorruption(UUID itemId) throws SQLException {
