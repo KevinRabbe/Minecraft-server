@@ -123,7 +123,6 @@ If failure occurs around Map opening:
 The system must never lose the Map with no explanatory run/open record or keep the Map while also creating multiple valid runs.
 
 ### Active run backend crash
-
 V1 may abort an unfinished disposable run rather than implement resumable encounter state.
 
 Regardless of policy:
@@ -221,15 +220,49 @@ Back up at minimum:
 
 Resettable activity/encounter worlds are less valuable because they can be recreated from templates.
 
+### Local-PC implementation
+
+`infra/local/backup.ps1` implements the first executable recovery boundary as an **offline coherent snapshot** for the Windows development deployment.
+
+It intentionally requires Velocity/Paper to be stopped, then captures one recovery set containing:
+
+- a PostgreSQL custom-format dump;
+- all discovered Paper worlds under the configured local backend runtime directories;
+- version-controlled common/Paper content snapshots;
+- database migrations and local topology settings;
+- repository commit/dirty-state metadata where Git is available;
+- manifest + SHA-256 checksums.
+
+A backup receives `COMPLETE` only after the full snapshot succeeds. An incomplete directory is not a valid restore source.
+
+This conservative local implementation may also copy disposable worlds. That is acceptable: they are not elevated to authority merely because they exist in the backup.
+
 ## Coherent restore
 
 Do not restore an old database together with newer persistent world/economic representations without analyzing the consistency boundary.
 
 A restore procedure must define which database/world snapshot pair is authoritative and how post-snapshot transactions/builds/votes/history are handled.
 
+`infra/local/restore.ps1` enforces the local boundary by:
+
+1. requiring an explicit destructive confirmation switch;
+2. refusing to operate while Minecraft processes are reachable;
+3. requiring `COMPLETE` and validating every SHA-256 checksum;
+4. checking code/content recovery identity against the recorded repository state unless deliberately overridden;
+5. staging and validating world copies before destructive work;
+6. writing `runtime/restore.in-progress` before replacing authority;
+7. restoring PostgreSQL and the staged world set;
+8. removing the marker only after the complete restore succeeds.
+
+`setup.ps1` and `start.ps1` refuse to run while `restore.in-progress` exists. A failed restore therefore leaves the network fenced rather than allowing a partially recovered state to become live.
+
+`-AllowVersionMismatch` is a deliberate recovery escape hatch, not a normal convenience switch. Using a newer application/content version against an older backup is a separate migration/recovery decision and must be reviewed explicitly.
+
 ## Restore testing
 
 Before public launch, perform an actual restore rehearsal. A backup that has never been restored is not a proven recovery system.
+
+The repository now has executable local backup/restore tooling and CI PowerShell parse validation, but **real Windows + Docker restore correctness remains empirical until the rehearsal is run**.
 
 After restore, verify representative:
 
@@ -241,7 +274,10 @@ After restore, verify representative:
 - skills/caps;
 - Map/Bounty persistent state;
 - clan custody;
-- votes/features/world era/history.
+- votes/features/world era/history;
+- `/integrity` returns no unexplained critical issues.
+
+The exact rehearsal is tracked in `docs/testing/DEFERRED_EMPIRICAL_ACCEPTANCE.md` and does not block independent code work.
 
 ## Safe fallback
 
