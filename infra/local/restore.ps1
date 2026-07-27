@@ -177,26 +177,26 @@ function Stage-Worlds($Manifest, [string]$Root, [string]$StageRoot) {
 
 function Restore-Database([string]$DumpPath, [string]$SnapshotId) {
     $containerDump = "/tmp/minecraft-restore-$SnapshotId.dump"
-    & docker cp $DumpPath "$PostgresContainer`:$containerDump"
+    & docker cp $DumpPath "${PostgresContainer}:$containerDump"
     if ($LASTEXITCODE -ne 0) {
         throw "docker cp failed while staging PostgreSQL restore dump."
     }
     try {
-        Invoke-DockerCompose @(
+        Invoke-DockerCompose -Arguments @(
             "exec", "-T", "postgres",
             "psql", "-U", $DatabaseUser, "-d", "postgres", "-v", "ON_ERROR_STOP=1",
             "-c", "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DatabaseName' AND pid <> pg_backend_pid();"
         )
-        Invoke-DockerCompose @("exec", "-T", "postgres", "dropdb", "--if-exists", "-U", $DatabaseUser, $DatabaseName)
-        Invoke-DockerCompose @("exec", "-T", "postgres", "createdb", "-U", $DatabaseUser, $DatabaseName)
-        Invoke-DockerCompose @(
+        Invoke-DockerCompose -Arguments @("exec", "-T", "postgres", "dropdb", "--if-exists", "-U", $DatabaseUser, $DatabaseName)
+        Invoke-DockerCompose -Arguments @("exec", "-T", "postgres", "createdb", "-U", $DatabaseUser, $DatabaseName)
+        Invoke-DockerCompose -Arguments @(
             "exec", "-T", "postgres",
             "pg_restore", "-U", $DatabaseUser, "-d", $DatabaseName,
             "--no-owner", "--no-privileges", "--exit-on-error", $containerDump
         )
     }
     finally {
-        Invoke-DockerCompose @("exec", "-T", "postgres", "rm", "-f", $containerDump)
+        Invoke-DockerCompose -Arguments @("exec", "-T", "postgres", "rm", "-f", $containerDump)
     }
 }
 
@@ -256,7 +256,7 @@ $marker | ConvertTo-Json | Set-Content -Encoding UTF8 $RestoreMarker
 
 try {
     Write-Host "Ensuring local PostgreSQL is running..."
-    Invoke-DockerCompose @("up", "-d", "postgres")
+    Invoke-DockerCompose -Arguments @("up", "-d", "postgres")
 
     Write-Host "Restoring PostgreSQL authority..."
     Restore-Database $dumpPath ([string]$manifest.snapshot_id)
