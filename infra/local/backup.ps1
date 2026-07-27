@@ -10,6 +10,11 @@ Set-StrictMode -Version Latest
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $RuntimeRoot = $LocalNetwork.RuntimeRoot
+$RestoreMarker = Join-Path $RuntimeRoot "restore.in-progress"
+if (Test-Path $RestoreMarker) {
+    $detail = Get-Content -Raw $RestoreMarker -ErrorAction SilentlyContinue
+    throw "Refusing backup because a restore is incomplete. Finish the selected restore before creating another recovery point. Marker: $detail"
+}
 $ServersRoot = Join-Path $RuntimeRoot "servers"
 $ComposeRoot = Join-Path $RepoRoot "infra\compose"
 $DefaultBackupRoot = Join-Path $RuntimeRoot "backups"
@@ -68,6 +73,25 @@ function Invoke-DockerCompose([string[]]$Arguments) {
     finally {
         Pop-Location
     }
+}
+
+function Start-PostgresReady {
+    Invoke-DockerCompose -Arguments @("up", "-d", "postgres")
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+        Push-Location $ComposeRoot
+        try {
+            & docker compose exec -T postgres pg_isready -U $DatabaseUser -d $DatabaseName *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+        }
+        finally {
+            Pop-Location
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "Timed out waiting for local PostgreSQL to become ready."
 }
 
 function Get-GitSnapshot {
@@ -174,8 +198,8 @@ $sourceDir = Join-Path $BackupPath "source"
 New-Item -ItemType Directory -Force -Path $databaseDir, $worldsDir, $sourceDir | Out-Null
 
 try {
-    Write-Host "Ensuring local PostgreSQL is running..."
-    Invoke-DockerCompose -Arguments @("up", "-d", "postgres")
+    Write-Host "Ensuring local PostgreSQL is ready..."
+    Start-PostgresReady
 
     $containerDump = "/tmp/minecraft-$SnapshotId.dump"
     Write-Host "Creating PostgreSQL custom-format dump..."
