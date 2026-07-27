@@ -12,9 +12,33 @@ Analytics does **not** steer legitimate player outcomes. It informs tuning, capa
 
 ## Initial implementation
 
-Use PostgreSQL plus a clean structured application-event model. No Kafka/event-streaming platform is required for V1.
+Use PostgreSQL plus small read-only projections and, only where needed, a clean structured application-event model. No Kafka/event-streaming platform is required for V1.
+
+Do not duplicate a fact into an analytics event merely because it is useful analytically. If an authoritative durable table already represents the fact losslessly, analytics should derive from that table. Add observational events when the question cannot be reconstructed cleanly from existing authority or when an aggregate/sampled observation is intentionally cheaper than retaining hot-path detail.
+
+Correctness-critical evidence always remains in the owning subsystem's authority/ledger rather than relying on analytics.
+
+## Implemented session baseline
+
+`SessionAnalyticsRepository` is the first concrete product/operations projection. It reads authoritative `player_sessions` only and writes no analytics state.
+
+For any requested time window it returns:
+
+- observed-through timestamp, clipped to the current time for an in-progress window;
+- unique active players;
+- new players whose first known network session begins in the observed part of the window;
+- returning players whose first known network session predates the window;
+- network sessions started;
+- network sessions ended;
+- total observed player-seconds, using exact overlap with the window rather than assigning a whole cross-boundary session to one day.
+
+This gives the first direct denominator for the product metric without creating a second session lifecycle. A currently active/otherwise not-yet-ended session can contribute only already-observed time, never future player-hours.
+
+The PostgreSQL integration proof covers new versus returning players, a session crossing into the window, a session extending beyond the observation cutoff, completed historical windows, and future windows with zero observed time.
 
 ## Event examples
+
+These are the stable event vocabulary that may be useful where an event is actually needed. Inclusion here does not mean every example must be persisted if the same question can be derived from existing authority.
 
 ### Session / topology
 - `PLAYER_SESSION_STARTED`
@@ -23,6 +47,8 @@ Use PostgreSQL plus a clean structured application-event model. No Kafka/event-s
 - `ZONE_LEFT`
 - `INSTANCE_CREATED`
 - `INSTANCE_RETIRED`
+
+The implemented session baseline deliberately derives start/end/player-time metrics from `player_sessions`; it does not persist duplicate `PLAYER_SESSION_STARTED`/`PLAYER_SESSION_ENDED` analytics rows.
 
 ### Progression / production
 - `RESOURCE_GATHERED`
@@ -102,6 +128,8 @@ Not every low-value hot-path event must be persisted individually forever. Use a
 - how long do sessions/activity segments last?
 - which systems are used together?
 - which content creates repeatable player-hours relative to implementation/maintenance cost?
+
+The implemented session projection directly answers total player-time and new/returning participation for arbitrary windows. Activity attribution and cohort-retention analysis should be added only when the required underlying observations are defined.
 
 ### Zone/instance scaling
 - concurrent players by zone
@@ -193,6 +221,7 @@ They may reference the same operation IDs but must not be conflated into one pur
 
 Similarly:
 
+- network session rows are session ownership/lifecycle authority; session analytics is a read-only product projection;
 - Map clear records are authoritative leaderboard/history source;
 - analytics about Map clears is observational;
 - ballots/vote resolution are authoritative world-state source;
@@ -202,6 +231,8 @@ Similarly:
 
 Store only data needed to operate, secure, debug, and improve the game. Avoid unnecessary personal data in analytics records.
 
+The implemented session summary returns aggregate counts/time only; it does not expose player names, Minecraft UUIDs, or serialized player state.
+
 ## Expansion rule
 
-Add instrumentation when it answers a concrete question. Do not build an analytics platform for hypothetical future dashboards.
+Add instrumentation when it answers a concrete question. Prefer deriving from existing durable authority when that is lossless. Do not build an analytics platform for hypothetical future dashboards.
