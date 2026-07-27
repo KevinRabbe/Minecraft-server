@@ -6,6 +6,7 @@ import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntity
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnStatus;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGatheringService;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceHarvestFulfillmentResult;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceException;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceRepository;
 import org.bukkit.Location;
@@ -53,6 +54,7 @@ final class PaperResourceEntityController implements Listener {
     private final String backendId;
     private final PaperResourceSessionResolver sessionResolver;
     private final PaperCommodityDeliveryController commodityDeliveries;
+    private final PaperItemUseEligibilityController itemUseEligibility;
     private final ResourceSourceRepository sourceRepository;
     private final ResourceEntitySpawnRepository entitySpawns;
     private final ResourceGatheringService gathering;
@@ -72,7 +74,8 @@ final class PaperResourceEntityController implements Listener {
             ResourceEntitySpawnRepository entitySpawns,
             ResourceGatheringService gathering,
             PaperResourceSessionResolver sessionResolver,
-            PaperCommodityDeliveryController commodityDeliveries
+            PaperCommodityDeliveryController commodityDeliveries,
+            PaperItemUseEligibilityController itemUseEligibility
     ) throws SQLException {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         if (backendId == null || backendId.isBlank()) {
@@ -84,6 +87,7 @@ final class PaperResourceEntityController implements Listener {
         this.gathering = Objects.requireNonNull(gathering, "gathering");
         this.sessionResolver = Objects.requireNonNull(sessionResolver, "sessionResolver");
         this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
+        this.itemUseEligibility = Objects.requireNonNull(itemUseEligibility, "itemUseEligibility");
         this.spawnIdKey = new NamespacedKey(plugin, "resource_spawn_id");
         this.bountySummonIdKey = new NamespacedKey(plugin, PaperBountyBossController.SUMMON_ID_KEY_NAME);
         Objects.requireNonNull(zoneInstance, "zoneInstance");
@@ -326,7 +330,7 @@ final class PaperResourceEntityController implements Listener {
                 }
                 PaperResourceSessionResolver.ResourceSessionHint session = resolved.orElseThrow();
                 ResourceEntityKillClaim claim = entitySpawns.prepareKillClaim(spawnId, entityUuid);
-                gathering.harvestAndFulfill(
+                ResourceHarvestFulfillmentResult result = gathering.harvestAndFulfill(
                         claim.operationId(),
                         session.sessionId(),
                         backendId,
@@ -334,6 +338,9 @@ final class PaperResourceEntityController implements Listener {
                         claim.sourceId(),
                         KILL_REASON
                 );
+                if (result.experienceAward() != null) {
+                    itemUseEligibility.applyCommittedAward(result.experienceAward());
+                }
                 commodityDeliveries.requestDrain(killerMinecraftUuid);
             } catch (SQLException | ResourceSourceException exception) {
                 retryOrResolveWithoutReward(killerMinecraftUuid, spawnId, entityUuid, attempt, exception);
