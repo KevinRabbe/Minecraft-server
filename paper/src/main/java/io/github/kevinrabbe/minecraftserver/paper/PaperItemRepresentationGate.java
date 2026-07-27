@@ -29,6 +29,7 @@ final class PaperItemRepresentationGate implements Listener {
 
     private final MinecraftServerPlugin plugin;
     private final PaperPlayerItemRepresentationValidator validator;
+    private final PaperItemRuntimePresentation presentation;
 
     PaperItemRepresentationGate(
             MinecraftServerPlugin plugin,
@@ -36,6 +37,7 @@ final class PaperItemRepresentationGate implements Listener {
     ) {
         this.plugin = plugin;
         this.validator = validator;
+        this.presentation = new PaperItemRuntimePresentation(plugin, plugin.itemCatalog());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -49,6 +51,7 @@ final class PaperItemRepresentationGate implements Listener {
                         player.getUniqueId(),
                         result.validatedIndividualSnapshots()
                 );
+                presentation.refresh(player, result.validatedIndividualSnapshots());
                 return;
             }
 
