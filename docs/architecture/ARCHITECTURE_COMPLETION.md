@@ -48,7 +48,7 @@ Status values:
 | Staff/permission/recovery boundaries | CONTRACTED | `PERMISSIONS.md`, `FAILURE_RECOVERY.md` |
 | Configuration/version validation | PROVEN for current content lanes | strict item/skill/resource/crafting/attunement/placement loaders; broader operational configuration remains contracted |
 | Analytics/observability separation from authority | CONTRACTED | `ANALYTICS.md` |
-| Backup/restore/failure semantics | CONTRACTED | `FAILURE_RECOVERY.md`; executable coherent backup/restore rehearsal remains implementation/empirical work |
+| Backup/restore/failure semantics | CONTRACTED | `FAILURE_RECOVERY.md`; offline coherent backup/restore tooling, checksum/version validation and incomplete-restore startup fencing are CI-qualified; actual Windows/Docker restore rehearsal remains empirical before release |
 | Extension/new-content reuse rules | CONTRACTED | `EXTENSION_POINTS.md` |
 
 ## Architecture-document gate
@@ -64,13 +64,13 @@ The architecture-document layer is complete when every settled V1 system has:
 7. permission/admin boundary;
 8. acceptance/integrity proof target.
 
-The canonical architecture layer currently contains **no PENDING product-contract rows**. Remaining CONTRACTED rows are implementation/adaptation work, not unresolved product-law contradictions.
+The canonical architecture layer currently contains **no PENDING product-contract rows**. Remaining CONTRACTED rows are implementation/adaptation or empirical acceptance work, not unresolved product-law contradictions.
 
 ## Current implementation frontier
 
 The repository is now well beyond the original scaffold. Core V1 persistent authority is proven across economy, progression, Maps/Bounties, clans/competitive state, voting/history, Artifacts, gathering, ordinary-PvE source identity and individualized gear state.
 
-Player-facing/adapter work already includes:
+Player-facing/adapter and operations work already includes:
 
 - authoritative Mining, Woodcutting and Farming source interactions;
 - durable commodity and unique-item delivery into fenced persistent inventory;
@@ -81,9 +81,10 @@ Player-facing/adapter work already includes:
 - expansion voting/Chronicle projections;
 - isolated Ranked 1v1 and baseline Clan-War 1.8.9 execution paths;
 - validated rolled-item runtime snapshots/presentation plus structurally safe carried-item upgrade authority;
-- operator-triggered bounded `/integrity` verification.
+- operator-triggered bounded `/integrity` verification;
+- offline coherent local backup/restore scripts with manifest/checksum/version validation and a fail-closed incomplete-restore startup fence.
 
-The highest-value remaining structural release boundary is **coherent backup/restore proof** for PostgreSQL plus persistent world state/configuration. Live rolled-stat combat application, upgrade economics/power, broader Clan-War gear representation, real-client competitive feel, first-Map acquisition and concrete skill-gated item content remain intentionally behind explicit content/tuning or empirical decisions rather than being guessed into architecture.
+The highest-value remaining recovery boundary is now **empirical coherent restore proof on the actual Windows/Docker development machine**, not more backup-script architecture. Live rolled-stat combat application, upgrade economics/power, broader Clan-War gear representation, real-client competitive feel, first-Map acquisition and concrete skill-gated item content remain intentionally behind explicit content/tuning or empirical decisions rather than being guessed into architecture.
 
 ## Rule
 
