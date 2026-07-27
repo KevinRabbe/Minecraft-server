@@ -92,17 +92,16 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
     }
 
     @Test
-    void healthyUpgradeChainProducesNoIssuesAndIsIncludedInAggregateVerifier() throws Exception {
+    void healthyUpgradeChainProducesNoUpgradeIntegrityIssues() throws Exception {
         UUID owner = player("VerifyUpHealthy");
         UniqueItemAuthorityResult item = createAndUpgrade(owner);
 
         assertTrue(verifier.verify(10).isEmpty());
-        assertTrue(new PersistentIntegrityVerifier(dataSource).verify(10).isEmpty());
         assertEquals(1, upgradeLevel(item.itemInstanceId()));
     }
 
     @Test
-    void missingUpgradeEventForLiveItemIsReportedAsCriticalChainMismatch() throws Exception {
+    void missingUpgradeEventForLiveItemIsReportedAndIncludedInAggregateVerifier() throws Exception {
         UUID owner = player("VerifyUpMissing");
         UniqueItemAuthorityResult item = createAndUpgrade(owner);
         deleteUpgradeEventAsCorruption(item.itemInstanceId());
@@ -114,6 +113,11 @@ class ItemUpgradeIntegrityVerifierIntegrationTest {
         assertEquals(IntegritySeverity.CRITICAL, issue.severity());
         assertEquals("ITEM_UPGRADE_CHAIN_MISMATCH", issue.code());
         assertEquals(item.itemInstanceId().toString(), issue.subjectId());
+
+        assertTrue(new PersistentIntegrityVerifier(dataSource).verify(10_000).stream().anyMatch(
+                aggregate -> aggregate.code().equals("ITEM_UPGRADE_CHAIN_MISMATCH")
+                        && item.itemInstanceId().toString().equals(aggregate.subjectId())
+        ));
     }
 
     @Test
