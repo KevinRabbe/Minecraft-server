@@ -8,6 +8,7 @@ import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,21 +59,12 @@ class ArtifactIntegrityVerifierIntegrationTest {
 
     @BeforeEach
     void resetDatabase() throws SQLException {
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            statement.execute("""
-                    TRUNCATE TABLE
-                        player_attunement_state,
-                        player_artifact_discoveries,
-                        artifact_locations,
-                        artifact_definitions,
-                        processed_operations,
-                        player_state,
-                        player_names,
-                        wallets,
-                        players
-                    RESTART IDENTITY CASCADE
-                    """);
-        }
+        truncateTestAuthority();
+    }
+
+    @AfterEach
+    void cleanDatabase() throws SQLException {
+        truncateTestAuthority();
     }
 
     @AfterAll
@@ -157,6 +149,24 @@ class ArtifactIntegrityVerifierIntegrationTest {
         assertEquals(IntegritySeverity.CRITICAL, issue.severity());
         assertEquals(expectedCode, issue.code());
         assertEquals(expectedSubject, issue.subjectId());
+    }
+
+    private void truncateTestAuthority() throws SQLException {
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    TRUNCATE TABLE
+                        player_attunement_state,
+                        player_artifact_discoveries,
+                        artifact_locations,
+                        artifact_definitions,
+                        processed_operations,
+                        player_state,
+                        player_names,
+                        wallets,
+                        players
+                    RESTART IDENTITY CASCADE
+                    """);
+        }
     }
 
     private void insertArtifactDefinition(
