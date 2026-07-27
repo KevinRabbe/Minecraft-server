@@ -38,7 +38,8 @@ public final class AuctionHouseQueryRepository {
                             l.price_minor,
                             l.created_at,
                             i.definition_id,
-                            i.roll_state::TEXT AS roll_state
+                            i.roll_state::TEXT AS roll_state,
+                            i.upgrade_level
                      FROM auction_listings l
                      JOIN item_instances i ON i.item_instance_id = l.item_instance_id
                      WHERE l.status = 'ACTIVE'
@@ -56,6 +57,7 @@ public final class AuctionHouseQueryRepository {
                             row.getString("definition_id"),
                             row.getLong("price_minor"),
                             parseRollState(row.getString("roll_state")),
+                            row.getInt("upgrade_level"),
                             row.getTimestamp("created_at").toInstant()
                     ));
                 }
