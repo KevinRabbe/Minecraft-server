@@ -5,6 +5,9 @@ import io.github.kevinrabbe.minecraftserver.common.clan.ClanChatDeliveryPage;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanChatRepository;
 import net.kyori.adventure.text.Component;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -18,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 
 /** Bounded best-effort live delivery of authoritative clan-chat transit rows to this Paper backend. */
-final class PaperClanChatController {
+final class PaperClanChatController implements Listener {
     private static final long POLL_PERIOD_TICKS = 20L;
     private static final int POLL_LIMIT = 100;
     private static final int CLEANUP_EVERY_POLLS = 300;
@@ -54,6 +57,7 @@ final class PaperClanChatController {
 
     void start() {
         if (pollTask != null || !plugin.isEnabled()) return;
+        plugin.getServer().getPluginManager().registerEvents(this, plugin);
         pollTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(
                 plugin,
                 this::poll,
@@ -67,6 +71,11 @@ final class PaperClanChatController {
             pollTask.cancel();
             pollTask = null;
         }
+    }
+
+    @EventHandler
+    public void onPluginDisable(PluginDisableEvent event) {
+        if (event.getPlugin() == plugin) stop();
     }
 
     private void poll() {
