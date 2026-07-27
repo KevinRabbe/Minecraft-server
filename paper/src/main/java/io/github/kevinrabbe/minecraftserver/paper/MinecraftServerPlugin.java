@@ -557,6 +557,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
         }
         getServer().getMessenger().registerOutgoingPluginChannel(this, TransferPluginMessage.CHANNEL);
 
+        PaperIntegrityCommand.install(this, database.dataSource(), itemCatalog);
         PluginCommand devZone = Objects.requireNonNull(getCommand("devzone"), "devzone command missing from plugin.yml");
         devZone.setExecutor(new DevZoneCommand(sessionController));
         PluginCommand attune = Objects.requireNonNull(getCommand("attune"), "attune command missing from plugin.yml");
