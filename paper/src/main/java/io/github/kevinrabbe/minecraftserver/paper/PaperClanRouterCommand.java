@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanChatException;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanChatRepository;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanInvitationSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanInvitationView;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanMemberSnapshot;
@@ -37,6 +39,7 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
     private final PaperPlayerIdentityResolver playerIdentities;
     private final ClanMembershipRepository memberships;
     private final ClanQueryRepository queries;
+    private final ClanChatRepository chat;
 
     PaperClanRouterCommand(
             MinecraftServerPlugin plugin,
@@ -44,7 +47,8 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
             PaperClanWarCommand warCommand,
             PaperPlayerIdentityResolver playerIdentities,
             ClanMembershipRepository memberships,
-            ClanQueryRepository queries
+            ClanQueryRepository queries,
+            ClanChatRepository chat
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.delegate = Objects.requireNonNull(delegate, "delegate");
@@ -52,6 +56,7 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
         this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.memberships = Objects.requireNonNull(memberships, "memberships");
         this.queries = Objects.requireNonNull(queries, "queries");
+        this.chat = Objects.requireNonNull(chat, "chat");
     }
 
     @Override
@@ -60,7 +65,7 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
             return delegate.onCommand(sender, command, label, args);
         }
         String subcommand = args[0].toLowerCase(Locale.ROOT);
-        if (!List.of("members", "invites", "cancel-invite", "war").contains(subcommand)) {
+        if (!List.of("members", "invites", "cancel-invite", "chat", "war").contains(subcommand)) {
             return delegate.onCommand(sender, command, label, args);
         }
         if (!(sender instanceof Player player)) {
@@ -96,6 +101,17 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
                         scheduleCancelInvite(player.getUniqueId(), parseUuid(args[1]));
                     }
                 }
+                case "chat" -> {
+                    if (args.length < 2) {
+                        usage(player);
+                    } else {
+                        scheduleChat(
+                                player.getUniqueId(),
+                                player.getName(),
+                                String.join(" ", Arrays.copyOfRange(args, 1, args.length))
+                        );
+                    }
+                }
                 default -> throw new IllegalStateException("unreachable clan router subcommand");
             }
         } catch (IllegalArgumentException exception) {
@@ -109,7 +125,7 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
             LinkedHashSet<String> result = new LinkedHashSet<>(delegate.onTabComplete(sender, command, alias, args));
-            List.of("members", "invites", "cancel-invite", "war").stream()
+            List.of("members", "invites", "cancel-invite", "chat", "war").stream()
                     .filter(value -> value.startsWith(prefix))
                     .forEach(result::add);
             return result.stream().sorted().toList();
@@ -117,7 +133,8 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
         if ("war".equals(args[0].toLowerCase(Locale.ROOT))) {
             return warCommand.onTabComplete(Arrays.copyOfRange(args, 1, args.length));
         }
-        if (args.length >= 2 && List.of("members", "invites", "cancel-invite").contains(args[0].toLowerCase(Locale.ROOT))) {
+        if (args.length >= 2 && List.of("members", "invites", "cancel-invite", "chat")
+                .contains(args[0].toLowerCase(Locale.ROOT))) {
             return List.of();
         }
         return delegate.onTabComplete(sender, command, alias, args);
@@ -185,6 +202,17 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
         });
     }
 
+    private void scheduleChat(UUID minecraftUuid, String senderName, String message) {
+        runAsync(() -> {
+            try {
+                UUID playerId = requirePlayerId(minecraftUuid);
+                chat.publish(UUID.randomUUID(), playerId, senderName, message);
+            } catch (SQLException | RuntimeException exception) {
+                handleFailure(minecraftUuid, "Could not send clan message.", exception);
+            }
+        });
+    }
+
     private UUID requirePlayerId(UUID minecraftUuid) throws SQLException {
         return playerIdentities.resolve(minecraftUuid).orElseThrow(
                 () -> new ClanMembershipException("Persistent player identity is not available.")
@@ -198,7 +226,9 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleFailure(UUID minecraftUuid, String fallback, Throwable failure) {
-        if (failure instanceof ClanMembershipException || failure instanceof IllegalArgumentException) {
+        if (failure instanceof ClanMembershipException
+                || failure instanceof ClanChatException
+                || failure instanceof IllegalArgumentException) {
             sendIfOnline(minecraftUuid, playerMessage(failure, fallback));
             return;
         }
@@ -230,7 +260,7 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
 
     private void usage(Player player) {
         player.sendMessage(Component.text(
-                "Clan: /clan members [1-20] | invites [1-20] | cancel-invite <invite-id> | war ..."
+                "Clan: /clan members [1-20] | invites [1-20] | cancel-invite <invite-id> | chat <message> | war ..."
         ));
     }
 
