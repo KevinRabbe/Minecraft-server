@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.item.IntrinsicRollResolver;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
@@ -17,7 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Central owner of derived lore for managed individualized ItemStack representations. */
+/** Central owner of derived presentation for managed individualized ItemStack representations and market inspection. */
 final class PaperItemRuntimePresentation {
     private final ItemCatalog itemCatalog;
     private final PaperItemIdentityCodec identityCodec;
@@ -75,24 +76,44 @@ final class PaperItemRuntimePresentation {
             throw new IllegalArgumentException("snapshot definition does not match item definition");
         }
 
-        ArrayList<String> lines = new ArrayList<>();
-        snapshot.normalizedRollQualityBasisPoints().entrySet().stream()
-                .sorted(Comparator.comparing(Map.Entry::getKey))
-                .forEach(entry -> {
-                    Integer multiplier = snapshot.intrinsicMultipliersBasisPoints().get(entry.getKey());
-                    if (multiplier == null) {
-                        throw new IllegalArgumentException("missing intrinsic multiplier for " + entry.getKey());
-                    }
-                    lines.add(
-                            entry.getKey() + " roll: " + formatPercent(entry.getValue())
-                                    + " quality (" + formatPercent(multiplier) + " base)"
-                    );
-                });
+        List<String> rollLines = describeRolls(definition, snapshot.normalizedRollQualityBasisPoints());
+        Map<String, Integer> currentMultipliers = IntrinsicRollResolver.resolveMultipliers(
+                definition.rollProfile(),
+                snapshot.normalizedRollQualityBasisPoints()
+        );
+        if (!currentMultipliers.equals(snapshot.intrinsicMultipliersBasisPoints())) {
+            throw new IllegalArgumentException("snapshot intrinsic multipliers do not match current item definition");
+        }
 
+        ArrayList<String> lines = new ArrayList<>(rollLines);
         if (definition.category() == ItemCategory.EQUIPMENT || snapshot.upgradeState().level() > 0) {
             lines.add("Upgrade: +" + snapshot.upgradeState().level());
         }
         return List.copyOf(lines);
+    }
+
+    static List<String> describeRolls(
+            ItemDefinition definition,
+            Map<String, Integer> normalizedRollQualityBasisPoints
+    ) {
+        Objects.requireNonNull(definition, "definition");
+        Objects.requireNonNull(normalizedRollQualityBasisPoints, "normalizedRollQualityBasisPoints");
+        Map<String, Integer> multipliers = IntrinsicRollResolver.resolveMultipliers(
+                definition.rollProfile(),
+                normalizedRollQualityBasisPoints
+        );
+
+        return normalizedRollQualityBasisPoints.entrySet().stream()
+                .sorted(Comparator.comparing(Map.Entry::getKey))
+                .map(entry -> {
+                    Integer multiplier = multipliers.get(entry.getKey());
+                    if (multiplier == null) {
+                        throw new IllegalArgumentException("missing intrinsic multiplier for " + entry.getKey());
+                    }
+                    return entry.getKey() + " roll: " + formatPercent(entry.getValue())
+                            + " quality (" + formatPercent(multiplier) + " base)";
+                })
+                .toList();
     }
 
     private static String formatPercent(int basisPoints) {
