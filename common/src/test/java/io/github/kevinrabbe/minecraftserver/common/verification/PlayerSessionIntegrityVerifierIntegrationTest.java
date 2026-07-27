@@ -6,6 +6,7 @@ import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityReposit
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerStateRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
+import io.github.kevinrabbe.minecraftserver.common.session.TransferTicket;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PlayerSessionIntegrityVerifierIntegrationTest {
     private static final String BACKEND = "verify-session";
     private static final Duration LEASE = Duration.ofMinutes(5);
+    private static final Duration TICKET_LIFETIME = Duration.ofMinutes(1);
 
     private Database database;
     private DataSource dataSource;
@@ -122,6 +124,58 @@ class PlayerSessionIntegrityVerifierIntegrationTest {
         ));
     }
 
+    @Test
+    void transferringSessionMatchesItsOneOpenTicket() throws Exception {
+        UUID playerId = player("SessTransfer");
+        SessionLease session = sessions.openSession(playerId, BACKEND, null, LEASE);
+        TransferTicket ticket = sessions.beginTransfer(
+                session.sessionId(), BACKEND, "verify-zone", session.stateVersion(), TICKET_LIFETIME
+        );
+
+        assertFalse(verifier.verify(10_000).stream().anyMatch(issue ->
+                session.sessionId().toString().equals(issue.subjectId())
+                        || ticket.transferId().toString().equals(issue.subjectId())
+        ));
+    }
+
+    @Test
+    void transferTicketVersionDivergenceIsCritical() throws Exception {
+        UUID playerId = player("SessTicketVer");
+        SessionLease session = sessions.openSession(playerId, BACKEND, null, LEASE);
+        TransferTicket ticket = sessions.beginTransfer(
+                session.sessionId(), BACKEND, "verify-zone", session.stateVersion(), TICKET_LIFETIME
+        );
+        setTicketExpectedVersion(ticket.transferId(), session.stateVersion() + 1L);
+        try {
+            assertTrue(verifier.verify(10_000).stream().anyMatch(issue ->
+                    issue.severity() == IntegritySeverity.CRITICAL
+                            && issue.code().equals("TRANSFERRING_SESSION_TICKET_MISMATCH")
+                            && session.sessionId().toString().equals(issue.subjectId())
+            ));
+        } finally {
+            setTicketExpectedVersion(ticket.transferId(), session.stateVersion());
+        }
+    }
+
+    @Test
+    void openTicketCannotPointAtNonTransferringSession() throws Exception {
+        UUID playerId = player("SessTicketState");
+        SessionLease session = sessions.openSession(playerId, BACKEND, null, LEASE);
+        TransferTicket ticket = sessions.beginTransfer(
+                session.sessionId(), BACKEND, "verify-zone", session.stateVersion(), TICKET_LIFETIME
+        );
+        setSessionStatus(session.sessionId(), "ACTIVE");
+        try {
+            assertTrue(verifier.verify(10_000).stream().anyMatch(issue ->
+                    issue.severity() == IntegritySeverity.CRITICAL
+                            && issue.code().equals("OPEN_TRANSFER_TICKET_SESSION_MISMATCH")
+                            && ticket.transferId().toString().equals(issue.subjectId())
+            ));
+        } finally {
+            setSessionStatus(session.sessionId(), "TRANSFERRING");
+        }
+    }
+
     private UUID player(String name) throws SQLException {
         return identities.ensurePlayer(UUID.randomUUID(), name);
     }
@@ -163,6 +217,32 @@ class PlayerSessionIntegrityVerifierIntegrationTest {
                      WHERE network_session_id = ?
                      """)) {
             statement.setObject(1, sessionId);
+            assertEquals(1, statement.executeUpdate());
+        }
+    }
+
+    private void setTicketExpectedVersion(UUID transferId, long stateVersion) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE transfer_tickets
+                     SET expected_state_version = ?
+                     WHERE transfer_id = ?
+                     """)) {
+            statement.setLong(1, stateVersion);
+            statement.setObject(2, transferId);
+            assertEquals(1, statement.executeUpdate());
+        }
+    }
+
+    private void setSessionStatus(UUID sessionId, String status) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE player_sessions
+                     SET status = ?
+                     WHERE network_session_id = ?
+                     """)) {
+            statement.setString(1, status);
+            statement.setObject(2, sessionId);
             assertEquals(1, statement.executeUpdate());
         }
     }
