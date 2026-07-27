@@ -330,9 +330,13 @@ final class PaperAuctionHouseCommand implements CommandExecutor, TabCompleter {
                         listing.rollQualityBasisPoints()
                 )
         );
+        String upgrade = PaperItemRuntimePresentation.describeUpgrade(
+                definition,
+                listing.upgradeLevel()
+        ).orElse(null);
         return listing.listingId() + " — " + definition.displayName()
                 + (rolls.isEmpty() ? "" : " — " + rolls)
-                + " — upgrade +" + listing.upgradeLevel()
+                + (upgrade == null ? "" : " — " + upgrade)
                 + " — " + formatCoin(listing.priceMinor());
     }
 
