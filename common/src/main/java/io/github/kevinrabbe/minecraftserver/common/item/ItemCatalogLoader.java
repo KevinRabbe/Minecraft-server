@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillId;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -96,7 +97,8 @@ public final class ItemCatalogLoader {
                         item.maxStackSize(),
                         parseEnum(ItemCategory.class, item.category(), "category"),
                         parseEnum(ItemIdentityKind.class, item.identityKind(), "identity_kind"),
-                        parseRollProfile(item.rollProperties())
+                        parseRollProfile(item.rollProperties()),
+                        parseUseRequirements(item.useSkillRequirements())
                 ));
             } catch (IllegalArgumentException | NullPointerException exception) {
                 throw new ItemCatalogException(
@@ -125,6 +127,20 @@ public final class ItemCatalogLoader {
             rolls.put(propertyId, new RollRange(range.minimumBasisPoints(), range.maximumBasisPoints()));
         });
         return new ItemRollProfile(rolls);
+    }
+
+    private static ItemUseRequirements parseUseRequirements(Map<String, Integer> rawRequirements) {
+        if (rawRequirements == null || rawRequirements.isEmpty()) {
+            return ItemUseRequirements.NONE;
+        }
+        ArrayList<ItemSkillRequirement> requirements = new ArrayList<>(rawRequirements.size());
+        rawRequirements.forEach((skillId, minimumLevel) -> {
+            if (minimumLevel == null) {
+                throw new IllegalArgumentException("use skill requirement level must not be null: " + skillId);
+            }
+            requirements.add(new ItemSkillRequirement(new SkillId(skillId), minimumLevel));
+        });
+        return new ItemUseRequirements(requirements);
     }
 
     private static <E extends Enum<E>> E parseEnum(
@@ -158,7 +174,8 @@ public final class ItemCatalogLoader {
             @JsonProperty("max_stack_size") int maxStackSize,
             @JsonProperty("category") String category,
             @JsonProperty("identity_kind") String identityKind,
-            @JsonProperty("roll_properties") Map<String, RawRollRange> rollProperties
+            @JsonProperty("roll_properties") Map<String, RawRollRange> rollProperties,
+            @JsonProperty("use_skill_requirements") Map<String, Integer> useSkillRequirements
     ) {
     }
 
