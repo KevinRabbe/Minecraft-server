@@ -2,6 +2,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.verification.IntegrityIssue;
 import io.github.kevinrabbe.minecraftserver.common.verification.PersistentIntegrityVerifier;
 import net.kyori.adventure.text.Component;
@@ -24,6 +25,7 @@ final class PaperIntegrityCommand implements CommandExecutor {
     static final String PERMISSION = "minecraftserver.admin.integrity";
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_COMMAND_LIMIT = 100;
+    private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
 
     private final JavaPlugin plugin;
     private final PersistentIntegrityVerifier verifier;
@@ -38,14 +40,19 @@ final class PaperIntegrityCommand implements CommandExecutor {
         install(plugin, new PersistentIntegrityVerifier(dataSource));
     }
 
-    /** Compatibility installer with item-definition-aware invariants only. */
+    /**
+     * Bundled Paper installer. Item definitions are supplied by the already-loaded Paper catalog; the immutable
+     * bundled skill catalog is re-read once at startup so the existing bootstrap call also gets catalog-aware
+     * progression diagnostics without making the operator command depend on the plugin's private bootstrap state.
+     */
     static void install(JavaPlugin plugin, DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(itemCatalog, "itemCatalog");
-        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog));
+        SkillProgressionCatalog skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
+        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog));
     }
 
-    /** Production installer: includes catalog-aware item and staged-skill progression reconciliation. */
+    /** Explicit installer for tests/adapters that already own the exact loaded catalogs. */
     static void install(
             JavaPlugin plugin,
             DataSource dataSource,
