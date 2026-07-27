@@ -105,6 +105,9 @@ final class PaperItemUseEligibilityCache {
             }
 
             synchronized (snapshots) {
+                if (!refreshInFlight.contains(playerId)) {
+                    throw new IllegalStateException("Item-use eligibility refresh was invalidated while in flight");
+                }
                 PlayerSnapshot baseline = refreshBaselines.get(playerId);
                 PlayerSnapshot merged = merge(baseline, incoming);
                 Map<SkillId, LevelState> awards = pendingAwards.getOrDefault(playerId, Map.of());
