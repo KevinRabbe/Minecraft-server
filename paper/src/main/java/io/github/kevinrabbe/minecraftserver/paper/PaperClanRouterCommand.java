@@ -2,6 +2,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanChatException;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanChatRepository;
+import io.github.kevinrabbe.minecraftserver.common.clan.ClanChatRepositoryFactory;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanInvitationSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanInvitationView;
 import io.github.kevinrabbe.minecraftserver.common.clan.ClanMemberSnapshot;
@@ -40,6 +41,7 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
     private final ClanMembershipRepository memberships;
     private final ClanQueryRepository queries;
     private final ClanChatRepository chat;
+    private final PaperClanChatController chatController;
 
     PaperClanRouterCommand(
             MinecraftServerPlugin plugin,
@@ -47,16 +49,22 @@ final class PaperClanRouterCommand implements CommandExecutor, TabCompleter {
             PaperClanWarCommand warCommand,
             PaperPlayerIdentityResolver playerIdentities,
             ClanMembershipRepository memberships,
-            ClanQueryRepository queries,
-            ClanChatRepository chat
-    ) {
+            ClanQueryRepository queries
+    ) throws SQLException {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.warCommand = Objects.requireNonNull(warCommand, "warCommand");
         this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.memberships = Objects.requireNonNull(memberships, "memberships");
         this.queries = Objects.requireNonNull(queries, "queries");
-        this.chat = Objects.requireNonNull(chat, "chat");
+        this.chat = ClanChatRepositoryFactory.from(this.queries);
+        this.chatController = new PaperClanChatController(
+                this.plugin,
+                this.plugin.backendId(),
+                this.chat,
+                this.chat.currentSequence()
+        );
+        this.chatController.start();
     }
 
     @Override
