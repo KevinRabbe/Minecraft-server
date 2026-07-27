@@ -47,6 +47,28 @@ jobs:
         with:
           gradle-version: '9.6.1'
 
+      - name: Validate PowerShell operations scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Path infra/local -Filter *.ps1 -File | Sort-Object Name | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $failed = $true
+              Write-Host "PowerShell parse errors in $($_.FullName):"
+              $parseErrors | ForEach-Object { Write-Host "  $($_.Message)" }
+            }
+          }
+          if ($failed) {
+            exit 1
+          }
+
       - name: Build
         id: gradle-build
         shell: bash
