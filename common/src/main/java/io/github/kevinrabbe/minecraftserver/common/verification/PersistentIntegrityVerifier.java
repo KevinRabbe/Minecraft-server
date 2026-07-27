@@ -6,12 +6,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Bounded aggregate verifier across economy/custody, persistent PvE, and isolated competitive evidence. */
+/** Bounded aggregate verifier across economy/custody, persistent PvE, clans, and isolated competitive evidence. */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
 
     private final EconomyIntegrityVerifier economy;
     private final PersistentPveIntegrityVerifier pve;
+    private final ClanIntegrityVerifier clans;
     private final CompetitiveIntegrityVerifier competitive;
     private final CompetitiveExecutionLoadoutIntegrityVerifier competitiveLoadouts;
 
@@ -19,6 +20,7 @@ public final class PersistentIntegrityVerifier {
         Objects.requireNonNull(dataSource, "dataSource");
         this.economy = new EconomyIntegrityVerifier(dataSource);
         this.pve = new PersistentPveIntegrityVerifier(dataSource);
+        this.clans = new ClanIntegrityVerifier(dataSource);
         this.competitive = new CompetitiveIntegrityVerifier(dataSource);
         this.competitiveLoadouts = new CompetitiveExecutionLoadoutIntegrityVerifier(dataSource);
     }
@@ -31,6 +33,10 @@ public final class PersistentIntegrityVerifier {
         int remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(pve.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(clans.verify(remaining));
         }
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
