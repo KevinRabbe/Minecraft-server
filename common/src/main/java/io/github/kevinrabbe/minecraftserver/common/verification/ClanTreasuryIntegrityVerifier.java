@@ -259,6 +259,22 @@ public final class ClanTreasuryIntegrityVerifier {
                       AND result ->> 'amount_minor' ~ '^[1-9][0-9]*$'
                       AND result ->> 'reason' IS NOT NULL
                       AND BTRIM(result ->> 'reason') <> ''
+                      AND jsonb_typeof(result -> 'result') = 'object'
+                      AND result -> 'result' ->> 'clan_id' = result ->> 'clan_id'
+                      AND result -> 'result' ->> 'player_id' = result ->> 'player_id'
+                      AND result -> 'result' ->> 'amount_minor' = result ->> 'amount_minor'
+                      AND result -> 'result' ->> 'treasury_balance_minor' ~ '^[0-9]+$'
+                      AND result -> 'result' ->> 'treasury_state_version' ~ '^[1-9][0-9]*$'
+                      AND result -> 'result' ->> 'treasury_updated_at' IS NOT NULL
+                      AND BTRIM(result -> 'result' ->> 'treasury_updated_at') <> ''
+                      AND result -> 'result' ->> 'wallet_balance_minor' ~ '^[0-9]+$'
+                      AND result -> 'result' ->> 'wallet_state_version' ~ '^[0-9]+$'
+                      AND EXISTS (
+                          SELECT 1 FROM clans clan WHERE clan.clan_id::TEXT = result ->> 'clan_id'
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM players player WHERE player.player_id::TEXT = result ->> 'player_id'
+                      )
                 )
                 SELECT operation.operation_id, operation.operation_type
                 FROM valid_operations operation
