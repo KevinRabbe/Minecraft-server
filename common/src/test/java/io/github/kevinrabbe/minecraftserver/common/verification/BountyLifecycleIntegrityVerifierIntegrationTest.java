@@ -18,6 +18,7 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyKillProgress
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonLeaseResult;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonPrepareResult;
+import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonSnapshot;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyTierDefinition;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
@@ -171,10 +172,10 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
         BountyBossMaterializationRepository materializations = new BountyBossMaterializationRepository(dataSource, bountyTiers);
 
         UUID completedPlayer = fundedPlayer("BountyDone");
-        ActiveContext completed = active(bounties, completedPlayer);
+        BountySummonSnapshot completed = active(bounties, completedPlayer);
         BountySummonLeaseResult heartbeat = bounties.heartbeatSummon(
-                UUID.randomUUID(), completed.summon().summonId(), "paper-a",
-                completed.summon().stateVersion(), "bounty.heartbeat"
+                UUID.randomUUID(), completed.summonId(), "paper-a",
+                completed.stateVersion(), "bounty.heartbeat"
         );
         materializations.record(
                 UUID.randomUUID(), heartbeat.summon().summonId(), "paper-a", BOSS,
@@ -186,10 +187,10 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
         );
 
         UUID failedPlayer = fundedPlayer("BountyFail");
-        ActiveContext failed = active(bounties, failedPlayer);
+        BountySummonSnapshot failed = active(bounties, failedPlayer);
         bounties.failBoss(
-                UUID.randomUUID(), failed.summon().summonId(), "paper-a",
-                failed.summon().stateVersion(), "bounty.fail"
+                UUID.randomUUID(), failed.summonId(), "paper-a",
+                failed.stateVersion(), "bounty.fail"
         );
 
         assertTrue(verifier.verify(100).isEmpty());
@@ -202,6 +203,7 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
         BountyContractStartResult start = bounties.startContract(
                 UUID.randomUUID(), player, FAMILY, 1, "bounty.start"
         );
+        UUID feeOperation = feeOperation(start.contract().contractId());
 
         withReplicationTriggersDisabled(connection -> {
             try (PreparedStatement statement = connection.prepareStatement("""
@@ -209,18 +211,8 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
                     SET amount = amount + 1
                     WHERE operation_id = ?
                     """)) {
-                statement.setObject(1, start.contract().contractId() == null ? null : feeOperation(start.contract().contractId()));
-                if (statement.executeUpdate() == 0) {
-                    try (PreparedStatement fallback = connection.prepareStatement("""
-                            UPDATE economic_ledger l
-                            SET amount = amount + 1
-                            FROM bounty_contracts c
-                            WHERE c.contract_id = ? AND l.operation_id = c.fee_operation_id
-                            """)) {
-                        fallback.setObject(1, start.contract().contractId());
-                        assertEquals(1, fallback.executeUpdate());
-                    }
-                }
+                statement.setObject(1, feeOperation);
+                assertEquals(1, statement.executeUpdate());
             }
         });
 
@@ -255,11 +247,11 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
     void heartbeatHistoricalStateDriftIsReported() throws Exception {
         BountyRepository bounties = repository(new MutableClock(START));
         UUID player = fundedPlayer("BountyBeat");
-        ActiveContext active = active(bounties, player);
+        BountySummonSnapshot active = active(bounties, player);
         UUID heartbeatOperation = UUID.randomUUID();
         bounties.heartbeatSummon(
-                heartbeatOperation, active.summon().summonId(), "paper-a",
-                active.summon().stateVersion(), "bounty.heartbeat"
+                heartbeatOperation, active.summonId(), "paper-a",
+                active.stateVersion(), "bounty.heartbeat"
         );
 
         withReplicationTriggersDisabled(connection -> {
@@ -280,11 +272,11 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
     void materializationEvidenceDriftIsReported() throws Exception {
         BountyRepository bounties = repository(new MutableClock(START));
         UUID player = fundedPlayer("BountyMat");
-        ActiveContext active = active(bounties, player);
+        BountySummonSnapshot active = active(bounties, player);
         BountyBossMaterializationRepository materializations = new BountyBossMaterializationRepository(dataSource, bountyTiers);
         UUID materializeOperation = UUID.randomUUID();
         materializations.record(
-                materializeOperation, active.summon().summonId(), "paper-a", BOSS,
+                materializeOperation, active.summonId(), "paper-a", BOSS,
                 UUID.randomUUID(), "world", 10.0, 64.0, 10.0
         );
 
@@ -299,18 +291,18 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
             }
         });
 
-        assertIssue("BOUNTY_BOSS_MATERIALIZATION_EVIDENCE_MISMATCH", active.summon().summonId().toString());
+        assertIssue("BOUNTY_BOSS_MATERIALIZATION_EVIDENCE_MISMATCH", active.summonId().toString());
     }
 
     @Test
     void failedTerminalEvidenceDriftIsReported() throws Exception {
         BountyRepository bounties = repository(new MutableClock(START));
         UUID player = fundedPlayer("BountyTerm");
-        ActiveContext active = active(bounties, player);
+        BountySummonSnapshot active = active(bounties, player);
         UUID failOperation = UUID.randomUUID();
         BountyContractSnapshot failed = bounties.failBoss(
-                failOperation, active.summon().summonId(), "paper-a",
-                active.summon().stateVersion(), "bounty.fail"
+                failOperation, active.summonId(), "paper-a",
+                active.stateVersion(), "bounty.fail"
         );
 
         withReplicationTriggersDisabled(connection -> {
@@ -347,6 +339,8 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
         new BountyKillProgressRepository(dataSource).recordManagedKill(
                 claim.operationId(), player, RESOURCE_DEFINITION, FAMILY, 1, "bounty.managed_kill"
         );
+
+        assertTrue(verifier.verify(100).isEmpty());
 
         withReplicationTriggersDisabled(connection -> {
             try (PreparedStatement statement = connection.prepareStatement("""
@@ -388,15 +382,14 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
         );
     }
 
-    private ActiveContext active(BountyRepository bounties, UUID playerId) throws SQLException {
+    private BountySummonSnapshot active(BountyRepository bounties, UUID playerId) throws SQLException {
         BountyContractSnapshot ready = ready(bounties, playerId);
         BountySummonPrepareResult prepared = bounties.prepareSummon(
                 UUID.randomUUID(), ready.contractId(), playerId, "bounty.prepare"
         );
-        BountySummonLeaseResult active = bounties.claimSummon(
+        return bounties.claimSummon(
                 UUID.randomUUID(), prepared.summon().summonId(), "paper-a", "bounty.claim"
-        );
-        return new ActiveContext(ready, active);
+        ).summon();
     }
 
     private UUID createInstance() throws SQLException {
@@ -461,15 +454,13 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
         return value;
     }
 
-    private record ActiveContext(BountyContractSnapshot readyContract, BountySummonLeaseResult summon) { }
-
     @FunctionalInterface
     private interface SqlWork {
         void run(Connection connection) throws SQLException;
     }
 
     private static final class MutableClock extends Clock {
-        private Instant current;
+        private final Instant current;
 
         private MutableClock(Instant current) {
             this.current = current;
