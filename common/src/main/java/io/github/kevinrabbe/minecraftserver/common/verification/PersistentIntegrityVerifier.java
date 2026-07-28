@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Bounded aggregate verifier across session/state, economy/custody, Auction/Bank/Bazaar,
+ * Bounded aggregate verifier across session/state, economy/custody, Auction/Bank/Bazaar/Secure Trade,
  * progression/crafting/world state, Artifacts/Attunement, PvE, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
@@ -23,6 +23,7 @@ public final class PersistentIntegrityVerifier {
     private final AuctionIntegrityVerifier auction;
     private final BankIntegrityVerifier bank;
     private final BazaarIntegrityVerifier bazaar;
+    private final SecureTradeIntegrityVerifier secureTrades;
     private final ItemUpgradeIntegrityVerifier itemUpgrades;
     private final SkillProgressionIntegrityVerifier skills;
     private final CraftingIntegrityVerifier crafting;
@@ -78,6 +79,7 @@ public final class PersistentIntegrityVerifier {
                 ? new BankIntegrityVerifier(dataSource)
                 : new BankIntegrityVerifier(dataSource, bankTiers);
         this.bazaar = new BazaarIntegrityVerifier(dataSource);
+        this.secureTrades = new SecureTradeIntegrityVerifier(dataSource);
         this.itemUpgrades = itemCatalog == null
                 ? new ItemUpgradeIntegrityVerifier(dataSource)
                 : new ItemUpgradeIntegrityVerifier(dataSource, itemCatalog);
@@ -115,6 +117,10 @@ public final class PersistentIntegrityVerifier {
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(bazaar.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(secureTrades.verify(remaining));
         }
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
