@@ -13,8 +13,8 @@ import java.util.Objects;
 
 /**
  * Bounded aggregate verifier across session/state, economy/custody, shared commodity and unique-delivery claims,
- * Auction/Bank/Bazaar/Secure Trade/clan assets, progression/crafting/world state, Artifacts/Attunement, PvE rewards,
- * clan, and competitive evidence.
+ * Auction/Bank/Bazaar/Secure Trade/clan assets, progression/crafting/resources/world state, Artifacts/Attunement,
+ * PvE rewards, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
@@ -31,6 +31,7 @@ public final class PersistentIntegrityVerifier {
     private final ClanStorageIntegrityVerifier clanStorage;
     private final ItemUpgradeIntegrityVerifier itemUpgrades;
     private final SkillProgressionIntegrityVerifier skills;
+    private final ResourceSourceIntegrityVerifier resources;
     private final CraftingIntegrityVerifier crafting;
     private final WorldProgressionIntegrityVerifier worldProgression;
     private final ArtifactIntegrityVerifier artifacts;
@@ -96,6 +97,7 @@ public final class PersistentIntegrityVerifier {
         this.skills = skillCatalog == null
                 ? new SkillProgressionIntegrityVerifier(dataSource)
                 : new SkillProgressionIntegrityVerifier(dataSource, skillCatalog);
+        this.resources = new ResourceSourceIntegrityVerifier(dataSource);
         this.crafting = new CraftingIntegrityVerifier(dataSource);
         this.worldProgression = new WorldProgressionIntegrityVerifier(dataSource);
         this.artifacts = attunementProfiles == null
@@ -156,6 +158,10 @@ public final class PersistentIntegrityVerifier {
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(skills.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(resources.verify(remaining));
         }
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
