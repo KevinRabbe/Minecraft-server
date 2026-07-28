@@ -13,8 +13,8 @@ import java.util.Objects;
 
 /**
  * Bounded aggregate verifier across session/state, economy/custody, shared commodity and unique-delivery claims,
- * Auction/Bank/Bazaar/Secure Trade/clan assets, progression/crafting/world state, Artifacts/Attunement, PvE, clan,
- * and competitive evidence.
+ * Auction/Bank/Bazaar/Secure Trade/clan assets, progression/crafting/world state, Artifacts/Attunement, PvE rewards,
+ * clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
@@ -35,6 +35,7 @@ public final class PersistentIntegrityVerifier {
     private final WorldProgressionIntegrityVerifier worldProgression;
     private final ArtifactIntegrityVerifier artifacts;
     private final PersistentPveIntegrityVerifier pve;
+    private final MapRewardIntegrityVerifier mapRewards;
     private final ClanIntegrityVerifier clans;
     private final CompetitiveIntegrityVerifier competitive;
     private final CompetitiveExecutionLoadoutIntegrityVerifier competitiveLoadouts;
@@ -101,6 +102,7 @@ public final class PersistentIntegrityVerifier {
                 ? new ArtifactIntegrityVerifier(dataSource)
                 : new ArtifactIntegrityVerifier(dataSource, attunementProfiles);
         this.pve = new PersistentPveIntegrityVerifier(dataSource);
+        this.mapRewards = new MapRewardIntegrityVerifier(dataSource);
         this.clans = new ClanIntegrityVerifier(dataSource);
         this.competitive = new CompetitiveIntegrityVerifier(dataSource);
         this.competitiveLoadouts = new CompetitiveExecutionLoadoutIntegrityVerifier(dataSource);
@@ -170,6 +172,10 @@ public final class PersistentIntegrityVerifier {
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(pve.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(mapRewards.verify(remaining));
         }
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
