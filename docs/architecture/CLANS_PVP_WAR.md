@@ -60,6 +60,22 @@ Rules:
 
 The treasury may fund Bazaar/AH purchases, bounty costs, infrastructure, crafting inputs, war costs, or future systems only through their normal transaction interfaces.
 
+### Treasury integrity/recovery evidence
+
+Every clan starts with a zero-balance, version-0 treasury. Each committed deposit or withdrawal advances the treasury version exactly once and freezes the resulting treasury balance/version in its processed-operation result.
+
+The bounded treasury integrity pass therefore verifies:
+
+- every `CLAN_TREASURY_DEPOSIT` / `CLAN_TREASURY_WITHDRAW` result has the required clan/player/amount/reason and frozen treasury/wallet result shape;
+- committed treasury versions form one contiguous per-clan history beginning at version 1;
+- deposit arithmetic reconstructs `previous balance + amount`, while withdrawal arithmetic reconstructs `previous balance - amount`;
+- the mutable current treasury balance/version equals the latest frozen transfer result, or remains exactly `0 / 0` when no transfer exists;
+- current treasury balance equals the clan-side Coin ledger net for that `ClanId`;
+- every deposit retains exactly two Coin ledger lines: player debit, then clan credit;
+- every withdrawal retains exactly two Coin ledger lines: clan debit, then player credit.
+
+Reconciliation uses wide database numeric aggregation for historical evidence so malformed or unexpectedly large restored values are reported as integrity failures rather than silently overflowing verifier arithmetic. None of these checks prescribes treasury caps, fees, or spending priorities.
+
 ## Shared storage
 
 Clan storage may hold configured commodities and individualized items.
