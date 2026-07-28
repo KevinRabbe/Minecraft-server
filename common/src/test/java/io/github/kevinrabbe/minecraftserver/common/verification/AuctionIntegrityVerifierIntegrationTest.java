@@ -125,6 +125,7 @@ class AuctionIntegrityVerifierIntegrationTest {
         UUID seller = player("AhSettleSell");
         UUID buyer = player("AhSettleBuy");
         AuctionListingCreateResult listing = createActiveListing(seller, 2_000L);
+        UUID createOperationId = createOperationId(listing.listingId());
         wallets.creditFromSystem(UUID.randomUUID(), buyer, 10_000L, "test.auction_integrity_seed");
         auctions.purchase(UUID.randomUUID(), listing.listingId(), buyer, "auction.integrity_purchase");
 
@@ -138,7 +139,7 @@ class AuctionIntegrityVerifierIntegrationTest {
                         operation_id, line_no, player_id, asset_type, asset_id, amount, direction, reason
                     ) VALUES (?, 0, ?, 'ITEM_INSTANCE', ?, 1, 'DEBIT', ?)
                     """)) {
-                restoreCreateLedger.setObject(1, listing.createOperationId());
+                restoreCreateLedger.setObject(1, createOperationId);
                 restoreCreateLedger.setObject(2, seller);
                 restoreCreateLedger.setString(3, listing.itemInstanceId().toString());
                 restoreCreateLedger.setString(4, LIST_REASON);
@@ -166,13 +167,28 @@ class AuctionIntegrityVerifierIntegrationTest {
                 backend,
                 lease.stateVersion(),
                 item.itemInstanceId(),
-                item.item().stateVersion(),
+                item.stateVersion(),
                 priceMinor,
                 "city",
                 "auction-house",
                 new byte[]{8},
                 LIST_REASON
         );
+    }
+
+    private UUID createOperationId(UUID listingId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT create_operation_id FROM auction_listings WHERE listing_id = ?
+                     """)) {
+            statement.setObject(1, listingId);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new IllegalStateException("missing Auction listing " + listingId);
+                }
+                return rows.getObject("create_operation_id", UUID.class);
+            }
+        }
     }
 
     private UUID player(String name) throws SQLException {
