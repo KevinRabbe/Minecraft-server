@@ -119,14 +119,15 @@ class CommodityDeliveryIntegrityVerifierIntegrationTest {
 
     @Test
     void claimedDeliveryWithoutProcessedClaimIsReported() throws Exception {
-        ClaimContext claim = claimedDelivery("DeliveryMissingOp", 3L);
+        ClaimContext claim = claimedDelivery("DelMissingOp", 3L);
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "DELETE FROM processed_operations WHERE operation_id = ?")) {
-            statement.setObject(1, claim.claimOperationId());
-            assertEquals(1, statement.executeUpdate());
-        }
+        withProcessedOperationsMutation(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "DELETE FROM processed_operations WHERE operation_id = ?")) {
+                statement.setObject(1, claim.claimOperationId());
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
 
         assertIssueOnly(claim.delivery().deliveryId().toString());
     }
@@ -135,20 +136,21 @@ class CommodityDeliveryIntegrityVerifierIntegrationTest {
     void processedClaimIdentityDriftIsReported() throws Exception {
         ClaimContext claim = claimedDelivery("DeliveryDrift", 9L);
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE processed_operations
-                     SET result = jsonb_set(
-                         result,
-                         '{quantity}',
-                         to_jsonb(((result ->> 'quantity')::BIGINT + 1)),
-                         false
-                     )
-                     WHERE operation_id = ?
-                     """)) {
-            statement.setObject(1, claim.claimOperationId());
-            assertEquals(1, statement.executeUpdate());
-        }
+        withProcessedOperationsMutation(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE processed_operations
+                    SET result = jsonb_set(
+                        result,
+                        '{quantity}',
+                        to_jsonb(((result ->> 'quantity')::BIGINT + 1)),
+                        false
+                    )
+                    WHERE operation_id = ?
+                    """)) {
+                statement.setObject(1, claim.claimOperationId());
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
 
         assertIssueOnly(claim.delivery().deliveryId().toString());
     }
@@ -157,22 +159,23 @@ class CommodityDeliveryIntegrityVerifierIntegrationTest {
     void malformedProcessedStateVersionIsReportedInsteadOfCrashing() throws Exception {
         ClaimContext claim = claimedDelivery("DeliveryBadVer", 4L);
 
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     UPDATE processed_operations
-                     SET result = jsonb_set(result, '{player_state_version}', '"not-a-number"'::jsonb, false)
-                     WHERE operation_id = ?
-                     """)) {
-            statement.setObject(1, claim.claimOperationId());
-            assertEquals(1, statement.executeUpdate());
-        }
+        withProcessedOperationsMutation(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE processed_operations
+                    SET result = jsonb_set(result, '{player_state_version}', '"not-a-number"'::jsonb, false)
+                    WHERE operation_id = ?
+                    """)) {
+                statement.setObject(1, claim.claimOperationId());
+                assertEquals(1, statement.executeUpdate());
+            }
+        });
 
         assertIssueOnly(claim.delivery().deliveryId().toString());
     }
 
     @Test
     void playerStateBehindCommittedClaimVersionIsReported() throws Exception {
-        ClaimContext claim = claimedDelivery("DeliveryStateBack", 6L);
+        ClaimContext claim = claimedDelivery("DelStateBack", 6L);
 
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
@@ -235,6 +238,17 @@ class CommodityDeliveryIntegrityVerifierIntegrationTest {
         return new ClaimContext(playerId, session, delivery, claimOperationId, result);
     }
 
+    private void withProcessedOperationsMutation(SqlMutation mutation) throws SQLException {
+        try (Connection connection = dataSource.getConnection(); Statement control = connection.createStatement()) {
+            control.execute("ALTER TABLE processed_operations DISABLE TRIGGER processed_operations_append_only");
+            try {
+                mutation.apply(connection);
+            } finally {
+                control.execute("ALTER TABLE processed_operations ENABLE TRIGGER processed_operations_append_only");
+            }
+        }
+    }
+
     private void assertIssueOnly(String expectedSubject) throws SQLException {
         List<IntegrityIssue> issues = verifier.verify(100);
         assertEquals(1, issues.size(), () -> "unexpected issues: " + issues);
@@ -268,6 +282,11 @@ class CommodityDeliveryIntegrityVerifierIntegrationTest {
             throw new IllegalStateException("Missing environment variable: " + name);
         }
         return value;
+    }
+
+    @FunctionalInterface
+    private interface SqlMutation {
+        void apply(Connection connection) throws SQLException;
     }
 
     private record ClaimContext(
