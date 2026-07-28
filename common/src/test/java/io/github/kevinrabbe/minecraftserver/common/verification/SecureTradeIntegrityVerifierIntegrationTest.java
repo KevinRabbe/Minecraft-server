@@ -214,7 +214,7 @@ class SecureTradeIntegrityVerifierIntegrationTest {
         trades.confirm(UUID.randomUUID(), trade.tradeId(), b);
         resolutions.settle(UUID.randomUUID(), trade.tradeId(), "trade.integrity_settle");
 
-        execute("TRUNCATE TABLE pending_commodity_deliveries");
+        execute("UPDATE pending_commodity_deliveries SET quantity = quantity + 1");
 
         assertContainsOnly("SECURE_TRADE_DELIVERY_EVIDENCE_MISMATCH", trade.tradeId());
     }
