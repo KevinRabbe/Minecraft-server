@@ -13,8 +13,8 @@ import java.util.Objects;
 
 /**
  * Bounded aggregate verifier across session/state, economy/custody, shared commodity and unique-delivery claims,
- * Auction/Bank/Bazaar/Secure Trade/clan assets, progression/crafting/resources/world state, Artifacts/Attunement,
- * PvE/Bounty rewards and lifecycle evidence, clan, and competitive evidence.
+ * Auction/Bank/Bazaar/Secure Trade/salvage/clan assets, progression/crafting/resources/world state,
+ * Artifacts/Attunement, PvE/Bounty rewards and lifecycle evidence, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
@@ -27,6 +27,7 @@ public final class PersistentIntegrityVerifier {
     private final BankIntegrityVerifier bank;
     private final BazaarIntegrityVerifier bazaar;
     private final SecureTradeIntegrityVerifier secureTrades;
+    private final SalvageIntegrityVerifier salvage;
     private final ClanTreasuryIntegrityVerifier clanTreasuries;
     private final ClanStorageIntegrityVerifier clanStorage;
     private final ItemUpgradeIntegrityVerifier itemUpgrades;
@@ -90,6 +91,7 @@ public final class PersistentIntegrityVerifier {
                 : new BankIntegrityVerifier(dataSource, bankTiers);
         this.bazaar = new BazaarIntegrityVerifier(dataSource);
         this.secureTrades = new SecureTradeIntegrityVerifier(dataSource);
+        this.salvage = new SalvageIntegrityVerifier(dataSource);
         this.clanTreasuries = new ClanTreasuryIntegrityVerifier(dataSource);
         this.clanStorage = new ClanStorageIntegrityVerifier(dataSource);
         this.itemUpgrades = itemCatalog == null
@@ -131,6 +133,8 @@ public final class PersistentIntegrityVerifier {
         if (remaining > 0) issues.addAll(bazaar.verify(remaining));
         remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(secureTrades.verify(remaining));
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) issues.addAll(salvage.verify(remaining));
         remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(clanTreasuries.verify(remaining));
         remaining = maxIssues - issues.size();
