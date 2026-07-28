@@ -35,6 +35,9 @@ Canonical scope, roadmap, current execution order, planning precedence, and genu
 ### `reference/`
 Stable design laws, terminology, and acceptance criteria.
 
+### `development/`
+Repository-development and integration workflow. [`development/CHANGE_WORKFLOW.md`](development/CHANGE_WORKFLOW.md) defines the bounded branch/PR policy and keeps `main` as the latest qualified integration checkpoint.
+
 ### `v1/`
 Legacy compatibility paths from the first planning pass. These files exist only so old links remain useful. They are not authoritative over the canonical documents above.
 
@@ -70,5 +73,7 @@ Legacy compatibility paths from the first planning pass. These files exist only 
 ## Development rule
 
 Finish planning consistency, then complete the cross-cutting architecture contracts for all settled V1 systems. Only after that continue feature implementation in dependency order.
+
+Repository changes follow [`development/CHANGE_WORKFLOW.md`](development/CHANGE_WORKFLOW.md): integrate coherent green slices into `main` rather than accumulating an evergreen implementation PR.
 
 Do not spend architecture time debating cheap tuning values such as exact damage, XP requirements, interest rates, boss HP, Map scaling, bounty kill counts, or artifact/attunement conversion rates.
