@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "recipes": [
+    {
+      "recipe_id": "starter.sword",
+      "version": 1,
+      "ingredients": [
+        {
+          "definition_id": "material.raw_iron",
+          "quantity": 2
+        },
+        {
+          "definition_id": "material.oak_log",
+          "quantity": 1
+        }
+      ],
+      "output_definition_id": "equipment.starter_sword",
+      "output_quantity": 1,
+      "required_skill_id": null,
+      "required_skill_level": 0,
+      "roll_properties": {
+        "damage": {
+          "minimum_basis_points": 10000,
+          "maximum_basis_points": 12000
+        }
+      },
+      "experience_skill_id": "crafting",
+      "requested_experience": 25
+    }
+  ]
+}

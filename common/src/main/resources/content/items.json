@@ -1,4 +1,67 @@
 {
   "schema_version": 1,
-  "items": []
+  "items": [
+    {
+      "definition_id": "material.raw_iron",
+      "minecraft_material": "RAW_IRON",
+      "display_name": "Raw Iron",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "material.oak_log",
+      "minecraft_material": "OAK_LOG",
+      "display_name": "Oak Log",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "material.wheat",
+      "minecraft_material": "WHEAT",
+      "display_name": "Wheat",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "material.rotten_flesh",
+      "minecraft_material": "ROTTEN_FLESH",
+      "display_name": "Rotten Flesh",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "material.zombie_essence",
+      "minecraft_material": "FERMENTED_SPIDER_EYE",
+      "display_name": "Zombie Essence",
+      "max_stack_size": 64,
+      "category": "MATERIALS",
+      "identity_kind": "COMMODITY"
+    },
+    {
+      "definition_id": "equipment.starter_sword",
+      "minecraft_material": "IRON_SWORD",
+      "display_name": "Starter Sword",
+      "max_stack_size": 1,
+      "category": "EQUIPMENT",
+      "identity_kind": "INDIVIDUAL",
+      "roll_properties": {
+        "damage": {
+          "minimum_basis_points": 10000,
+          "maximum_basis_points": 12000
+        }
+      }
+    },
+    {
+      "definition_id": "map.forest_extermination",
+      "minecraft_material": "MAP",
+      "display_name": "Forest Extermination Map",
+      "max_stack_size": 1,
+      "category": "PROGRESSION",
+      "identity_kind": "INDIVIDUAL"
+    }
+  ]
 }

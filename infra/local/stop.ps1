@@ -21,6 +21,6 @@ foreach ($processId in $processIds) {
         Stop-Process -Id $processId -Force
     }
     catch {
-        Write-Warning "Could not stop PID $processId: $($_.Exception.Message)"
+        Write-Warning "Could not stop PID ${processId}: $($_.Exception.Message)"
     }
 }

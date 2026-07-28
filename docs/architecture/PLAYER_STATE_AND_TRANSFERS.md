@@ -50,6 +50,20 @@ Committed player state uses monotonically increasing versions.
 
 A stale backend must not overwrite newer state. A write based on an obsolete version is rejected rather than merged blindly.
 
+## Persistent integrity reconciliation
+
+The bounded persistent integrity verifier independently checks the durable representation of the single-writer/transfer contract:
+
+- every live `ACTIVE`, `TRANSFERRING`, or `RECOVERING` session has the same `state_version` as the player's current `player_state` row;
+- a live session retains a nonblank owner backend and lease, while a `DISCONNECTED` session retains neither backend/instance ownership nor a lease;
+- when a live session carries `owner_instance_id`, that stable instance belongs to the same `owner_backend_id`; instance health/status is not part of this identity check;
+- every `TRANSFERRING` session has its one open ticket and that ticket matches the session's player, source backend, and exact expected state version;
+- an open transfer ticket cannot remain attached to a session that is no longer `TRANSFERRING`;
+- ticket expiry by itself is not corruption because expiry is an intentional recovery boundary;
+- once a ticket is routed to an exact instance, that stable instance must represent the ticket's recorded target backend and logical zone even if the instance later becomes `STOPPED`.
+
+These checks are read-only diagnostics. They do not become a second session/transfer authority or attempt automatic repair.
+
 ## Checkpointing
 
 Ordinary dirty runtime state may be batched/checkpointed on a short configurable cadence.

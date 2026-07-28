@@ -9,7 +9,62 @@ commands:
     description: Development-only logical zone transfer acceptance command
     usage: /devzone <logical-zone-id>
     permission: minecraftserver.dev.route
+  integrity:
+    description: Run a bounded read-only persistent integrity verification pass
+    usage: /integrity [limit]
+    permission: minecraftserver.admin.integrity
+  attune:
+    description: View or select your active Artifact Attunement profile
+    usage: /attune [profile]
+  skills:
+    description: View authoritative skill levels and experience
+    usage: /skills
+  leaderboard:
+    description: View bounded authoritative Persistent-MMO skill and Map rankings
+    usage: /leaderboard <skill> [limit] | map solo [limit] | map group [limit] | map fastest <solo|group> <difficulty> [limit]
+  map:
+    description: Open the authoritative individualized Map in your main hand
+    usage: /map open
+  vote:
+    description: View canonical world progression and cast authoritative player-directed expansion ballots
+    usage: /vote [list] | /vote state | /vote cast <vote-id> <candidate-id>
+  chronicle:
+    description: View recent authoritative canonical world history
+    usage: /chronicle [limit]
+  bank:
+    description: View and manage protected Bank Manager Coin
+    usage: /bank [deposit <coins>|withdraw <coins>|upgrade]
+  bazaar:
+    description: Create and cancel fungible commodity Bazaar orders
+    usage: /bazaar buy <commodity> <quantity> <coin-per-unit> | sell <commodity> <quantity> <coin-per-unit> | cancel <order-id>
+  ah:
+    description: Browse and trade individualized items through the fixed-price Auction House
+    usage: /ah [browse [limit]] | sell <coins> | buy <listing-id> | cancel <listing-id>
+  trade:
+    description: Create and settle exact-revision secure direct trades
+    usage: /trade start <player> | view <id> | coin <id> <coins> | commodity <id> <commodity> <qty> | item <id> | confirm <id> <revision> | cancel <id>
+  clan:
+    description: Manage persistent MMO clans and actor-authorized Clan War preparation
+    usage: /clan [status|members|invites|cancel-invite|create|invite|accept|leave|kick|role|transfer|treasury|storage|war]
+  ranked:
+    description: Join, leave, inspect, or view the separate Ranked 1v1 ladder
+    usage: /ranked [status|join|leave|top]
+  commission:
+    description: Fund, browse, accept, complete, and cancel crafting commissions
+    usage: /commission [browse [limit]] | view <id> | create <recipe> <payment-coins> | accept <id> | complete <id> | cancel <id>
+  bounty:
+    description: Run bounty contracts, summon authored bosses, and manage bounty-family pouch materials
+    usage: /bounty tiers | start <family> <tier> | status <contract-id> | summon <contract-id> | pouch <family> | withdraw <family> <commodity> <quantity>
+  salvage:
+    description: Preview or confirm irreversible salvage of the unique item in your main hand
+    usage: /salvage [confirm]
+  craft:
+    description: Craft one authoritative personal recipe
+    usage: /craft <recipe>
 permissions:
   minecraftserver.dev.route:
     description: Allows the development logical-zone transfer command
+    default: op
+  minecraftserver.admin.integrity:
+    description: Allows running bounded persistent integrity diagnostics
     default: op

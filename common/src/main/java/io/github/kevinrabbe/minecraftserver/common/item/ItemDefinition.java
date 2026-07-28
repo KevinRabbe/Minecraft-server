@@ -10,11 +10,56 @@ public record ItemDefinition(
         String displayName,
         int maxStackSize,
         ItemCategory category,
-        ItemIdentityKind identityKind
+        ItemIdentityKind identityKind,
+        ItemRollProfile rollProfile,
+        ItemUseRequirements useRequirements
 ) {
     private static final Pattern DEFINITION_ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
     private static final Pattern MATERIAL_ID = Pattern.compile("[A-Z0-9_]{1,128}");
     private static final int MAX_SUPPORTED_STACK_SIZE = 99;
+
+    /** Compatibility constructor for definitions with no intrinsic roll profile or use requirements. */
+    public ItemDefinition(
+            String definitionId,
+            String minecraftMaterial,
+            String displayName,
+            int maxStackSize,
+            ItemCategory category,
+            ItemIdentityKind identityKind
+    ) {
+        this(
+                definitionId,
+                minecraftMaterial,
+                displayName,
+                maxStackSize,
+                category,
+                identityKind,
+                ItemRollProfile.NONE,
+                ItemUseRequirements.NONE
+        );
+    }
+
+    /** Compatibility constructor for definitions with an intrinsic roll profile and no use requirements. */
+    public ItemDefinition(
+            String definitionId,
+            String minecraftMaterial,
+            String displayName,
+            int maxStackSize,
+            ItemCategory category,
+            ItemIdentityKind identityKind,
+            ItemRollProfile rollProfile
+    ) {
+        this(
+                definitionId,
+                minecraftMaterial,
+                displayName,
+                maxStackSize,
+                category,
+                identityKind,
+                rollProfile,
+                ItemUseRequirements.NONE
+        );
+    }
 
     public ItemDefinition {
         definitionId = requireNormalizedDefinitionId(definitionId);
@@ -22,6 +67,8 @@ public record ItemDefinition(
         displayName = requireDisplayName(displayName);
         category = Objects.requireNonNull(category, "category");
         identityKind = Objects.requireNonNull(identityKind, "identityKind");
+        rollProfile = Objects.requireNonNull(rollProfile, "rollProfile");
+        useRequirements = Objects.requireNonNull(useRequirements, "useRequirements");
 
         if (maxStackSize < 1 || maxStackSize > MAX_SUPPORTED_STACK_SIZE) {
             throw new IllegalArgumentException(
@@ -33,6 +80,14 @@ public record ItemDefinition(
         }
         if (identityKind == ItemIdentityKind.INDIVIDUAL && maxStackSize != 1) {
             throw new IllegalArgumentException("INDIVIDUAL definitions must have maxStackSize=1: " + definitionId);
+        }
+        if (identityKind == ItemIdentityKind.COMMODITY && rollProfile.rolled()) {
+            throw new IllegalArgumentException("COMMODITY definitions cannot have intrinsic roll profiles: " + definitionId);
+        }
+        if (rollProfile.rolled() && category != ItemCategory.EQUIPMENT) {
+            throw new IllegalArgumentException(
+                    "Intrinsic roll profiles are only valid for EQUIPMENT definitions: " + definitionId
+            );
         }
     }
 

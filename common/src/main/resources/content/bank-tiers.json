@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "tiers": [
+    {
+      "tier": 0,
+      "capacity_minor": 100000,
+      "upgrade_cost_minor": 0,
+      "daily_interest_basis_points": 0
+    },
+    {
+      "tier": 1,
+      "capacity_minor": 1000000,
+      "upgrade_cost_minor": 50000,
+      "daily_interest_basis_points": 10
+    },
+    {
+      "tier": 2,
+      "capacity_minor": 10000000,
+      "upgrade_cost_minor": 500000,
+      "daily_interest_basis_points": 30
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+name: MinecraftServerCompetitiveLegacy
+version: '0.1.0-SNAPSHOT'
+main: io.github.kevinrabbe.minecraftserver.legacy.LegacyCompetitivePlugin
+description: Isolated Minecraft 1.8.9 competitive runtime boundary
+author: KevinRabbe

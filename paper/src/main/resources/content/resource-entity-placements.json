@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "placements": [
+    {
+      "source_key": "zombie_001",
+      "definition_id": "starter_pve.zombie",
+      "zone_id": "starter_pve",
+      "template_version": "v1",
+      "world_name": "world",
+      "x": 24.5,
+      "y": 64.0,
+      "z": 8.5,
+      "entity_type": "ZOMBIE",
+      "pending_lease_millis": 15000,
+      "active_lifetime_millis": 600000
+    }
+  ]
+}

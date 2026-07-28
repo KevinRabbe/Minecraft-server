@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "placements": [
+    {
+      "boss_definition_id": "boss.zombie.t1",
+      "zone_id": "starter_pve",
+      "template_version": "v1",
+      "world_name": "world",
+      "x": 32.5,
+      "y": 64.0,
+      "z": 8.5,
+      "yaw": 180.0,
+      "pitch": 0.0,
+      "entity_type": "ZOMBIE",
+      "display_name": "Rotting Champion"
+    }
+  ]
+}

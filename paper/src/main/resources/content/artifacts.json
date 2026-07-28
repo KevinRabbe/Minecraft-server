@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "artifact_id": "92afacc1-81b1-4e77-8491-27021809bcfc",
+      "definition_operation_id": "88258162-3b71-45c2-990b-bfbf2026238d",
+      "point_value": 1,
+      "point_policy_version": 1,
+      "enabled": true,
+      "initial_world_name": "world",
+      "initial_logical_zone_id": "city",
+      "initial_block_x": 20,
+      "initial_block_y": 64,
+      "initial_block_z": 8,
+      "expected_block": "AMETHYST_BLOCK"
+    }
+  ]
+}

@@ -102,6 +102,10 @@ final class BootstrapZoneInstance {
         return zoneId;
     }
 
+    String templateVersion() {
+        return templateVersion;
+    }
+
     private static String valueOrDefault(Map<String, String> environment, String name, String fallback) {
         String value = trimToNull(environment.get(name));
         return value == null ? fallback : value;

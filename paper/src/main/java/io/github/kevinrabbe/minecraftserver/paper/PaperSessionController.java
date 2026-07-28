@@ -46,7 +46,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 
-/** Owns Paper-side attachment, checkpointing, and transfer of network-authoritative player state. */
+/** Owns Paper-side attachment, checkpointing, transfer, and fenced external mutation of network player state. */
 final class PaperSessionController implements Listener {
     private static final Duration SESSION_LEASE = Duration.ofSeconds(60);
     private static final Duration TRANSFER_TICKET_LIFETIME = Duration.ofSeconds(30);
@@ -81,6 +81,8 @@ final class PaperSessionController implements Listener {
 
     private final ConcurrentHashMap<UUID, PendingSession> pendingByMinecraftUuid = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, AttachedPlayerSession> activeByMinecraftUuid = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, CompletableFuture<PaperAuthoritativeStateMutation.Result>>
+            authorityMutationsByMinecraftUuid = new ConcurrentHashMap<>();
 
     PaperSessionController(JavaPlugin plugin, String backendId, String currentZoneId, DataSource dataSource) {
         this.plugin = plugin;
@@ -180,6 +182,10 @@ final class PaperSessionController implements Listener {
         if (attached.isTransferStarted()) {
             return;
         }
+        if (attached.isAuthorityMutationInFlight()) {
+            // The mutation callback owns final session release. Never checkpoint the stale pre-mutation Bukkit view.
+            return;
+        }
 
         byte[] payload;
         try {
@@ -225,6 +231,115 @@ final class PaperSessionController implements Listener {
                 plugin.getLogger().log(Level.WARNING, "Could not capture player inventory for checkpoint", exception);
             }
         }
+    }
+
+    /**
+     * Runs one feature-owned serialized-state transaction without allowing a stale Bukkit checkpoint to race it.
+     * Must be called from the server thread because the initial capture and final apply touch Bukkit state.
+     */
+    CompletableFuture<PaperAuthoritativeStateMutation.Result> mutateAuthoritativeState(
+            Player player,
+            PaperAuthoritativeStateMutation mutation
+    ) {
+        if (player == null) {
+            throw new IllegalArgumentException("player must not be null");
+        }
+        if (mutation == null) {
+            throw new IllegalArgumentException("mutation must not be null");
+        }
+        UUID minecraftUuid = player.getUniqueId();
+        AttachedPlayerSession attached = activeByMinecraftUuid.get(minecraftUuid);
+        if (attached == null || !attached.freezeForAuthorityMutation()) {
+            return CompletableFuture.failedFuture(
+                    new SessionConflictException("No idle mutable persistent session is available")
+            );
+        }
+
+        final byte[] currentPayload;
+        try {
+            currentPayload = stateCodec.capture(player);
+        } catch (RuntimeException exception) {
+            attached.finishAuthorityMutation();
+            return CompletableFuture.failedFuture(exception);
+        }
+
+        final CompletableFuture<PaperAuthoritativeStateMutation.Result> future;
+        try {
+            future = attached.checkpoint(currentPayload, currentZoneId, null, true)
+                    .thenApplyAsync(committedVersion -> {
+                        if (attached.isClosed()) {
+                            throw new CompletionException(
+                                    new SessionConflictException("Player left before authority mutation could commit")
+                            );
+                        }
+                        PaperAuthoritativeStateMutation.Context context = new PaperAuthoritativeStateMutation.Context(
+                                attached.sessionId(),
+                                attached.playerId(),
+                                backendId,
+                                committedVersion,
+                                currentZoneId,
+                                null,
+                                currentPayload
+                        );
+                        final PaperAuthoritativeStateMutation.Result result;
+                        try {
+                            result = mutation.apply(context);
+                        } catch (Exception exception) {
+                            throw new CompletionException(exception);
+                        }
+                        attached.authorityMutationCommitted(
+                                committedVersion,
+                                result.stateVersion(),
+                                result.statePayload(),
+                                currentZoneId,
+                                null
+                        );
+                        return result;
+                    }, persistenceExecutor);
+        } catch (RejectedExecutionException exception) {
+            attached.finishAuthorityMutation();
+            return CompletableFuture.failedFuture(exception);
+        }
+
+        CompletableFuture<PaperAuthoritativeStateMutation.Result> previous =
+                authorityMutationsByMinecraftUuid.putIfAbsent(minecraftUuid, future);
+        if (previous != null) {
+            attached.finishAuthorityMutation();
+            return CompletableFuture.failedFuture(
+                    new SessionConflictException("Another authority mutation is already running")
+            );
+        }
+
+        future.whenComplete((result, failure) -> runOnMainThread(() -> {
+            try {
+                if (failure == null) {
+                    Player livePlayer = plugin.getServer().getPlayer(minecraftUuid);
+                    boolean sameAttachment = activeByMinecraftUuid.get(minecraftUuid) == attached;
+                    if (livePlayer != null && livePlayer.isOnline() && sameAttachment && !attached.isClosed()) {
+                        try {
+                            stateCodec.apply(livePlayer, result.statePayload());
+                        } catch (RuntimeException applyFailure) {
+                            plugin.getLogger().log(
+                                    Level.SEVERE,
+                                    "DB-committed player state could not be applied live; forcing reconnect",
+                                    applyFailure
+                            );
+                            activeByMinecraftUuid.remove(minecraftUuid, attached);
+                            attached.closeAttachment();
+                            disconnectOrdinarySession(attached.sessionId());
+                            livePlayer.kick(STATE_UNAVAILABLE_MESSAGE);
+                        }
+                    }
+                }
+            } finally {
+                attached.finishAuthorityMutation();
+                authorityMutationsByMinecraftUuid.remove(minecraftUuid, future);
+                if (attached.isClosed() && !attached.isTransferStarted()) {
+                    disconnectOrdinarySession(attached.sessionId());
+                }
+            }
+        }));
+        return future;
     }
 
     /** Begins a cross-backend handoff for a logical gameplay zone. Used by the temporary dev command for now. */
@@ -329,7 +444,8 @@ final class PaperSessionController implements Listener {
         ArrayList<AttachedPlayerSession> ordinarySessions = new ArrayList<>();
 
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            AttachedPlayerSession attached = activeByMinecraftUuid.remove(player.getUniqueId());
+            UUID minecraftUuid = player.getUniqueId();
+            AttachedPlayerSession attached = activeByMinecraftUuid.remove(minecraftUuid);
             if (attached == null) {
                 continue;
             }
@@ -339,6 +455,19 @@ final class PaperSessionController implements Listener {
             }
 
             ordinarySessions.add(attached);
+            if (attached.isAuthorityMutationInFlight()) {
+                CompletableFuture<PaperAuthoritativeStateMutation.Result> mutation =
+                        authorityMutationsByMinecraftUuid.get(minecraftUuid);
+                if (mutation != null) {
+                    finalCommits.add(mutation.thenApply(PaperAuthoritativeStateMutation.Result::stateVersion));
+                } else {
+                    plugin.getLogger().severe(
+                            "Authority mutation flag has no tracked future during shutdown for " + minecraftUuid
+                    );
+                }
+                continue;
+            }
+
             try {
                 finalCommits.add(attached.checkpoint(
                         stateCodec.capture(player),
@@ -373,6 +502,7 @@ final class PaperSessionController implements Listener {
         }
 
         activeByMinecraftUuid.clear();
+        authorityMutationsByMinecraftUuid.clear();
         persistenceExecutor.shutdown();
         try {
             if (!persistenceExecutor.awaitTermination(2, TimeUnit.SECONDS)) {

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "definition_id": "starter_mine.iron_ore",
+      "zone_id": "starter_mine",
+      "template_version": "v1",
+      "commodity_definition_id": "material.raw_iron",
+      "commodity_quantity": 1,
+      "skill_id": "mining",
+      "requested_experience": 10,
+      "respawn_millis": 15000
+    },
+    {
+      "definition_id": "starter_woods.oak_tree",
+      "zone_id": "starter_woods",
+      "template_version": "v1",
+      "commodity_definition_id": "material.oak_log",
+      "commodity_quantity": 1,
+      "skill_id": "woodcutting",
+      "requested_experience": 10,
+      "respawn_millis": 15000
+    },
+    {
+      "definition_id": "starter_farm.wheat_crop",
+      "zone_id": "starter_farm",
+      "template_version": "v1",
+      "commodity_definition_id": "material.wheat",
+      "commodity_quantity": 1,
+      "skill_id": "farming",
+      "requested_experience": 10,
+      "respawn_millis": 10000
+    },
+    {
+      "definition_id": "starter_pve.zombie",
+      "zone_id": "starter_pve",
+      "template_version": "v1",
+      "commodity_definition_id": "material.rotten_flesh",
+      "commodity_quantity": 1,
+      "skill_id": "combat",
+      "requested_experience": 10,
+      "respawn_millis": 10000
+    }
+  ]
+}

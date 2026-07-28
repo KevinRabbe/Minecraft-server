@@ -1,112 +1,138 @@
 # Community Projects and Server History
 
-## Purpose
+## Scope
 
-Community projects let players physically and economically participate in the arrival of future systems while creating durable server history.
+Community projects are an **optional explicit workflow** for features that genuinely need authoritative contribution/build/archival semantics.
 
-Core lifecycle:
+They are **not** the default lifecycle for every player-voted district.
+
+Ordinary world-expansion voting is specified separately in `WORLD_VOTING_AND_HISTORY.md`.
+
+## Critical boundary
+
+A voted ordinary district has no developer-authored physical blueprint, required appearance, hidden material quota, or minimum block count.
+
+If players choose a Fishing capability and create a huge harbor, that is valid. If they create a small fishing area and collectively treat it as their district, that is also valid.
+
+Do not silently reinterpret an ordinary district as:
 
 `ANNOUNCED -> CONTRIBUTING -> BUILDING -> REVIEW -> COMPLETED`
 
-Exact UI/workflow can evolve; the persistent lifecycle and attribution are the important contract.
+unless that specific feature has been explicitly designed as a Community Project.
+
+## Explicit community-project purpose
+
+When intentionally used, a Community Project lets players physically/economically participate in a bounded global objective while producing durable attribution/history.
+
+A project may use a lifecycle such as:
+
+`ANNOUNCED -> CONTRIBUTING -> BUILDING -> REVIEW/ACTIVATION -> COMPLETED`
+
+Exact states may vary by project definition. The lifecycle itself must be explicit rather than inferred from district visuals.
 
 ## Generic project model
 
-A project should be defined through reusable data/contracts rather than one-off `if Museum`/`if Nether` code.
+A reusable project may include:
 
-Conceptual components:
+- `ProjectDefinition`;
+- `ProjectInstance`;
+- configured contribution requirements, if any;
+- optional controlled build region;
+- lifecycle state;
+- contributor records;
+- completion/activation actions;
+- archive metadata;
+- historical reward definitions.
 
-- `ProjectDefinition`
-- `ProjectInstance`
-- contribution requirements
-- build region
-- lifecycle state
-- contributor records
-- completion actions
-- archive metadata
-- reward definitions
+Do not create one-off `if Museum` / `if Nether` code where a generic configured project mechanism is genuinely appropriate.
 
 ## Contributions
 
-Economic contributions are authoritative transactions.
+Where a project intentionally accepts economic contributions, they are authoritative transactions.
 
 When a player contributes materials/Coins:
 
-- value leaves player ownership exactly once
-- project progress/contribution history increments exactly once
-- contributor attribution is durable
-- physical chest contents are not the source of truth
+- value leaves player ownership exactly once;
+- project contribution state/history updates exactly once;
+- contributor attribution is durable;
+- physical chest contents are not the authority.
+
+A project that does **not** define a material quota must not invent one from physical block count.
 
 ## Build regions
 
-Construction occurs only where building is intended gameplay.
+Construction permissions exist only where building is intended gameplay.
 
-A project region may be temporarily editable by authorized contributors/build roles and later frozen/protected when completed.
+An explicit project may define a controlled region that is temporarily editable and later protected/archived.
 
-Normal resource/combat zones are not arbitrary build worlds.
+This does not mean all ordinary districts must be inside a controlled project region or satisfy a canonical schematic.
 
-## Completion actions
+## Completion/activation actions
 
-Use generic actions such as:
+Explicit project actions may include:
 
-- `ENABLE_FEATURE(feature_id)`
-- set project/world protection state
-- grant exactly-once historical entitlement
-- trigger archive/snapshot workflow
-- expose new travel/interaction point
+- `ENABLE_FEATURE(feature_id)`;
+- set protection/project state;
+- grant exactly-once historical entitlement;
+- trigger archive/snapshot workflow;
+- expose a new travel/interaction point;
+- mark a world era transition when the feature materially changes available power.
 
-The feature's implementation/accessibility is separate from whether runtime infrastructure is active at that moment.
+The feature's logical accessibility is separate from runtime infrastructure activation.
 
-## Nether Entry example
+## Nether / End boundary
 
-The first major use case is the later Nether unlock:
+Nether and End are later major progression milestones. They may use an explicit vote, project, activation event, or combination defined by the canonical world-progression contract.
 
-1. Nether feature exists in implementation but remains locked.
-2. Nether Entry/Gate project appears in the starter region.
-3. Players contribute resources and physically build the structure.
-4. Build is reviewed/completed.
-5. schematic/archive and contributor records are created.
-6. exactly-once contributor rewards/entitlements are issued.
-7. `NETHER_ACCESS` becomes available.
-8. Nether zone instances start only when players actually use the feature.
+Locked constraints:
+
+- developers do not force the population to choose them on a preferred schedule;
+- physical construction is not required to match a developer-authored blueprint;
+- Map difficulty numbers are not permission-gated by Nether/End;
+- their stronger content/gear may raise the practical Map ceiling;
+- exactly-once feature/world-era transitions remain authoritative.
+
+The exact activation/completion signal for these exceptional milestones remains a planned/open content decision until explicitly locked.
 
 ## No empty future buildings
 
 Do not construct unused Museum/Harbour/portal/etc. placeholders merely because they might exist later.
 
-When a future system is ready, its project/construction can become part of the content event that introduces it.
+When a future capability is selected/unlocked, players may create its physical district as part of the world that actually emerges.
 
 ## Archive/preservation
 
-Significant completed community builds should be preserved through versioned archives such as WorldEdit schematics/blueprints plus metadata:
+Significant player-created builds/events may be preserved through versioned archives such as WorldEdit schematics plus metadata where preservation is useful:
 
-- project ID
-- archive version
-- completion timestamp
-- contributor references
-- content/resource-pack version where useful
-- checksum
+- project/event/district reference;
+- archive version;
+- timestamp;
+- contributor references where known/meaningful;
+- content/resource-pack version where useful;
+- checksum.
 
 Do not silently overwrite previous archive versions.
 
+Archiving is historical preservation, not a canonical-blueprint requirement for ordinary districts.
+
 ## Historical rewards
 
-Rewards should emphasize provenance, participation, and memory rather than mechanical power.
+Rewards should emphasize provenance, participation, and memory rather than mandatory mechanical power.
 
-Examples can be simple ordinary Minecraft items with immutable event metadata/entitlement proving authenticity.
+Examples can be ordinary Minecraft items/titles/records with immutable event metadata/entitlement proving authenticity.
 
 Issuance closes permanently when the event/project rules say it closes. Staff should not be able to mint an indistinguishable authentic copy through ordinary commands.
 
 ## Contributor reuse
 
-No DRM obsession is required for community-created build schematics. Contributors may be allowed to keep/reuse/share blueprints according to project policy.
+No DRM obsession is required for community-created build schematics. Contributors may be allowed to keep/reuse/share blueprints according to explicit policy.
 
 ## Global project state
 
-Project contribution/progress is network-global, not separate per City/zone instance.
+Where a project exists, contribution/progress is network-global rather than separate per equivalent City/zone instance.
 
-If the City ever has multiple instances, they render the same authoritative project progress. Physical canonical-build behavior must be deliberately coordinated rather than creating independent competing copies.
+If persistent City geography eventually has multiple rendered copies, physical canonical-build behavior must be deliberately coordinated rather than creating independent authoritative histories.
 
 ## Principle
 
-**Scarcity of memories and participation, not scarcity of power.**
+**Projects preserve explicit collective work; voting determines direction; players determine ordinary district form.**

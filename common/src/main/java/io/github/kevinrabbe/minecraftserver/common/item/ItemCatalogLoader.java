@@ -4,14 +4,17 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillId;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /** Strict JSON loader for version-controlled item content. */
@@ -93,7 +96,9 @@ public final class ItemCatalogLoader {
                         item.displayName(),
                         item.maxStackSize(),
                         parseEnum(ItemCategory.class, item.category(), "category"),
-                        parseEnum(ItemIdentityKind.class, item.identityKind(), "identity_kind")
+                        parseEnum(ItemIdentityKind.class, item.identityKind(), "identity_kind"),
+                        parseRollProfile(item.rollProperties()),
+                        parseUseRequirements(item.useSkillRequirements())
                 ));
             } catch (IllegalArgumentException | NullPointerException exception) {
                 throw new ItemCatalogException(
@@ -108,6 +113,34 @@ public final class ItemCatalogLoader {
         } catch (ItemCatalogException exception) {
             throw new ItemCatalogException("Invalid item catalog " + source + ": " + exception.getMessage(), exception);
         }
+    }
+
+    private static ItemRollProfile parseRollProfile(Map<String, RawRollRange> rawRolls) {
+        if (rawRolls == null || rawRolls.isEmpty()) {
+            return ItemRollProfile.NONE;
+        }
+        LinkedHashMap<String, RollRange> rolls = new LinkedHashMap<>();
+        rawRolls.forEach((propertyId, range) -> {
+            if (range == null) {
+                throw new IllegalArgumentException("roll property must not be null: " + propertyId);
+            }
+            rolls.put(propertyId, new RollRange(range.minimumBasisPoints(), range.maximumBasisPoints()));
+        });
+        return new ItemRollProfile(rolls);
+    }
+
+    private static ItemUseRequirements parseUseRequirements(Map<String, Integer> rawRequirements) {
+        if (rawRequirements == null || rawRequirements.isEmpty()) {
+            return ItemUseRequirements.NONE;
+        }
+        ArrayList<ItemSkillRequirement> requirements = new ArrayList<>(rawRequirements.size());
+        rawRequirements.forEach((skillId, minimumLevel) -> {
+            if (minimumLevel == null) {
+                throw new IllegalArgumentException("use skill requirement level must not be null: " + skillId);
+            }
+            requirements.add(new ItemSkillRequirement(new SkillId(skillId), minimumLevel));
+        });
+        return new ItemUseRequirements(requirements);
     }
 
     private static <E extends Enum<E>> E parseEnum(
@@ -140,7 +173,15 @@ public final class ItemCatalogLoader {
             @JsonProperty("display_name") String displayName,
             @JsonProperty("max_stack_size") int maxStackSize,
             @JsonProperty("category") String category,
-            @JsonProperty("identity_kind") String identityKind
+            @JsonProperty("identity_kind") String identityKind,
+            @JsonProperty("roll_properties") Map<String, RawRollRange> rollProperties,
+            @JsonProperty("use_skill_requirements") Map<String, Integer> useSkillRequirements
+    ) {
+    }
+
+    private record RawRollRange(
+            @JsonProperty("minimum_basis_points") int minimumBasisPoints,
+            @JsonProperty("maximum_basis_points") int maximumBasisPoints
     ) {
     }
 }

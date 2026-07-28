@@ -12,12 +12,74 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-/** Restores a source-owned attached session to ACTIVE after its transfer ticket expires unclaimed. */
+/** Restores a source-owned attached session to ACTIVE after an unclaimed transfer is abandoned or expires. */
 public final class TransferRecoveryRepository {
     private final DataSource dataSource;
 
     public TransferRecoveryRepository(DataSource dataSource) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+    }
+
+    /**
+     * Immediately abandons one exact unclaimed source-owned transfer and restores that attached session to ACTIVE.
+     * This is stricter than expiry recovery: the caller must name both the transfer and session being aborted.
+     */
+    public void abortAttachedTransfer(String backendId, UUID sessionId, UUID transferId) throws SQLException {
+        String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        Objects.requireNonNull(sessionId, "sessionId");
+        Objects.requireNonNull(transferId, "transferId");
+
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement closeTicket = connection.prepareStatement("""
+                        UPDATE transfer_tickets tt
+                        SET consumed_at = NOW()
+                        FROM player_sessions ps
+                        WHERE tt.transfer_id = ?
+                          AND tt.network_session_id = ?
+                          AND tt.network_session_id = ps.network_session_id
+                          AND tt.consumed_at IS NULL
+                          AND ps.owner_backend_id = ?
+                          AND ps.status = 'TRANSFERRING'
+                          AND ps.lease_expires_at > NOW()
+                          AND ps.state_version = tt.expected_state_version
+                          AND ps.owner_backend_id = tt.source_backend_id
+                        """)) {
+                    closeTicket.setObject(1, transferId);
+                    closeTicket.setObject(2, sessionId);
+                    closeTicket.setString(3, normalizedBackendId);
+                    if (closeTicket.executeUpdate() != 1) {
+                        throw new SessionConflictException(
+                                "Transfer cannot be aborted because it is missing, consumed, or no longer source-owned: "
+                                        + transferId
+                        );
+                    }
+                }
+
+                try (PreparedStatement reactivate = connection.prepareStatement("""
+                        UPDATE player_sessions
+                        SET status = 'ACTIVE',
+                            last_heartbeat_at = NOW()
+                        WHERE network_session_id = ?
+                          AND owner_backend_id = ?
+                          AND status = 'TRANSFERRING'
+                          AND lease_expires_at > NOW()
+                        """)) {
+                    reactivate.setObject(1, sessionId);
+                    reactivate.setString(2, normalizedBackendId);
+                    if (reactivate.executeUpdate() != 1) {
+                        throw new SessionConflictException(
+                                "Source session changed concurrently while aborting transfer: " + sessionId
+                        );
+                    }
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                rollbackQuietly(connection, exception);
+                throw exception;
+            }
+        }
     }
 
     public Set<UUID> recoverExpiredAttachedTransfers(

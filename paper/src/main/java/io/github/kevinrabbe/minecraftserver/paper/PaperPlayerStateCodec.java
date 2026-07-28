@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Versioned network-owned carried-inventory payload.
@@ -23,35 +24,19 @@ final class PaperPlayerStateCodec {
     private static final int MAX_SECTION_BYTES = 4 * 1024 * 1024;
     private static final int MAX_PAYLOAD_BYTES = 12 * 1024 * 1024 + 64;
 
+    // Paper PlayerInventory contract for the carried network-owned state represented by this codec.
+    private static final int STORAGE_SLOTS = 36;
+    private static final int ARMOR_SLOTS = 4;
+    private static final int EXTRA_SLOTS = 1;
+
     byte[] capture(Player player) {
         PlayerInventory inventory = player.getInventory();
-        byte[] storage = ItemStack.serializeItemsAsBytes(inventory.getStorageContents());
-        byte[] armor = ItemStack.serializeItemsAsBytes(inventory.getArmorContents());
-        byte[] extra = ItemStack.serializeItemsAsBytes(inventory.getExtraContents());
-
-        validateSectionSize(storage.length);
-        validateSectionSize(armor.length);
-        validateSectionSize(extra.length);
-
-        try {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(storage.length + armor.length + extra.length + 32);
-            try (DataOutputStream output = new DataOutputStream(bytes)) {
-                output.writeInt(MAGIC);
-                output.writeInt(VERSION);
-                output.writeInt(inventory.getHeldItemSlot());
-                writeSection(output, storage);
-                writeSection(output, armor);
-                writeSection(output, extra);
-            }
-
-            byte[] payload = bytes.toByteArray();
-            if (payload.length > MAX_PAYLOAD_BYTES) {
-                throw new IllegalStateException("Player inventory payload exceeds maximum size: " + payload.length);
-            }
-            return payload;
-        } catch (IOException exception) {
-            throw new IllegalStateException("Unexpected in-memory inventory serialization failure", exception);
-        }
+        return encodeState(new InventoryState(
+                inventory.getStorageContents(),
+                inventory.getArmorContents(),
+                inventory.getExtraContents(),
+                inventory.getHeldItemSlot()
+        ));
     }
 
     void apply(Player player, byte[] payload) {
@@ -60,11 +45,7 @@ final class PaperPlayerStateCodec {
             clearNetworkOwnedInventory(inventory);
             return;
         }
-        if (payload.length > MAX_PAYLOAD_BYTES) {
-            throw new IllegalArgumentException("Player inventory payload exceeds maximum size: " + payload.length);
-        }
-
-        DecodedState state = decode(payload);
+        InventoryState state = decodeState(payload);
         int storageCapacity = inventory.getStorageContents().length;
         int armorCapacity = inventory.getArmorContents().length;
         int extraCapacity = inventory.getExtraContents().length;
@@ -78,9 +59,6 @@ final class PaperPlayerStateCodec {
         if (state.extra().length > extraCapacity) {
             throw new IllegalArgumentException("Stored inventory has more extra slots than this server supports");
         }
-        if (state.heldItemSlot() < 0 || state.heldItemSlot() > 8) {
-            throw new IllegalArgumentException("Stored held-item slot is invalid: " + state.heldItemSlot());
-        }
 
         clearNetworkOwnedInventory(inventory);
         inventory.setStorageContents(state.storage());
@@ -89,7 +67,14 @@ final class PaperPlayerStateCodec {
         inventory.setHeldItemSlot(state.heldItemSlot());
     }
 
-    private DecodedState decode(byte[] payload) {
+    /** Pure payload decode used by verified transactional inventory mutators. */
+    InventoryState decodeState(byte[] payload) {
+        if (payload == null) {
+            return emptyState();
+        }
+        if (payload.length > MAX_PAYLOAD_BYTES) {
+            throw new IllegalArgumentException("Player inventory payload exceeds maximum size: " + payload.length);
+        }
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
             int magic = input.readInt();
             if (magic != MAGIC) {
@@ -109,7 +94,7 @@ final class PaperPlayerStateCodec {
                 throw new IllegalArgumentException("Player-state payload contains trailing bytes");
             }
 
-            return new DecodedState(
+            return new InventoryState(
                     ItemStack.deserializeItemsFromBytes(sections[0]),
                     ItemStack.deserializeItemsFromBytes(sections[1]),
                     ItemStack.deserializeItemsFromBytes(sections[2]),
@@ -118,6 +103,47 @@ final class PaperPlayerStateCodec {
         } catch (IOException exception) {
             throw new IllegalArgumentException("Malformed player-state payload", exception);
         }
+    }
+
+    /** Pure deterministic encode used by the same mutator both before and inside the fenced DB transaction. */
+    byte[] encodeState(InventoryState state) {
+        Objects.requireNonNull(state, "state");
+        byte[] storage = ItemStack.serializeItemsAsBytes(state.storage());
+        byte[] armor = ItemStack.serializeItemsAsBytes(state.armor());
+        byte[] extra = ItemStack.serializeItemsAsBytes(state.extra());
+
+        validateSectionSize(storage.length);
+        validateSectionSize(armor.length);
+        validateSectionSize(extra.length);
+
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(storage.length + armor.length + extra.length + 32);
+            try (DataOutputStream output = new DataOutputStream(bytes)) {
+                output.writeInt(MAGIC);
+                output.writeInt(VERSION);
+                output.writeInt(state.heldItemSlot());
+                writeSection(output, storage);
+                writeSection(output, armor);
+                writeSection(output, extra);
+            }
+
+            byte[] payload = bytes.toByteArray();
+            if (payload.length > MAX_PAYLOAD_BYTES) {
+                throw new IllegalStateException("Player inventory payload exceeds maximum size: " + payload.length);
+            }
+            return payload;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unexpected in-memory inventory serialization failure", exception);
+        }
+    }
+
+    InventoryState emptyState() {
+        return new InventoryState(
+                new ItemStack[STORAGE_SLOTS],
+                new ItemStack[ARMOR_SLOTS],
+                new ItemStack[EXTRA_SLOTS],
+                0
+        );
     }
 
     private static void clearNetworkOwnedInventory(PlayerInventory inventory) {
@@ -149,11 +175,29 @@ final class PaperPlayerStateCodec {
         }
     }
 
-    private record DecodedState(
-            ItemStack[] storage,
-            ItemStack[] armor,
-            ItemStack[] extra,
-            int heldItemSlot
-    ) {
+    record InventoryState(ItemStack[] storage, ItemStack[] armor, ItemStack[] extra, int heldItemSlot) {
+        InventoryState {
+            storage = Objects.requireNonNull(storage, "storage").clone();
+            armor = Objects.requireNonNull(armor, "armor").clone();
+            extra = Objects.requireNonNull(extra, "extra").clone();
+            if (heldItemSlot < 0 || heldItemSlot > 8) {
+                throw new IllegalArgumentException("Stored held-item slot is invalid: " + heldItemSlot);
+            }
+        }
+
+        @Override
+        public ItemStack[] storage() {
+            return storage.clone();
+        }
+
+        @Override
+        public ItemStack[] armor() {
+            return armor.clone();
+        }
+
+        @Override
+        public ItemStack[] extra() {
+            return extra.clone();
+        }
     }
 }

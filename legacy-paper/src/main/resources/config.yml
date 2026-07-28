@@ -1,0 +1,64 @@
+# First playable Ranked 1v1 content. These are cheap tuning values, not persistent authority.
+# The first runtime intentionally exposes one simple symmetric arena; future multi-arena placement may replace this
+# local geometry without changing match identity/rating authority.
+ranked:
+  # A timeout aborts the disposable match safely; it never invents a winner. Tune from playtesting.
+  match-timeout-seconds: 600
+
+  arena:
+    origin-x: 0
+    floor-y: 200
+    origin-z: 0
+    half-size: 12
+    wall-height: 4
+    spawn-offset: 6
+    floor-material: STONE
+    border-material: BEDROCK
+    wall-material: GLASS
+
+  # Standardized disposable temporary state. Exact kit contents may be tuned without touching persistent MMO gear.
+  loadout:
+    - slot: 0
+      material: IRON_SWORD
+      amount: 1
+    - slot: helmet
+      material: IRON_HELMET
+      amount: 1
+    - slot: chestplate
+      material: IRON_CHESTPLATE
+      amount: 1
+    - slot: leggings
+      material: IRON_LEGGINGS
+      amount: 1
+    - slot: boots
+      material: IRON_BOOTS
+      amount: 1
+
+# Clan-War arena/objective values below are local disposable-runtime tuning. Item -> Minecraft-1.8 combat
+# representation is deliberately NOT configurable here: it is frozen in code with war.legacy_1_8_9@1. Unsupported
+# definitions, rolled items, and upgraded items fail closed rather than being silently flattened.
+clan-war:
+  # Separate disposable region from Ranked. This is local runtime geometry, never persistent war identity.
+  arena:
+    origin-x: 128
+    floor-y: 200
+    origin-z: 0
+    half-size: 24
+    wall-height: 4
+    spawn-offset: 16
+    spawn-spacing: 2.0
+    floor-material: STONE
+    border-material: BEDROCK
+    wall-material: GLASS
+
+  objective:
+    # Local disposable-world placement; moving this point does not change persistent war identity/history.
+    center-x: 128.5
+    center-y: 201.0
+    center-z: 0.5
+    # Simple control-point mode: uncontested presence adds one progress step per evaluation; contested/empty pauses.
+    radius-blocks: 3.0
+    evaluation-period-ticks: 20
+    uncontested-evaluations-to-win: 60
+    # Timeout aborts safely without inventing a winning clan.
+    match-timeout-seconds: 900

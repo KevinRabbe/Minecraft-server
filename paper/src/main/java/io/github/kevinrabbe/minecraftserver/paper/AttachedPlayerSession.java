@@ -25,6 +25,7 @@ final class AttachedPlayerSession {
     private String lastCommittedEntryPoint;
     private boolean frozen;
     private boolean transferStarted;
+    private boolean authorityMutationInFlight;
     private boolean closed;
     private CompletableFuture<Long> commitTail;
 
@@ -88,19 +89,81 @@ final class AttachedPlayerSession {
     }
 
     synchronized boolean freezeForTransfer() {
-        if (closed || frozen || transferStarted) {
+        if (closed || frozen || transferStarted || authorityMutationInFlight) {
             return false;
         }
         frozen = true;
         return true;
     }
 
+    /**
+     * Reserves the local single-writer lane for an authority transaction that will mutate serialized player state.
+     * The caller must finish or fail the mutation exactly once.
+     */
+    synchronized boolean freezeForAuthorityMutation() {
+        if (closed || frozen || transferStarted || authorityMutationInFlight || !commitTail.isDone()) {
+            return false;
+        }
+        frozen = true;
+        authorityMutationInFlight = true;
+        return true;
+    }
+
+    /** Applies a DB-committed external mutation to this process-local version fence while keeping the player frozen. */
+    synchronized void authorityMutationCommitted(
+            long expectedCurrentVersion,
+            long committedVersion,
+            byte[] committedPayload,
+            String logicalZoneId,
+            String entryPoint
+    ) {
+        if (!authorityMutationInFlight || !frozen) {
+            throw new IllegalStateException("No authority mutation is reserved for player " + playerId);
+        }
+        if (stateVersion != expectedCurrentVersion) {
+            throw new IllegalStateException(
+                    "Authority mutation expected local state version " + expectedCurrentVersion
+                            + " but found " + stateVersion + " for " + playerId
+            );
+        }
+        final long expectedNext;
+        try {
+            expectedNext = Math.addExact(expectedCurrentVersion, 1L);
+        } catch (ArithmeticException exception) {
+            throw new IllegalStateException("Player state version overflow for " + playerId, exception);
+        }
+        if (committedVersion != expectedNext) {
+            throw new IllegalStateException(
+                    "Authority mutation must advance exactly one player-state version for " + playerId
+                            + ": expected " + expectedNext + " but got " + committedVersion
+            );
+        }
+        stateVersion = committedVersion;
+        lastCommittedPayload = copy(committedPayload);
+        lastCommittedZoneId = normalizeOptional(logicalZoneId);
+        lastCommittedEntryPoint = normalizeOptional(entryPoint);
+    }
+
+    synchronized void finishAuthorityMutation() {
+        if (!authorityMutationInFlight) {
+            return;
+        }
+        authorityMutationInFlight = false;
+        if (!transferStarted) {
+            frozen = false;
+        }
+    }
+
+    synchronized boolean isAuthorityMutationInFlight() {
+        return authorityMutationInFlight;
+    }
+
     synchronized void transferStarted() {
         if (closed) {
             throw new IllegalStateException("Transfer cannot start after player attachment closed");
         }
-        if (!frozen) {
-            throw new IllegalStateException("Transfer cannot start before player mutations are frozen");
+        if (!frozen || authorityMutationInFlight) {
+            throw new IllegalStateException("Transfer cannot start before exclusive transfer freeze");
         }
         transferStarted = true;
     }
@@ -110,7 +173,9 @@ final class AttachedPlayerSession {
             return;
         }
         transferStarted = false;
-        frozen = false;
+        if (!authorityMutationInFlight) {
+            frozen = false;
+        }
     }
 
     synchronized void closeAttachment() {

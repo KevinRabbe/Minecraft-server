@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "encounters": [
+    {
+      "encounter_id": "forest_spider_extermination_v1",
+      "environment_id": "forest",
+      "enemy_family_id": "spider",
+      "objective_id": "extermination",
+      "entity_type": "spider",
+      "base_kills": 6,
+      "difficulty_per_extra_kill": 10,
+      "max_kills": 20,
+      "health_per_difficulty": 0.03,
+      "max_health_multiplier": 4.0,
+      "damage_per_difficulty": 0.02,
+      "max_damage_multiplier": 3.0,
+      "spawn_radius": 8.0,
+      "reward_map_definition_id": "map.forest_extermination",
+      "successor_difficulty_delta": 1,
+      "max_successor_difficulty": 100
+    }
+  ]
+}

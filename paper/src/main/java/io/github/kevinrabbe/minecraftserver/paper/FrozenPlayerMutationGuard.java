@@ -4,6 +4,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
@@ -22,8 +23,8 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 
 /**
- * Short transfer-boundary freeze for vanilla mutations while the final authoritative snapshot is committed.
- * Future custom gameplay mutations must also query the same session freeze instead of bypassing it.
+ * Short trust-boundary freeze for vanilla mutations while authoritative player state is being committed.
+ * Custom gameplay mutations must also query the same session freeze instead of bypassing it.
  */
 final class FrozenPlayerMutationGuard implements Listener {
     private final PaperSessionController sessions;
@@ -83,6 +84,13 @@ final class FrozenPlayerMutationGuard implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onItemDamage(PlayerItemDamageEvent event) {
+        if (frozen(event.getPlayer())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onBlockBreak(BlockBreakEvent event) {
         if (frozen(event.getPlayer())) {
             event.setCancelled(true);
         }

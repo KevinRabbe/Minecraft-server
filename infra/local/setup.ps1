@@ -9,6 +9,11 @@ Set-StrictMode -Version Latest
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $RuntimeRoot = $LocalNetwork.RuntimeRoot
+$RestoreMarker = Join-Path $RuntimeRoot "restore.in-progress"
+if (Test-Path $RestoreMarker) {
+    $detail = Get-Content -Raw $RestoreMarker -ErrorAction SilentlyContinue
+    throw "Refusing local setup because a restore is incomplete. Rerun infra\local\restore.ps1 for the selected backup until it succeeds. Marker: $detail"
+}
 $Downloads = Join-Path $RuntimeRoot "downloads"
 $Tools = Join-Path $RuntimeRoot "tools"
 $VelocityRoot = Join-Path $RuntimeRoot "velocity"
@@ -197,7 +202,7 @@ function Set-PaperVelocityForwarding([string]$Path, [string]$Secret) {
 function Write-VelocityConfig([string]$Path) {
     $serverLines = @()
     foreach ($server in $LocalNetwork.Servers) {
-        $serverLines += "$($server.Id) = \"127.0.0.1:$($server.Port)\""
+        $serverLines += "$($server.Id) = `"127.0.0.1:$($server.Port)`""
     }
     $serverBlock = $serverLines -join "`r`n"
 

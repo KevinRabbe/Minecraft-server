@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "placements": [
+    {
+      "source_key": "iron_ore_001",
+      "definition_id": "starter_mine.iron_ore",
+      "zone_id": "starter_mine",
+      "template_version": "v1",
+      "world_name": "world",
+      "block_x": 8,
+      "block_y": 64,
+      "block_z": 8,
+      "expected_block": "IRON_ORE"
+    },
+    {
+      "source_key": "oak_tree_001",
+      "definition_id": "starter_woods.oak_tree",
+      "zone_id": "starter_woods",
+      "template_version": "v1",
+      "world_name": "world",
+      "block_x": 12,
+      "block_y": 64,
+      "block_z": 8,
+      "expected_block": "OAK_LOG"
+    },
+    {
+      "source_key": "wheat_crop_001",
+      "definition_id": "starter_farm.wheat_crop",
+      "zone_id": "starter_farm",
+      "template_version": "v1",
+      "world_name": "world",
+      "block_x": 16,
+      "block_y": 64,
+      "block_z": 8,
+      "expected_block": "WHEAT"
+    }
+  ]
+}
