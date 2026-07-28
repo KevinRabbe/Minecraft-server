@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Bounded aggregate verifier across session/state, economy/custody, Bank Manager/Bazaar,
+ * Bounded aggregate verifier across session/state, economy/custody, Auction/Bank/Bazaar,
  * progression/crafting/world state, Artifacts/Attunement, PvE, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
@@ -20,6 +20,7 @@ public final class PersistentIntegrityVerifier {
 
     private final PlayerSessionIntegrityVerifier sessions;
     private final EconomyIntegrityVerifier economy;
+    private final AuctionIntegrityVerifier auction;
     private final BankIntegrityVerifier bank;
     private final BazaarIntegrityVerifier bazaar;
     private final ItemUpgradeIntegrityVerifier itemUpgrades;
@@ -72,6 +73,7 @@ public final class PersistentIntegrityVerifier {
         Objects.requireNonNull(dataSource, "dataSource");
         this.sessions = new PlayerSessionIntegrityVerifier(dataSource);
         this.economy = new EconomyIntegrityVerifier(dataSource);
+        this.auction = new AuctionIntegrityVerifier(dataSource);
         this.bank = bankTiers == null
                 ? new BankIntegrityVerifier(dataSource)
                 : new BankIntegrityVerifier(dataSource, bankTiers);
@@ -101,6 +103,10 @@ public final class PersistentIntegrityVerifier {
         int remaining = maxIssues - issues.size();
         if (remaining > 0) {
             issues.addAll(economy.verify(remaining));
+        }
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) {
+            issues.addAll(auction.verify(remaining));
         }
         remaining = maxIssues - issues.size();
         if (remaining > 0) {
