@@ -14,7 +14,7 @@ import java.util.Objects;
 /**
  * Bounded aggregate verifier across session/state, economy/custody, shared commodity and unique-delivery claims,
  * Auction/Bank/Bazaar/Secure Trade/clan assets, progression/crafting/resources/world state, Artifacts/Attunement,
- * PvE rewards, clan, and competitive evidence.
+ * PvE/Bounty rewards and lifecycle evidence, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
@@ -35,6 +35,7 @@ public final class PersistentIntegrityVerifier {
     private final CraftingIntegrityVerifier crafting;
     private final WorldProgressionIntegrityVerifier worldProgression;
     private final ArtifactIntegrityVerifier artifacts;
+    private final BountyLifecycleIntegrityVerifier bountyLifecycle;
     private final PersistentPveIntegrityVerifier pve;
     private final MapRewardIntegrityVerifier mapRewards;
     private final ClanIntegrityVerifier clans;
@@ -103,6 +104,7 @@ public final class PersistentIntegrityVerifier {
         this.artifacts = attunementProfiles == null
                 ? new ArtifactIntegrityVerifier(dataSource)
                 : new ArtifactIntegrityVerifier(dataSource, attunementProfiles);
+        this.bountyLifecycle = new BountyLifecycleIntegrityVerifier(dataSource);
         this.pve = new PersistentPveIntegrityVerifier(dataSource);
         this.mapRewards = new MapRewardIntegrityVerifier(dataSource);
         this.clans = new ClanIntegrityVerifier(dataSource);
@@ -116,85 +118,47 @@ public final class PersistentIntegrityVerifier {
         }
         ArrayList<IntegrityIssue> issues = new ArrayList<>(sessions.verify(maxIssues));
         int remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(economy.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(economy.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(commodityDeliveries.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(commodityDeliveries.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(uniqueDeliveryClaims.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(uniqueDeliveryClaims.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(auction.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(auction.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(bank.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(bank.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(bazaar.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(bazaar.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(secureTrades.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(secureTrades.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(clanTreasuries.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(clanTreasuries.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(clanStorage.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(clanStorage.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(itemUpgrades.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(itemUpgrades.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(skills.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(skills.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(resources.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(resources.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(crafting.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(crafting.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(worldProgression.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(worldProgression.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(artifacts.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(artifacts.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(pve.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(bountyLifecycle.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(mapRewards.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(pve.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(clans.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(mapRewards.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(competitive.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(clans.verify(remaining));
         remaining = maxIssues - issues.size();
-        if (remaining > 0) {
-            issues.addAll(competitiveLoadouts.verify(remaining));
-        }
+        if (remaining > 0) issues.addAll(competitive.verify(remaining));
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) issues.addAll(competitiveLoadouts.verify(remaining));
         return List.copyOf(issues);
     }
 }
