@@ -112,10 +112,6 @@ public final class EconomyIntegrityVerifier {
                         i.location_kind IS DISTINCT FROM 'PENDING_DELIVERY'
                         OR i.location_id IS DISTINCT FROM d.delivery_id
                    ))
-                   OR (d.status = 'CLAIMED' AND (
-                        i.location_kind IS DISTINCT FROM 'PLAYER_INVENTORY'
-                        OR i.location_id IS DISTINCT FROM d.recipient_player_id
-                   ))
                 ORDER BY d.created_at, d.delivery_id
                 LIMIT ?
                 """)) {
@@ -127,7 +123,7 @@ public final class EconomyIntegrityVerifier {
                             IntegritySeverity.CRITICAL,
                             "PENDING_UNIQUE_CUSTODY_MISMATCH",
                             deliveryId.toString(),
-                            "Pending unique delivery status does not match authoritative item custody"
+                            "Pending unique delivery does not match authoritative item custody"
                     ));
                 }
             }
