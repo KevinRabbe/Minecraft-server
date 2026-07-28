@@ -64,6 +64,14 @@ public final class SecureTradeIntegrityVerifier {
                     OR operation.result ->> 'trade_id' IS DISTINCT FROM trade.trade_id::TEXT
                     OR operation.result ->> 'reason' IS NULL
                     OR operation.result ->> 'reason' = ''
+                    OR (
+                         trade.status = 'CANCELLED'
+                         AND (
+                              operation.result ->> 'cancelling_player_id' IS NULL
+                              OR operation.result ->> 'cancelling_player_id'
+                                   NOT IN (trade.player_a_id::TEXT, trade.player_b_id::TEXT)
+                         )
+                       )
                     OR jsonb_typeof(operation.result -> 'trade') IS DISTINCT FROM 'object'
                     OR operation.result -> 'trade' ->> 'trade_id' IS DISTINCT FROM trade.trade_id::TEXT
                     OR operation.result -> 'trade' ->> 'player_a_id' IS DISTINCT FROM trade.player_a_id::TEXT
@@ -138,16 +146,21 @@ public final class SecureTradeIntegrityVerifier {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT trade.trade_id
                 FROM secure_trades trade
-                LEFT JOIN processed_operations operation
+                JOIN processed_operations operation
                   ON operation.operation_id = CASE
                        WHEN trade.status = 'SETTLED' THEN trade.settle_operation_id
                        WHEN trade.status = 'CANCELLED' THEN trade.cancel_operation_id
                        ELSE NULL
                      END
                 WHERE trade.status IN ('SETTLED', 'CANCELLED')
+                  AND operation.operation_type = CASE
+                       WHEN trade.status = 'SETTLED' THEN 'SECURE_TRADE_SETTLE'
+                       ELSE 'SECURE_TRADE_CANCEL'
+                     END
+                  AND operation.result ->> 'reason' IS NOT NULL
+                  AND operation.result ->> 'reason' <> ''
                   AND (
-                       operation.operation_id IS NULL
-                    OR (
+                       (
                          SELECT COUNT(*)
                          FROM secure_trade_deliveries delivery
                          WHERE delivery.trade_id = trade.trade_id
@@ -247,16 +260,21 @@ public final class SecureTradeIntegrityVerifier {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT trade.trade_id
                 FROM secure_trades trade
-                LEFT JOIN processed_operations operation
+                JOIN processed_operations operation
                   ON operation.operation_id = CASE
                        WHEN trade.status = 'SETTLED' THEN trade.settle_operation_id
                        WHEN trade.status = 'CANCELLED' THEN trade.cancel_operation_id
                        ELSE NULL
                      END
                 WHERE trade.status IN ('SETTLED', 'CANCELLED')
+                  AND operation.operation_type = CASE
+                       WHEN trade.status = 'SETTLED' THEN 'SECURE_TRADE_SETTLE'
+                       ELSE 'SECURE_TRADE_CANCEL'
+                     END
+                  AND operation.result ->> 'reason' IS NOT NULL
+                  AND operation.result ->> 'reason' <> ''
                   AND (
-                       operation.operation_id IS NULL
-                    OR (
+                       (
                          SELECT COUNT(*)
                          FROM economic_ledger ledger
                          WHERE ledger.operation_id = operation.operation_id
