@@ -263,11 +263,16 @@ class ClanStorageIntegrityVerifierIntegrationTest {
         );
 
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("""
-                     DELETE FROM item_provenance WHERE operation_id = ?
-                     """)) {
-            statement.setObject(1, depositOperationId);
-            assertEquals(1, statement.executeUpdate());
+             Statement control = connection.createStatement()) {
+            control.execute("ALTER TABLE item_provenance DISABLE TRIGGER item_provenance_append_only");
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    DELETE FROM item_provenance WHERE operation_id = ?
+                    """)) {
+                statement.setObject(1, depositOperationId);
+                assertEquals(1, statement.executeUpdate());
+            } finally {
+                control.execute("ALTER TABLE item_provenance ENABLE TRIGGER item_provenance_append_only");
+            }
         }
 
         assertContainsOnly("CLAN_STORAGE_UNIQUE_PROVENANCE_MISMATCH", depositOperationId.toString());
