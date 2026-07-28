@@ -154,6 +154,22 @@ These checks are historical. Once a settlement delivery is legitimately claimed,
 
 Both sides can offer commodities, individualized items, and/or Coins. Offer changes invalidate confirmation. Final settlement is atomic and does not depend on trust.
 
+### Secure Trade integrity/recovery evidence
+
+Trade creation intentionally uses `secure_trades.create_operation_id` as the durable idempotency identity and does **not** create a parallel `processed_operations` record. Integrity verification must not invent a processed-create requirement that the authority never writes.
+
+Terminal SETTLED/CANCELLED state is reconstructable because the offered Coin, commodity and individualized-item escrow rows remain as frozen evidence while terminal resolution writes a processed result, append-only trade-delivery evidence and exact settlement ledgers.
+
+The bounded Secure Trade integrity pass therefore verifies:
+
+- every SETTLED trade retains its exact `SECURE_TRADE_SETTLE` processed result and every CANCELLED trade retains its exact `SECURE_TRADE_CANCEL` result;
+- the frozen terminal result agrees with trade identity, participants, status, revision/confirmation state and recorded delivery set; cancellation evidence must name one of the two participants as the cancelling player;
+- every frozen commodity escrow produces exactly one matching trade-delivery row plus durable pending commodity issuance, delivered to the opposite participant on settlement or returned to the original owner on cancellation;
+- every frozen individualized-item escrow produces exactly one matching trade-delivery row, pending unique-item issuance and `TRADE_ESCROW -> PENDING_DELIVERY` provenance hop at the next item state version, with the terminal reason preserved;
+- every frozen Coin, commodity and individualized-item escrow produces exactly one terminal CREDIT ledger line to the opposite participant on settlement or the original owner on cancellation, with no extra terminal ledger lines.
+
+These are historical resolution checks. A later legitimate claim or movement may change a delivered item's current custody, and later economic activity may change participant wallet balances; neither invalidates the original trade as long as the frozen terminal operation, escrow, delivery, provenance and ledger evidence still reconciles.
+
 ## Crafting economy
 
 Crafting converts fungible inputs into fungible or individualized outputs through authoritative exactly-once resource consumption.
