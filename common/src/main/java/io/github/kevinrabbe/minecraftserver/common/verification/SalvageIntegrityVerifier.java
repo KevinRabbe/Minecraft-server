@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.verification;
 
 import javax.sql.DataSource;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -30,6 +31,7 @@ public final class SalvageIntegrityVerifier {
             verifyOperationAndStateEvidence(connection, issues, maxIssues);
             verifyLedgerEvidence(connection, issues, maxIssues);
             verifyCommodityReturnEvidence(connection, issues, maxIssues);
+            verifyCommoditySourceOperationIds(connection, issues, maxIssues);
             return List.copyOf(issues);
         }
     }
@@ -43,7 +45,7 @@ public final class SalvageIntegrityVerifier {
         if (remaining == 0) return;
         try (PreparedStatement statement = connection.prepareStatement("""
                 WITH mismatches AS (
-                    SELECT s.salvage_id
+                    SELECT s.salvage_id::text AS subject_id
                     FROM salvage_records s
                     LEFT JOIN processed_operations op ON op.operation_id = s.operation_id
                     LEFT JOIN item_instances i ON i.item_instance_id = s.item_instance_id
@@ -75,6 +77,7 @@ public final class SalvageIntegrityVerifier {
                        OR op.result #>> '{result,item_definition_id}' IS DISTINCT FROM s.item_definition_id
                        OR op.result #>> '{result,destroyed_item_version}' IS DISTINCT FROM s.destroyed_item_version::text
                        OR op.result #>> '{result,coin_return_minor}' IS DISTINCT FROM s.coin_return_minor::text
+                       OR op.result #>> '{result,created_at}' IS DISTINCT FROM s.created_at::text
                        OR CASE
                             WHEN jsonb_typeof(op.result -> 'expected_player_state_version') = 'number'
                              AND jsonb_typeof(op.result #> '{result,player_state_version}') = 'number'
@@ -84,6 +87,8 @@ public final class SalvageIntegrityVerifier {
                           END
                        OR ps.network_session_id IS NULL
                        OR ps.player_id IS DISTINCT FROM s.player_id
+                       OR st.player_id IS NULL
+                       OR w.player_id IS NULL
                        OR CASE
                             WHEN jsonb_typeof(op.result #> '{result,player_state_version}') = 'number'
                             THEN ps.state_version::numeric < (op.result #>> '{result,player_state_version}')::numeric
@@ -114,24 +119,24 @@ public final class SalvageIntegrityVerifier {
                        OR p.reason IS DISTINCT FROM op.result ->> 'reason'
                        OR p.actor_player_id IS DISTINCT FROM s.player_id
                     UNION
-                    SELECT NULL::uuid
+                    SELECT op.operation_id::text
                     FROM processed_operations op
                     LEFT JOIN salvage_records s ON s.operation_id = op.operation_id
                     WHERE op.operation_type = 'UNIQUE_ITEM_SALVAGE'
                       AND s.salvage_id IS NULL
                 )
-                SELECT salvage_id
+                SELECT subject_id
                 FROM mismatches
+                ORDER BY subject_id
                 LIMIT ?
                 """)) {
             statement.setInt(1, remaining);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
-                    UUID salvageId = rows.getObject("salvage_id", UUID.class);
                     issues.add(new IntegrityIssue(
                             IntegritySeverity.CRITICAL,
                             "SALVAGE_OPERATION_EVIDENCE_MISMATCH",
-                            salvageId == null ? "orphan_processed_salvage" : salvageId.toString(),
+                            rows.getString("subject_id"),
                             "Salvage record does not reconcile to its processed request, state versions, or destruction provenance"
                     ));
                 }
@@ -159,7 +164,6 @@ public final class SalvageIntegrityVerifier {
                     LEFT JOIN LATERAL jsonb_each_text(s.commodity_returns) r ON TRUE
                 ), expected_counts AS (
                     SELECT s.salvage_id,
-                           s.operation_id,
                            1
                            + CASE WHEN s.coin_return_minor > 0 THEN 1 ELSE 0 END
                            + (SELECT COUNT(*) FROM jsonb_object_keys(s.commodity_returns)) AS expected_count
@@ -258,6 +262,7 @@ public final class SalvageIntegrityVerifier {
                 ), processed_returns AS (
                     SELECT b.salvage_id,
                            b.player_id,
+                           e.ordinality - 1 AS ordinal,
                            e.value ->> 'delivery_id' AS delivery_id,
                            e.value ->> 'commodity_definition_id' AS commodity_definition_id,
                            e.value ->> 'quantity' AS quantity
@@ -268,7 +273,7 @@ public final class SalvageIntegrityVerifier {
                             THEN b.result #> '{result,commodity_returns}'
                             ELSE '[]'::jsonb
                         END
-                    ) e ON TRUE
+                    ) WITH ORDINALITY e(value, ordinality) ON TRUE
                 ), bad AS (
                     SELECT b.salvage_id
                     FROM base b
@@ -324,6 +329,62 @@ public final class SalvageIntegrityVerifier {
                 }
             }
         }
+    }
+
+    private static void verifyCommoditySourceOperationIds(
+            Connection connection,
+            List<IntegrityIssue> issues,
+            int maxIssues
+    ) throws SQLException {
+        int remaining = remaining(issues, maxIssues);
+        if (remaining == 0) return;
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT s.salvage_id,
+                       s.operation_id,
+                       e.ordinality - 1 AS ordinal,
+                       e.value ->> 'delivery_id' AS delivery_id,
+                       d.source_operation_id
+                FROM salvage_records s
+                JOIN processed_operations op ON op.operation_id = s.operation_id
+                CROSS JOIN LATERAL jsonb_array_elements(
+                    CASE
+                        WHEN jsonb_typeof(op.result #> '{result,commodity_returns}') = 'array'
+                        THEN op.result #> '{result,commodity_returns}'
+                        ELSE '[]'::jsonb
+                    END
+                ) WITH ORDINALITY e(value, ordinality)
+                LEFT JOIN pending_commodity_deliveries d ON d.delivery_id::text = e.value ->> 'delivery_id'
+                ORDER BY s.salvage_id, e.ordinality
+                LIMIT ?
+                """)) {
+            statement.setInt(1, remaining);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    UUID salvageId = rows.getObject("salvage_id", UUID.class);
+                    UUID operationId = rows.getObject("operation_id", UUID.class);
+                    int ordinal = rows.getInt("ordinal");
+                    String deliveryId = rows.getString("delivery_id");
+                    UUID sourceOperationId = rows.getObject("source_operation_id", UUID.class);
+                    UUID expectedSource = deterministicUuid(operationId, "commodity-source", ordinal);
+                    if (deliveryId == null || sourceOperationId == null || !expectedSource.equals(sourceOperationId)) {
+                        issues.add(new IntegrityIssue(
+                                IntegritySeverity.CRITICAL,
+                                "SALVAGE_RETURN_DELIVERY_MISMATCH",
+                                salvageId.toString(),
+                                "Salvage commodity delivery does not retain its deterministic source-operation identity"
+                        ));
+                        if (issues.size() >= maxIssues) return;
+                    }
+                }
+            }
+        }
+    }
+
+    private static UUID deterministicUuid(UUID operationId, String purpose, int ordinal) {
+        return UUID.nameUUIDFromBytes(
+                ("salvage:" + operationId + ":" + purpose + ":" + ordinal)
+                        .getBytes(StandardCharsets.UTF_8)
+        );
     }
 
     private static int remaining(List<IntegrityIssue> issues, int maxIssues) {
