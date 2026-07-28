@@ -118,7 +118,7 @@ public final class ClanTreasuryIntegrityVerifier {
                            END AS amount_minor,
                            CASE
                              WHEN result -> 'result' ->> 'treasury_state_version' ~ '^[1-9][0-9]*$'
-                             THEN (result -> 'result' ->> 'treasury_state_version')::BIGINT
+                             THEN (result -> 'result' ->> 'treasury_state_version')::NUMERIC
                            END AS treasury_state_version,
                            CASE
                              WHEN result -> 'result' ->> 'treasury_balance_minor' ~ '^[0-9]+$'
@@ -208,7 +208,7 @@ public final class ClanTreasuryIntegrityVerifier {
                           OR summary.operation_count IS DISTINCT FROM summary.distinct_version_count
                           OR summary.minimum_version IS DISTINCT FROM 1
                           OR summary.maximum_version IS DISTINCT FROM summary.operation_count
-                          OR treasury.state_version IS DISTINCT FROM summary.maximum_version
+                          OR treasury.state_version::NUMERIC IS DISTINCT FROM summary.maximum_version
                           OR treasury.balance_minor::NUMERIC IS DISTINCT FROM latest.treasury_balance_minor
                           OR treasury.balance_minor::NUMERIC
                                IS DISTINCT FROM COALESCE(ledger.ledger_net_minor, 0::NUMERIC)
