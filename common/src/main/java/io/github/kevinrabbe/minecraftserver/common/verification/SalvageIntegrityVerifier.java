@@ -77,7 +77,6 @@ public final class SalvageIntegrityVerifier {
                        OR op.result #>> '{result,item_definition_id}' IS DISTINCT FROM s.item_definition_id
                        OR op.result #>> '{result,destroyed_item_version}' IS DISTINCT FROM s.destroyed_item_version::text
                        OR op.result #>> '{result,coin_return_minor}' IS DISTINCT FROM s.coin_return_minor::text
-                       OR op.result #>> '{result,created_at}' IS DISTINCT FROM s.created_at::text
                        OR CASE
                             WHEN jsonb_typeof(op.result -> 'expected_player_state_version') = 'number'
                              AND jsonb_typeof(op.result #> '{result,player_state_version}') = 'number'
@@ -382,7 +381,7 @@ public final class SalvageIntegrityVerifier {
 
     private static UUID deterministicUuid(UUID operationId, String purpose, int ordinal) {
         return UUID.nameUUIDFromBytes(
-                ("salvage:" + operationId + ":" + purpose + ":" + ordinal)
+                ("minecraft-server:salvage:" + operationId + ":" + purpose + ":" + ordinal)
                         .getBytes(StandardCharsets.UTF_8)
         );
     }
