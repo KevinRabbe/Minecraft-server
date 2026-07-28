@@ -136,6 +136,20 @@ Unique items remain in authoritative Auction custody while listed. One item inst
 
 Finished gear is not soulbound by default.
 
+### Auction integrity/recovery evidence
+
+PostgreSQL already enforces the live Auction custody and transition shape: an ACTIVE listing owns the exact item escrow, and a SOLD/CANCELLED listing can release that item only through its matching pending delivery. Restore-time integrity additionally has to prove that the immutable historical evidence behind those transitions survived coherently.
+
+The bounded Auction integrity pass therefore verifies:
+
+- every listing retains the exact `AUCTION_LISTING_CREATE` processed result for seller, item identity/definition, escrow item version and price;
+- listing creation retains the exact item-provenance hop from seller inventory to that listing's Auction escrow and the matching one-item seller ledger debit;
+- a SOLD listing retains its `AUCTION_LISTING_PURCHASE` result, buyer pending delivery, escrow-to-delivery provenance hop, exact buyer Coin debit, seller Coin credit and buyer item credit;
+- a CANCELLED listing retains its `AUCTION_LISTING_CANCEL` result, seller pending delivery, escrow-to-delivery provenance hop and exact seller item credit;
+- ACTIVE listings remain terminal-field free, while terminal processed results/deliveries bind back to the exact listing and item authority version.
+
+These checks are historical. Once a settlement delivery is legitimately claimed, traded, listed again, moved into clan storage or otherwise changes current custody, the original Auction settlement remains valid because the verifier checks its immutable creation/settlement evidence rather than requiring the item to remain in that old delivery location.
+
 ## Secure direct trade
 
 Both sides can offer commodities, individualized items, and/or Coins. Offer changes invalidate confirmation. Final settlement is atomic and does not depend on trust.
