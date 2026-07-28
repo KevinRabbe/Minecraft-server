@@ -94,6 +94,22 @@ Authority rules:
 - economic ledger/provenance evidence accompanies value movement;
 - the global integrity verifier reconciles clan commodity quantities and unique-item custody against economic evidence.
 
+### Storage integrity/recovery evidence
+
+Current custody reconciliation and historical operation reconstruction are separate checks. The economy integrity pass verifies the assets presently held by the clan against clan-side commodity/item ledger net. The storage-history pass verifies how those holdings and withdrawals were produced.
+
+The bounded storage-history pass therefore verifies:
+
+- every `CLAN_STORAGE_COMMODITY_DEPOSIT`, `CLAN_STORAGE_COMMODITY_WITHDRAW`, `CLAN_STORAGE_UNIQUE_DEPOSIT`, and `CLAN_STORAGE_UNIQUE_WITHDRAW` operation retains a structurally valid frozen request/result bound to real clan/player/item identities where applicable;
+- per `(ClanId, commodity_definition_id)`, committed commodity storage versions form one contiguous history beginning at version 1;
+- commodity deposit/withdraw arithmetic reconstructs each frozen quantity and the mutable current quantity/version equals the latest frozen result;
+- every commodity withdrawal retains the exact pending commodity delivery ID, recipient, definition, quantity, and source operation even after that delivery is later claimed;
+- every individualized deposit retains the exact provenance hop `PLAYER_INVENTORY -> CLAN_STORAGE` at its committed item version;
+- every individualized withdrawal retains both its pending unique-delivery issuance and exact provenance hop `CLAN_STORAGE -> PENDING_DELIVERY` at the next committed item version;
+- every storage mutation retains exactly two asset ledger lines: source debit followed by destination credit, with the clan relation preserved.
+
+These checks are historical. A legitimately withdrawn item may later be claimed, traded, auctioned, moved to another custody system, or otherwise advance beyond its clan-storage delivery; that later movement does not invalidate the original storage operation. The verifier relies on durable issuance/provenance/ledger evidence rather than requiring old deliveries to remain pending.
+
 Presentation may later impose physical/logistical storage constraints, but presentation must not weaken the authority model.
 
 ## Competitive-category boundary
