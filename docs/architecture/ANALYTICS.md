@@ -54,9 +54,10 @@ A raw Coin-ledger operation net is **not** automatically a faucet or sink. Sever
 The projection therefore classifies the stable V1 Coin-bearing operation types explicitly:
 
 - confirmed faucets include controlled system credit, Bank interest, and configured salvage Coin return;
-- confirmed sinks include controlled system debit, Bank tier upgrade cost, Bounty contract fee, and Bazaar execution fees;
+- confirmed sinks include controlled system debit, policy-versioned ordinary-PvE pocket death loss, Bank tier upgrade cost, Bounty contract fee, and Bazaar execution fees;
 - player transfer, Bank deposit/withdrawal, Bazaar buy escrow/cancel, Auction House purchase, secure-trade Coin escrow/settlement/cancel, crafting-commission payment escrow/cancel/completion, and clan-treasury deposit/withdrawal are classified as neutral custody/movement;
 - Bazaar execution fee is derived from the append-only `BAZAAR_MATCH` processed result field `fees_destroyed_minor`, which the matcher commits after summing its fills; it is not inferred from the match operation's wallet-credit net;
+- ordinary-PvE pocket loss is derived from the frozen `PVE_DEATH_LOSS` processed result field `loss_minor` and is classified only when its Coin ledger net exactly matches that destroyed amount;
 - any current/future Coin-bearing operation that is unknown, missing processed-operation identity, or has malformed/mismatched faucet/sink evidence is **unclassified**, never guessed.
 
 For a requested time window the projection returns:
@@ -83,9 +84,12 @@ The PostgreSQL integration proof uses real authority operations and covers both 
 - controlled system credit -> confirmed supply creation;
 - balanced player transfer -> zero supply change with non-zero gross movement;
 - controlled system debit -> confirmed supply destruction;
+- policy-neutral `PVE_DEATH_LOSS` authority -> exact configured pocket-Coin destruction while protected Bank custody remains outside the operation;
 - real Bazaar buy-order escrow debit -> zero supply destruction with non-zero gross movement;
 - a real crossed Bazaar match at the test 1% fee -> `198` minor units of seller wallet credit/gross movement while exactly `2` minor units are classified as destroyed supply;
 - future, not-yet-observed windows -> zero flow.
+
+The analytics test's concrete death-loss amount is only fixture input used to prove classification; it is not a launch percentage or policy choice.
 
 ## Implemented Bazaar market baseline
 
@@ -165,7 +169,7 @@ The implemented session baseline deliberately derives start/end/player-time/rete
 - `NPC_SALVAGE`
 - `BOOTSTRAP_PURCHASE`
 
-Confirmed Coin faucet/sink analytics already derives from existing operation/ledger evidence. Do not add duplicate `COIN_FAUCET`/`COIN_SINK` rows merely to reproduce facts that are already durable. Likewise, current Bazaar depth and aggregate fill quantity/value/fees already derive from `bazaar_orders` plus append-only `BAZAAR_MATCH` results; do not persist duplicate `BAZAAR_FILL` analytics rows merely to recreate those facts. A separate analytics event is justified only when it adds observational context the authoritative operation does not preserve.
+Confirmed Coin faucet/sink analytics already derives from existing operation/ledger evidence, including `PVE_DEATH_LOSS`. Do not add duplicate `COIN_FAUCET`, `COIN_SINK`, or `PVE_POCKET_LOSS` rows merely to reproduce facts that are already durable. Likewise, current Bazaar depth and aggregate fill quantity/value/fees already derive from `bazaar_orders` plus append-only `BAZAAR_MATCH` results; do not persist duplicate `BAZAAR_FILL` analytics rows merely to recreate those facts. A separate analytics event is justified only when it adds observational context the authoritative operation does not preserve.
 
 ### Maps / PvE
 - `MAP_OPENED`
@@ -257,75 +261,4 @@ The implemented session projection directly answers total player-time, new/retur
 - suspicious sudden supply/currency creation
 - wealth concentration and transaction velocity
 
-The implemented Coin-flow projection answers confirmed creation/destruction/net supply change plus gross movement by stable reason and reports whether classification coverage is complete. It deliberately does not infer supply from one-sided escrow ledger entries.
-
-The implemented Bazaar market projection now answers current best bid/ask/spread, best-level and total open depth, and observation-fenced matcher/fill quantity/value/fee activity per commodity. Holdings distribution, commodity creation/consumption, Auction-House price distributions, wealth concentration, and richer market behavior such as slippage/volatility remain separate questions.
-
-### Maps
-- run starts/completions/failures by difficulty/configuration
-- clear-time distribution
-- solo/group practical ceiling
-- farm difficulty versus push difficulty behavior
-- environment/enemy/objective/modifier participation
-- Map-item generation/supply and AH liquidity
-- Map material creation/consumption
-- pre/post major-power-era clear distributions
-
-### Bounties
-- contracts started/completed/failed by family/tier
-- boss success/failure rates
-- Coin sink by family/tier
-- material creation/consumption
-- Bazaar liquidity/prices by material grade
-- family-specialized gear usage
-- whether category specialization actually creates distinct player roles
-
-### Social/competition
-- clan participation and size distribution
-- treasury/storage activity
-- ranked PvP participation/repeat rate
-- war participation/resource consumption
-- expansion-vote participation
-- candidate/result distributions without treating any valid winner as preferred
-- explicit project contribution breadth/depth where projects are used
-
-### World/history
-- vote/feature/world-era chronology
-- first significant Map clears by era
-- Chronicle event frequency/types
-- whether new districts/expansions create sustained activity in older systems
-
-### Development leverage
-For a feature/content addition, compare implementation/maintenance cost with resulting repeatable player-hours and interaction across existing systems.
-
-## Event design
-
-Events use stable IDs/references rather than display names.
-
-Include only data needed for product/operational analysis and debugging. Do not log giant serialized player snapshots or every low-value hot-path event if aggregates are sufficient.
-
-Map/Bounty/world events should reference authoritative run/contract/vote/feature IDs rather than duplicating freeform state.
-
-## Economic ledger versus analytics
-
-The economic ledger is correctness/audit evidence for important value movement. Analytics is a read-only interpretation/projection of that evidence where possible, and separate observational events only where necessary.
-
-Similarly:
-
-- network session rows are session ownership/lifecycle authority; session analytics is a read-only product projection;
-- Coin-flow analytics combines stable operation type with Coin ledger/custody-specific evidence; raw ledger net alone is not global supply authority;
-- Bazaar order rows are current market authority and append-only `BAZAAR_MATCH` processed results are frozen execution summaries; Bazaar market analytics is a read-only projection of those sources;
-- Map clear records are authoritative leaderboard/history source;
-- analytics about Map clears is observational;
-- ballots/vote resolution are authoritative world-state source;
-- analytics about participation is observational.
-
-## Privacy/data minimization
-
-Store only data needed to operate, secure, debug, and improve the game. Avoid unnecessary personal data in analytics records.
-
-The implemented session, Coin-flow, and Bazaar-market summaries return aggregate counts/time/value/depth only; they do not expose player names, Minecraft UUIDs, or serialized player state.
-
-## Expansion rule
-
-Add instrumentation when it answers a concrete question. Prefer deriving from existing durable authority when that is lossless. Do not build an analytics platform for hypothetical future dashboards.
+The implemented Coin-flow projection answers confirmed creation/destruction/net supply change plus gross movement by stable reason and now classifies committed `PVE_DEATH_LOSS` pocket destruction explicitly; it reports whether classification coverage is complete and deliberately does not infer supply from one-sided escrow ledger entries.
