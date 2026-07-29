@@ -182,7 +182,8 @@ class MapEncounterIntegrityVerifierIntegrationTest {
         corrupt(connection -> {
             try (PreparedStatement statement = connection.prepareStatement("""
                     UPDATE map_open_player_state_evidence
-                    SET player_state_version = player_state_version + 1
+                    SET expected_player_state_version = expected_player_state_version + 1,
+                        player_state_version = player_state_version + 1
                     WHERE open_operation_id = ?
                     """)) {
                 statement.setObject(1, prepared.openOperationId());
