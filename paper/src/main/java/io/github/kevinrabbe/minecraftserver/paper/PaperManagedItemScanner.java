@@ -46,6 +46,23 @@ final class PaperManagedItemScanner {
         return containsManaged(stack, requireSource(source), 0, new TraversalBudget());
     }
 
+    /**
+     * Detects managed value below the outer ItemStack while still validating the outer identity envelope itself.
+     * Useful when direct use/placement of a top-level managed item is a separate product decision, but moving nested
+     * managed value out of player-inventory custody is already forbidden.
+     */
+    boolean containsNestedManaged(ItemStack stack, String source) {
+        String normalizedSource = requireSource(source);
+        if (stack == null || stack.isEmpty()) {
+            return false;
+        }
+        TraversalBudget budget = new TraversalBudget();
+        requireDepth(0, normalizedSource);
+        budget.visit(normalizedSource);
+        identityCodec.readClaim(stack, normalizedSource); // validate outer metadata without treating it as nested value
+        return nestedComponentsContainManaged(stack, normalizedSource, 1, budget);
+    }
+
     private void collectSection(
             ItemStack[] contents,
             String section,
@@ -150,25 +167,34 @@ final class PaperManagedItemScanner {
             return true;
         }
 
+        return nestedComponentsContainManaged(stack, source, depth + 1, budget);
+    }
+
+    private boolean nestedComponentsContainManaged(
+            ItemStack stack,
+            String source,
+            int childDepth,
+            TraversalBudget budget
+    ) {
         BundleContents bundle = stack.getData(DataComponentTypes.BUNDLE_CONTENTS);
-        if (bundle != null && containsManaged(bundle.contents(), source + ".bundle", depth + 1, budget)) {
+        if (bundle != null && containsManaged(bundle.contents(), source + ".bundle", childDepth, budget)) {
             return true;
         }
 
         ItemContainerContents container = stack.getData(DataComponentTypes.CONTAINER);
-        if (container != null && containsManaged(container.contents(), source + ".container", depth + 1, budget)) {
+        if (container != null && containsManaged(container.contents(), source + ".container", childDepth, budget)) {
             return true;
         }
 
         ChargedProjectiles charged = stack.getData(DataComponentTypes.CHARGED_PROJECTILES);
         if (charged != null
-                && containsManaged(charged.projectiles(), source + ".charged_projectiles", depth + 1, budget)) {
+                && containsManaged(charged.projectiles(), source + ".charged_projectiles", childDepth, budget)) {
             return true;
         }
 
         UseRemainder useRemainder = stack.getData(DataComponentTypes.USE_REMAINDER);
         return useRemainder != null
-                && containsManaged(useRemainder.transformInto(), source + ".use_remainder", depth + 1, budget);
+                && containsManaged(useRemainder.transformInto(), source + ".use_remainder", childDepth, budget);
     }
 
     private boolean containsManaged(
