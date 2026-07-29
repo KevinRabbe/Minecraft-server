@@ -29,8 +29,10 @@ import java.util.regex.Pattern;
  * PostgreSQL authority for paid mob-family bounty contracts and recoverable boss summons.
  * Runtime bosses are disposable; the persistent contract, summon lease and reward settlement are not.
  *
- * <p>Every operation is idempotent through one append-only {@code processed_operations} row containing the exact
- * original result snapshot. Retries therefore never reconstruct historical results from later mutable state.</p>
+ * <p>One contract freezes the exact configured {@code content_version} selected at start. Hunt eligibility, boss
+ * identity and rewards must therefore remain addressable under that exact family/tier/version for the whole lifecycle.
+ * Every operation is idempotent through one append-only {@code processed_operations} row containing the exact original
+ * result snapshot. Retries never reconstruct historical results from later mutable state or newer content versions.</p>
  */
 public final class BountyRepository {
     private static final String START_OPERATION = "BOUNTY_CONTRACT_START";
@@ -101,7 +103,6 @@ public final class BountyRepository {
         Objects.requireNonNull(operationId, "operationId");
         Objects.requireNonNull(playerId, "playerId");
         familyId = Objects.requireNonNull(familyId, "familyId");
-        BountyTierDefinition definition = catalog.require(familyId, tier);
         String normalizedReason = requireReason(reason);
 
         try (Connection connection = dataSource.getConnection()) {
@@ -124,6 +125,8 @@ public final class BountyRepository {
                     return result;
                 }
 
+                // New contracts select the highest configured version only after replay has been ruled out.
+                BountyTierDefinition definition = catalog.require(familyId, tier);
                 CoinWalletSnapshot wallet = readWallet(connection, playerId, true);
                 long feeMinor = definition.contractFeeMinor();
                 if (wallet.balanceMinor() < feeMinor) {
@@ -152,6 +155,7 @@ public final class BountyRepository {
                             player_id,
                             family_id,
                             tier,
+                            content_version,
                             status,
                             eligible_kill_progress,
                             required_eligible_kills,
@@ -160,16 +164,17 @@ public final class BountyRepository {
                             state_version,
                             created_at,
                             updated_at
-                        ) VALUES (?, ?, ?, ?, 'ACTIVE_HUNT', 0, ?, 0, ?, 0, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, 'ACTIVE_HUNT', 0, ?, 0, ?, 0, ?, ?)
                         """)) {
                     statement.setObject(1, contractId);
                     statement.setObject(2, playerId);
                     statement.setString(3, familyId.value());
                     statement.setInt(4, tier);
-                    statement.setInt(5, definition.requiredEligibleKills());
-                    statement.setObject(6, operationId);
-                    statement.setTimestamp(7, Timestamp.from(now));
+                    statement.setInt(5, definition.contentVersion());
+                    statement.setInt(6, definition.requiredEligibleKills());
+                    statement.setObject(7, operationId);
                     statement.setTimestamp(8, Timestamp.from(now));
+                    statement.setTimestamp(9, Timestamp.from(now));
                     statement.executeUpdate();
                 }
 
@@ -311,7 +316,7 @@ public final class BountyRepository {
                         || current.summonAuthorizationsRemaining() != 1) {
                     throw new BountyException("Contract does not own one ready summon authorization");
                 }
-                BountyTierDefinition definition = catalog.require(current.familyId(), current.tier());
+                BountyTierDefinition definition = requireFrozenDefinition(current);
                 long nextVersion = incrementVersion(current.stateVersion(), "bounty contract", contractId);
                 Instant now = clock.instant();
 
@@ -411,7 +416,7 @@ public final class BountyRepository {
                 if (contract.status() != BountyContractStatus.SUMMONED) {
                     throw new BountyException("Bounty summon contract is not in SUMMONED state");
                 }
-                BountyTierDefinition definition = catalog.require(contract.familyId(), contract.tier());
+                BountyTierDefinition definition = requireFrozenDefinition(contract);
                 long nextVersion = incrementVersion(current.stateVersion(), "bounty summon", summonId);
                 Instant leaseExpiresAt = now.plus(summonLeaseDuration);
                 Instant activatedAt = current.activatedAt() == null ? now : current.activatedAt();
@@ -481,7 +486,11 @@ public final class BountyRepository {
                 PostgresOperationLock.lock(connection, operationId);
                 Optional<ProcessedOperation> processed = findProcessed(connection, operationId);
                 if (processed.isPresent()) {
-                    Map<String, Object> data = requireType(processed.orElseThrow(), HEARTBEAT_SUMMON_OPERATION, operationId);
+                    Map<String, Object> data = requireType(
+                            processed.orElseThrow(),
+                            HEARTBEAT_SUMMON_OPERATION,
+                            operationId
+                    );
                     requireUuid(data, "request_summon_id", summonId, operationId);
                     requireString(data, "request_backend_id", normalizedBackendId, operationId);
                     requireLong(data, "expected_summon_state_version", expectedSummonStateVersion, operationId);
@@ -498,7 +507,7 @@ public final class BountyRepository {
                 Instant now = clock.instant();
                 requireActiveLease(current, normalizedBackendId, expectedSummonStateVersion, now);
                 BountyContractSnapshot contract = readContract(connection, current.contractId(), false);
-                BountyTierDefinition definition = catalog.require(contract.familyId(), contract.tier());
+                BountyTierDefinition definition = requireFrozenDefinition(contract);
                 long nextVersion = incrementVersion(current.stateVersion(), "bounty summon", summonId);
                 Instant leaseExpiresAt = now.plus(summonLeaseDuration);
 
@@ -580,7 +589,7 @@ public final class BountyRepository {
                 if (contract.status() != BountyContractStatus.SUMMONED) {
                     throw new BountyException("Bounty contract is not SUMMONED at boss completion");
                 }
-                BountyTierDefinition definition = catalog.require(contract.familyId(), contract.tier());
+                BountyTierDefinition definition = requireFrozenDefinition(contract);
                 Map<String, Long> resolvedRewards = normalizeRewards(
                         rewards.resolve(contract.contractId(), definition),
                         definition
@@ -615,7 +624,11 @@ public final class BountyRepository {
                     }
                 }
 
-                long nextContractVersion = incrementVersion(contract.stateVersion(), "bounty contract", contract.contractId());
+                long nextContractVersion = incrementVersion(
+                        contract.stateVersion(),
+                        "bounty contract",
+                        contract.contractId()
+                );
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE bounty_contracts
                         SET status = 'COMPLETED',
@@ -697,6 +710,8 @@ public final class BountyRepository {
                 if (contract.status() != BountyContractStatus.SUMMONED) {
                     throw new BountyException("Bounty contract is not SUMMONED at failure");
                 }
+                // Missing historical content is corruption even on the failure path; fail closed rather than erase it.
+                requireFrozenDefinition(contract);
 
                 long nextSummonVersion = incrementVersion(summon.stateVersion(), "bounty summon", summonId);
                 try (PreparedStatement statement = connection.prepareStatement("""
@@ -716,7 +731,11 @@ public final class BountyRepository {
                     }
                 }
 
-                long nextContractVersion = incrementVersion(contract.stateVersion(), "bounty contract", contract.contractId());
+                long nextContractVersion = incrementVersion(
+                        contract.stateVersion(),
+                        "bounty contract",
+                        contract.contractId()
+                );
                 try (PreparedStatement statement = connection.prepareStatement("""
                         UPDATE bounty_contracts
                         SET status = 'FAILED',
@@ -752,6 +771,10 @@ public final class BountyRepository {
                 throw exception;
             }
         }
+    }
+
+    private BountyTierDefinition requireFrozenDefinition(BountyContractSnapshot contract) {
+        return catalog.require(contract.familyId(), contract.tier(), contract.contentVersion());
     }
 
     private static void insertLeaseProcessed(
@@ -817,6 +840,7 @@ public final class BountyRepository {
                 SELECT player_id,
                        family_id,
                        tier,
+                       content_version,
                        status,
                        eligible_kill_progress,
                        required_eligible_kills,
@@ -836,6 +860,7 @@ public final class BountyRepository {
                         row.getObject("player_id", UUID.class),
                         new BountyFamilyId(row.getString("family_id")),
                         row.getInt("tier"),
+                        row.getInt("content_version"),
                         BountyContractStatus.valueOf(row.getString("status")),
                         row.getInt("eligible_kill_progress"),
                         row.getInt("required_eligible_kills"),
@@ -1108,6 +1133,7 @@ public final class BountyRepository {
         value.put("player_id", contract.playerId().toString());
         value.put("family_id", contract.familyId().value());
         value.put("tier", contract.tier());
+        value.put("content_version", contract.contentVersion());
         value.put("status", contract.status().name());
         value.put("eligible_kill_progress", contract.eligibleKillProgress());
         value.put("required_eligible_kills", contract.requiredEligibleKills());
@@ -1123,6 +1149,7 @@ public final class BountyRepository {
                 uuidValue(value, "player_id"),
                 new BountyFamilyId(stringValue(value, "family_id")),
                 intValue(value, "tier"),
+                intValue(value, "content_version"),
                 BountyContractStatus.valueOf(stringValue(value, "status")),
                 intValue(value, "eligible_kill_progress"),
                 intValue(value, "required_eligible_kills"),
