@@ -24,11 +24,11 @@ final class PaperManagedItemDisplayCustodyGate implements Listener {
     );
 
     private final MinecraftServerPlugin plugin;
-    private final PaperItemIdentityCodec identityCodec;
+    private final PaperManagedItemScanner managedItems;
 
     PaperManagedItemDisplayCustodyGate(MinecraftServerPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.identityCodec = new PaperItemIdentityCodec(plugin);
+        this.managedItems = new PaperManagedItemScanner(plugin);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -55,7 +55,7 @@ final class PaperManagedItemDisplayCustodyGate implements Listener {
             return false;
         }
         try {
-            return identityCodec.readClaim(stack, source).isPresent();
+            return managedItems.containsManaged(stack, source);
         } catch (PaperItemRepresentationException exception) {
             plugin.getLogger().log(
                     Level.SEVERE,
