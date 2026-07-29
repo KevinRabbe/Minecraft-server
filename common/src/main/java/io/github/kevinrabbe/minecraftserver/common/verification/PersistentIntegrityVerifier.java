@@ -12,15 +12,16 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Bounded aggregate verifier across session/state, economy/custody, shared commodity and unique-delivery claims,
- * Auction/Bank/Bazaar/Secure Trade/salvage/clan assets, progression/crafting/resources/world state,
- * Artifacts/Attunement, Map encounter/reward and PvE/Bounty lifecycle evidence, clan, and competitive evidence.
+ * Bounded aggregate verifier across session/state, economy/custody, PvE death-loss evidence, shared commodity and
+ * unique-delivery claims, Auction/Bank/Bazaar/Secure Trade/salvage/clan assets, progression/crafting/resources/world
+ * state, Artifacts/Attunement, Map encounter/reward and PvE/Bounty lifecycle evidence, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
 
     private final PlayerSessionIntegrityVerifier sessions;
     private final EconomyIntegrityVerifier economy;
+    private final PveDeathLossIntegrityVerifier pveDeathLoss;
     private final CommodityDeliveryIntegrityVerifier commodityDeliveries;
     private final PendingUniqueDeliveryClaimIntegrityVerifier uniqueDeliveryClaims;
     private final AuctionIntegrityVerifier auction;
@@ -84,6 +85,7 @@ public final class PersistentIntegrityVerifier {
         Objects.requireNonNull(dataSource, "dataSource");
         this.sessions = new PlayerSessionIntegrityVerifier(dataSource);
         this.economy = new EconomyIntegrityVerifier(dataSource);
+        this.pveDeathLoss = new PveDeathLossIntegrityVerifier(dataSource);
         this.commodityDeliveries = new CommodityDeliveryIntegrityVerifier(dataSource);
         this.uniqueDeliveryClaims = new PendingUniqueDeliveryClaimIntegrityVerifier(dataSource);
         this.auction = new AuctionIntegrityVerifier(dataSource);
@@ -123,6 +125,8 @@ public final class PersistentIntegrityVerifier {
         ArrayList<IntegrityIssue> issues = new ArrayList<>(sessions.verify(maxIssues));
         int remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(economy.verify(remaining));
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) issues.addAll(pveDeathLoss.verify(remaining));
         remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(commodityDeliveries.verify(remaining));
         remaining = maxIssues - issues.size();
