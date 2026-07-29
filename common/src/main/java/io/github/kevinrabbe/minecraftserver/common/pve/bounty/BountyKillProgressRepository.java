@@ -39,9 +39,19 @@ public final class BountyKillProgressRepository {
     private final DataSource dataSource;
     private final BountyContentCatalog content;
 
+    /** Unbound construction is retained for bootstrap compatibility; mutation fails closed until content is bound. */
+    public BountyKillProgressRepository(DataSource dataSource) {
+        this(dataSource, null);
+    }
+
     public BountyKillProgressRepository(DataSource dataSource, BountyContentCatalog content) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
-        this.content = Objects.requireNonNull(content, "content");
+        this.content = content;
+    }
+
+    /** Returns an immutable repository view bound to the exact loaded bounty content catalog. */
+    public BountyKillProgressRepository withContent(BountyContentCatalog content) {
+        return new BountyKillProgressRepository(dataSource, Objects.requireNonNull(content, "content"));
     }
 
     public BountyKillProgressResult recordManagedKill(
@@ -59,6 +69,7 @@ public final class BountyKillProgressRepository {
         if (eligibleKills <= 0) {
             throw new IllegalArgumentException("eligibleKills must be > 0");
         }
+        BountyContentCatalog boundContent = requireContent();
         String normalizedReason = requireReason(reason);
         UUID progressOperationId = progressOperationId(resourceKillOperationId);
 
@@ -90,7 +101,7 @@ public final class BountyKillProgressRepository {
                 BountyContractSnapshot updated = null;
                 if (active.isPresent()) {
                     BountyContractSnapshot contract = active.orElseThrow();
-                    if (content.isEligibleSource(
+                    if (boundContent.isEligibleSource(
                             contract.familyId(),
                             contract.tier(),
                             contract.contentVersion(),
@@ -198,6 +209,13 @@ public final class BountyKillProgressRepository {
         return UUID.nameUUIDFromBytes(
                 ("bounty-managed-kill:" + resourceKillOperationId).getBytes(StandardCharsets.UTF_8)
         );
+    }
+
+    private BountyContentCatalog requireContent() {
+        if (content == null) {
+            throw new BountyException("Managed bounty kill progress requires a bound BountyContentCatalog");
+        }
+        return content;
     }
 
     private static HarvestEvidence requireAuthoritativeEntityHarvest(
