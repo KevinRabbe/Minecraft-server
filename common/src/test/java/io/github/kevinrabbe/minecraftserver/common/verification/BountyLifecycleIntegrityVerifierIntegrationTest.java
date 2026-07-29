@@ -336,7 +336,15 @@ class BountyLifecycleIntegrityVerifierIntegrationTest {
                 claim.operationId(), session.sessionId(), "paper-a", session.stateVersion(),
                 source.sourceId(), "resource.entity_kill"
         );
-        new BountyKillProgressRepository(dataSource).recordManagedKill(
+        io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalog content =
+                new io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalog(List.of(
+                        new io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalog.ConfiguredTier(
+                                TIER,
+                                List.of(RESOURCE_DEFINITION),
+                                Map.of(REWARD, 2L)
+                        )
+                ));
+        new BountyKillProgressRepository(dataSource, content).recordManagedKill(
                 claim.operationId(), player, RESOURCE_DEFINITION, FAMILY, 1, "bounty.managed_kill"
         );
 
