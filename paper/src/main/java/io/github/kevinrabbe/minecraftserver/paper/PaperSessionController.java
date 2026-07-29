@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRoute;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRouter;
 import io.github.kevinrabbe.minecraftserver.common.session.BackendSessionLeaseRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.BackendZoneInstanceBindingRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerStateRepository;
@@ -32,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -69,6 +71,7 @@ final class PaperSessionController implements Listener {
     private final JavaPlugin plugin;
     private final String backendId;
     private final String currentZoneId;
+    private final UUID currentInstanceId;
     private final PlayerIdentityRepository identities;
     private final PlayerSessionRepository sessions;
     private final PlayerStateRepository states;
@@ -84,10 +87,31 @@ final class PaperSessionController implements Listener {
     private final ConcurrentHashMap<UUID, CompletableFuture<PaperAuthoritativeStateMutation.Result>>
             authorityMutationsByMinecraftUuid = new ConcurrentHashMap<>();
 
-    PaperSessionController(JavaPlugin plugin, String backendId, String currentZoneId, DataSource dataSource) {
-        this.plugin = plugin;
-        this.backendId = backendId;
+    PaperSessionController(JavaPlugin plugin, String backendId, String currentZoneId, DataSource dataSource)
+            throws SQLException {
+        this(
+                plugin,
+                backendId,
+                currentZoneId,
+                resolveBootstrapInstanceId(backendId, currentZoneId, dataSource),
+                dataSource
+        );
+    }
+
+    PaperSessionController(
+            JavaPlugin plugin,
+            String backendId,
+            String currentZoneId,
+            UUID currentInstanceId,
+            DataSource dataSource
+    ) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.backendId = requireBackendId(backendId);
         this.currentZoneId = normalizeOptional(currentZoneId);
+        this.currentInstanceId = currentInstanceId;
+        if (currentInstanceId != null && this.currentZoneId == null) {
+            throw new IllegalArgumentException("currentInstanceId requires a currentZoneId");
+        }
         this.identities = new PlayerIdentityRepository(dataSource);
         this.sessions = new PlayerSessionRepository(dataSource);
         this.states = new PlayerStateRepository(dataSource);
@@ -537,7 +561,7 @@ final class PaperSessionController implements Listener {
             );
         } else {
             UUID playerId = identities.ensurePlayer(minecraftUuid, playerName);
-            lease = sessions.openSession(playerId, backendId, null, SESSION_LEASE);
+            lease = sessions.openSession(playerId, backendId, currentInstanceId, SESSION_LEASE);
         }
 
         try {
@@ -700,44 +724,57 @@ final class PaperSessionController implements Listener {
         plugin.getServer().getScheduler().runTask(plugin, task);
     }
 
-    private void logCheckpointFailure(String type, UUID minecraftUuid, Throwable failure) {
-        Throwable cause = unwrapCompletionFailure(failure);
-        plugin.getLogger().log(Level.WARNING, "Player-state " + type + " checkpoint failed for " + minecraftUuid, cause);
+    private static UUID resolveBootstrapInstanceId(String backendId, String currentZoneId, DataSource dataSource)
+            throws SQLException {
+        String normalizedZoneId = normalizeOptional(currentZoneId);
+        if (normalizedZoneId == null) {
+            return null;
+        }
+        return new BackendZoneInstanceBindingRepository(dataSource, ROUTE_HEARTBEAT_FRESHNESS)
+                .findSingleFreshActiveInstance(requireBackendId(backendId), normalizedZoneId)
+                .orElseThrow(() -> new SessionConflictException(
+                        "No fresh ACTIVE bootstrap instance exists for backend " + backendId + " zone " + normalizedZoneId
+                ));
     }
 
-    private static Throwable unwrapCompletionFailure(Throwable failure) {
-        Throwable current = failure;
-        while ((current instanceof CompletionException || current instanceof ExecutionException)
-                && current.getCause() != null) {
-            current = current.getCause();
+    private static String requireBackendId(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("backendId must not be blank");
         }
-        return current;
+        return value.trim();
     }
 
-    private static String transferFailureMessage(Throwable failure) {
-        Throwable cause = unwrapCompletionFailure(failure);
-        if (cause instanceof TransferPreparationException && cause.getMessage() != null) {
-            return cause.getMessage();
+    private static String requireZoneId(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("zoneId must not be blank");
         }
-        return "Transfer preparation failed; your source session remains active.";
-    }
-
-    private static String requireZoneId(String zoneId) {
-        if (zoneId == null || !zoneId.matches("[a-z0-9][a-z0-9_-]{0,63}")) {
-            throw new IllegalArgumentException("zoneId must match [a-z0-9][a-z0-9_-]{0,63}");
-        }
-        return zoneId;
+        return value.trim();
     }
 
     private static String normalizeOptional(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
-    private record PendingSession(SessionLease lease, PlayerStateSnapshot snapshot, Instant createdAt) {
+    private static String transferFailureMessage(Throwable failure) {
+        Throwable cause = failure;
+        while (cause instanceof CompletionException && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause.getMessage() == null || cause.getMessage().isBlank()
+                ? "Persistent transfer failed. Please retry."
+                : cause.getMessage();
     }
 
-    private record AcquiredState(SessionLease lease, PlayerStateSnapshot snapshot) {
+    private void logCheckpointFailure(String phase, UUID minecraftUuid, Throwable failure) {
+        plugin.getLogger().log(Level.WARNING, "Persistent " + phase + " checkpoint failed for " + minecraftUuid, failure);
     }
+
+    private record PendingSession(SessionLease lease, PlayerStateSnapshot snapshot, Instant createdAt) { }
+
+    private record AcquiredState(SessionLease lease, PlayerStateSnapshot snapshot) { }
 
     private static final class TransferPreparationException extends RuntimeException {
         private TransferPreparationException(String message) {
