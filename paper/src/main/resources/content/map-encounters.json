@@ -6,6 +6,8 @@
       "environment_id": "forest",
       "enemy_family_id": "spider",
       "objective_id": "extermination",
+      "generation_version": 1,
+      "balance_version": 1,
       "entity_type": "spider",
       "base_kills": 6,
       "difficulty_per_extra_kill": 10,
