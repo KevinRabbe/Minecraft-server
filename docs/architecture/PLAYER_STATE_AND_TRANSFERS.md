@@ -14,6 +14,20 @@ At minimum:
 - unique-item ownership/provenance
 - durable logical location
 
+## Persistent Hub/Town entry rule
+
+The persistent City/Town is the network's starter **Hub/Town** and safe world-entry anchor. It is gameplay geography, not a separate menu-lobby authority.
+
+Locked routing semantics:
+
+- a fresh player with no durable logical location enters the configured Hub/Town zone;
+- a returning persistent-MMO player first attempts to route to the last valid durable logical zone;
+- if that saved logical zone has no healthy routable instance, is invalid/unavailable, or cannot be resolved safely, login falls back to Hub/Town;
+- if Hub/Town itself has no healthy routable instance, entry fails closed rather than choosing an unrelated gameplay zone/backend;
+- once a player already owns a live backend session, ordinary zone changes continue through the fenced transfer-ticket protocol and are not replaced by login routing.
+
+The operational `zone_id` for Hub/Town is configuration. The current local development configuration uses `city`.
+
 ## Session states
 
 Conceptual states:
@@ -87,7 +101,7 @@ Clean logout:
 1. freeze/finish allowed mutations;
 2. commit dirty persistent state;
 3. mark session disconnected/release ownership;
-4. next login creates/claims a valid new session and routes from logical location.
+4. next login creates/claims a valid new session and routes from logical location, with Hub/Town as the safe fallback.
 
 ## Crash recovery
 
@@ -109,9 +123,9 @@ Persistent/resettable zone example:
 - optionally save named entry/spawn point
 - do not require old `instance_id` to exist after restart
 
-Persistent City may additionally retain exact coordinates where safe/useful.
+Persistent City/Hub may additionally retain exact coordinates where safe/useful.
 
-If a saved destination is unavailable, locked, invalid, or cannot start, route to the configured safe fallback (normally City).
+If a saved destination is unavailable, locked, invalid, or cannot start, route to the configured persistent Hub/Town fallback rather than an arbitrary backend.
 
 ## Ranked PvP and war
 

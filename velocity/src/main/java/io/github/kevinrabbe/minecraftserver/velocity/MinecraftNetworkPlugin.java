@@ -13,12 +13,14 @@ import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.scheduler.ScheduledTask;
+import io.github.kevinrabbe.minecraftserver.common.control.ZoneRoute;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRouter;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRoute;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveEntryRouteRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.CompetitiveRuntimeTopologyRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.PersistentMmoLoginRouter;
 import io.github.kevinrabbe.minecraftserver.common.session.RoutedTransfer;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRoutingRepository;
 import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessage;
@@ -44,11 +46,15 @@ public final class MinecraftNetworkPlugin {
     private static final Duration INSTANCE_HEARTBEAT_FRESHNESS = Duration.ofSeconds(15);
     private static final Duration COMPETITIVE_BACKEND_HEARTBEAT_FRESHNESS = Duration.ofSeconds(30);
     private static final Duration COMPETITIVE_ROUTE_RECONCILE_PERIOD = Duration.ofSeconds(2);
+    private static final String DEFAULT_PERSISTENT_HUB_ZONE_ID = "city";
     private static final Component LEGACY_COMPETITIVE_CLIENT_REQUIRED = Component.text(
             "Competitive PvP requires Minecraft 1.8.9. Reconnect using 1.8.9."
     );
     private static final Component PERSISTENT_MMO_CLIENT_REQUIRED = Component.text(
             "Competitive play ended. Reconnect with the supported modern Minecraft client to return to the persistent MMO."
+    );
+    private static final Component PERSISTENT_HUB_UNAVAILABLE = Component.text(
+            "The persistent Hub/Town is temporarily unavailable. Please reconnect shortly."
     );
     private static final MinecraftChannelIdentifier TRANSFER_CHANNEL = MinecraftChannelIdentifier.from(
             TransferPluginMessage.CHANNEL
@@ -60,6 +66,8 @@ public final class MinecraftNetworkPlugin {
 
     private Database database;
     private ZoneRouter zoneRouter;
+    private PersistentMmoLoginRouter persistentMmoLoginRouter;
+    private String persistentHubZoneId;
     private TransferRoutingRepository transferRouting;
     private CompetitiveEntryRouteRepository competitiveEntryRoutes;
     private CompetitiveRuntimeTopologyRepository competitiveRuntimeTopology;
@@ -76,6 +84,11 @@ public final class MinecraftNetworkPlugin {
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
             zoneRouter = new ZoneRouter(database.dataSource(), INSTANCE_HEARTBEAT_FRESHNESS);
+            persistentMmoLoginRouter = new PersistentMmoLoginRouter(
+                    database.dataSource(),
+                    INSTANCE_HEARTBEAT_FRESHNESS
+            );
+            persistentHubZoneId = persistentHubZoneIdFromEnvironment();
             transferRouting = new TransferRoutingRepository(database.dataSource(), INSTANCE_HEARTBEAT_FRESHNESS);
             competitiveEntryRoutes = new CompetitiveEntryRouteRepository(
                     database.dataSource(),
@@ -93,13 +106,21 @@ public final class MinecraftNetworkPlugin {
             throw exception;
         }
 
-        LOGGER.log(System.Logger.Level.INFO, "Minecraft network plugin initialized with routed transfer coordination");
+        LOGGER.log(
+                System.Logger.Level.INFO,
+                "Minecraft network plugin initialized; persistent Hub/Town zone is " + persistentHubZoneId
+        );
     }
 
     /**
      * Keeps any player with one exact ACTIVE competitive execution pinned to its assigned legacy backend. Category
      * transitions are reconnect boundaries: protocol-47 clients cannot fall through into the modern MMO, and modern
      * clients are never silently forwarded into the 1.8.9 competitive category.
+     *
+     * <p>For a modern persistent-MMO client with no current backend, this same boundary resolves initial entry from the
+     * durable logical location. Fresh players and unavailable saved locations route to the persistent Hub/Town. Once a
+     * player is already connected to a Paper backend, ordinary zone transfers continue to use the fenced transfer-ticket
+     * path and are not overridden here.</p>
      */
     @Subscribe
     public void onServerPreConnect(ServerPreConnectEvent event) {
@@ -115,6 +136,10 @@ public final class MinecraftNetworkPlugin {
                     event.setResult(ServerPreConnectEvent.ServerResult.denied());
                     routeConnectionsInFlight.remove(player.getUniqueId());
                     player.disconnect(PERSISTENT_MMO_CLIENT_REQUIRED);
+                    return;
+                }
+                if (player.getCurrentServer().isEmpty()) {
+                    routeInitialPersistentMmoConnection(event, player);
                 }
                 return;
             }
@@ -138,10 +163,43 @@ public final class MinecraftNetworkPlugin {
             missingProxyBackends.remove(route.backendId());
             event.setResult(ServerPreConnectEvent.ServerResult.allowed(targetResult.orElseThrow()));
         } catch (SQLException exception) {
-            LOGGER.log(System.Logger.Level.ERROR, "Could not resolve competitive player route", exception);
+            LOGGER.log(System.Logger.Level.ERROR, "Could not resolve player entry route", exception);
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
-            player.sendMessage(Component.text("Competitive routing is temporarily unavailable."));
+            player.sendMessage(Component.text("Persistent routing is temporarily unavailable."));
         }
+    }
+
+    private void routeInitialPersistentMmoConnection(ServerPreConnectEvent event, Player player) throws SQLException {
+        Optional<ZoneRoute> routeResult = persistentMmoLoginRouter.findInitialRoute(
+                player.getUniqueId(),
+                persistentHubZoneId
+        );
+        if (routeResult.isEmpty()) {
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            player.sendMessage(PERSISTENT_HUB_UNAVAILABLE);
+            return;
+        }
+
+        ZoneRoute route = routeResult.orElseThrow();
+        Optional<RegisteredServer> targetResult = proxy.getServer(route.backendId());
+        if (targetResult.isEmpty() && !route.zoneId().equals(persistentHubZoneId)) {
+            logMissingProxyBackend(route.backendId(), "Persistent login");
+            Optional<ZoneRoute> hubRouteResult = zoneRouter.findPreferredActiveInstance(persistentHubZoneId);
+            if (hubRouteResult.isPresent()) {
+                route = hubRouteResult.orElseThrow();
+                targetResult = proxy.getServer(route.backendId());
+            }
+        }
+
+        if (targetResult.isEmpty()) {
+            logMissingProxyBackend(route.backendId(), "Persistent Hub/Town");
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            player.sendMessage(PERSISTENT_HUB_UNAVAILABLE);
+            return;
+        }
+
+        missingProxyBackends.remove(route.backendId());
+        event.setResult(ServerPreConnectEvent.ServerResult.allowed(targetResult.orElseThrow()));
     }
 
     /**
@@ -226,6 +284,14 @@ public final class MinecraftNetworkPlugin {
 
     private static boolean isLegacyCompetitiveClient(Player player) {
         return CompetitiveClientProtocolPolicy.accepts(player.getProtocolVersion().getProtocol());
+    }
+
+    private static String persistentHubZoneIdFromEnvironment() {
+        String configured = System.getenv("PERSISTENT_HUB_ZONE_ID");
+        if (configured == null || configured.isBlank()) {
+            return DEFAULT_PERSISTENT_HUB_ZONE_ID;
+        }
+        return configured.trim();
     }
 
     private void logMissingProxyBackend(String backendId, String routeKind) {
@@ -314,6 +380,8 @@ public final class MinecraftNetworkPlugin {
         competitiveRuntimeTopology = null;
         competitiveEntryRoutes = null;
         transferRouting = null;
+        persistentMmoLoginRouter = null;
+        persistentHubZoneId = null;
         zoneRouter = null;
         closeDatabase();
     }

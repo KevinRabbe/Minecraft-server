@@ -4,6 +4,7 @@ $LocalNetwork = @{
     ProxyHost = "127.0.0.1"
     ProxyPort = 25565
     RuntimeRoot = Join-Path $PSScriptRoot "runtime"
+    HubZone = "city"
     Servers = @(
         @{
             Id = "paper-01"
