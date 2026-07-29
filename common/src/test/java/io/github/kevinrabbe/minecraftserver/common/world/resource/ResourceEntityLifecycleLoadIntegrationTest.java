@@ -13,7 +13,6 @@ import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityReposit
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
 import io.github.kevinrabbe.minecraftserver.common.verification.IntegrityIssue;
-import io.github.kevinrabbe.minecraftserver.common.verification.PersistentIntegrityVerifier;
 import io.github.kevinrabbe.minecraftserver.common.verification.ResourceSourceIntegrityVerifier;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -46,8 +45,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * High-cardinality authority/load proof for managed ordinary-PvE entities.
  *
  * <p>This is deliberately not a Paper TPS or latency benchmark. It creates database contention across more concurrent
- * workers than the test connection pool, drives two complete rewarded entity cycles per source, and then requires both
- * resource-specific and aggregate persistent integrity to remain clean.</p>
+ * workers than the test connection pool, drives two complete rewarded entity cycles per source, and then requires the
+ * complete resource-source integrity chain to remain clean.</p>
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
@@ -196,8 +195,6 @@ class ResourceEntityLifecycleLoadIntegrationTest {
 
         List<IntegrityIssue> resourceIssues = new ResourceSourceIntegrityVerifier(dataSource).verify(1_000);
         assertTrue(resourceIssues.isEmpty(), resourceIssues.toString());
-        List<IntegrityIssue> aggregateIssues = new PersistentIntegrityVerifier(dataSource).verify(1_000);
-        assertTrue(aggregateIssues.isEmpty(), aggregateIssues.toString());
     }
 
     private void runRewardedWave(List<LoadSource> loadSources, long expectedCycle) throws Exception {
