@@ -22,6 +22,8 @@ import java.util.Objects;
 /** Strict Paper materialization catalog for the small set of launch Map encounter combinations. */
 final class PaperMapEncounterContentCatalog {
     private static final int SCHEMA_VERSION = 1;
+    private static final int SUPPORTED_GENERATION_VERSION = 1;
+    private static final int SUPPORTED_BALANCE_VERSION = 1;
 
     private final Map<Key, PaperMapEncounterDefinition> definitions;
 
@@ -107,12 +109,33 @@ final class PaperMapEncounterContentCatalog {
 
     PaperMapEncounterDefinition require(MapRunDefinition run) {
         Objects.requireNonNull(run, "run");
+        requireSupportedRuntimeSemantics(run);
         Key key = new Key(run.environmentId(), run.enemyFamilyId(), run.objectiveId());
         PaperMapEncounterDefinition definition = definitions.get(key);
         if (definition == null) {
             throw new MapAuthorityException("No Paper encounter materialization for Map tuple: " + key);
         }
         return definition;
+    }
+
+    private static void requireSupportedRuntimeSemantics(MapRunDefinition run) {
+        if (run.generationVersion() != SUPPORTED_GENERATION_VERSION) {
+            throw new MapAuthorityException(
+                    "Paper Map runtime does not support generation_version " + run.generationVersion()
+                            + "; supported=" + SUPPORTED_GENERATION_VERSION
+            );
+        }
+        if (run.balanceVersion() != SUPPORTED_BALANCE_VERSION) {
+            throw new MapAuthorityException(
+                    "Paper Map runtime does not support balance_version " + run.balanceVersion()
+                            + "; supported=" + SUPPORTED_BALANCE_VERSION
+            );
+        }
+        if (!run.modifierIds().isEmpty()) {
+            throw new MapAuthorityException(
+                    "Paper Map runtime does not yet materialize modifiers: " + run.modifierIds()
+            );
+        }
     }
 
     private static EntityType requireEntityType(String raw) {
