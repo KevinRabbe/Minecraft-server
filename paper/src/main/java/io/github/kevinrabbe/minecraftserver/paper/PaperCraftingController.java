@@ -63,6 +63,7 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
         this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
         this.uniqueDeliveries = Objects.requireNonNull(uniqueDeliveries, "uniqueDeliveries");
         this.currentRecipes = latestVersions(Objects.requireNonNull(recipes, "recipes"));
+        plugin.getServer().getPluginManager().registerEvents(new PaperManagedItemVanillaCraftingGate(plugin), plugin);
     }
 
     void recoverPendingExperience() {
@@ -186,8 +187,7 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
             } catch (SQLException | RuntimeException exception) {
                 plugin.getLogger().log(
                         Level.WARNING,
-                        "Craft committed but Crafting XP fulfillment remains recoverable for "
-                                + result.craft().craftId(),
+                        "Could not recover Crafting XP for craft " + result.craft().craftId(),
                         exception
                 );
                 sendIfOnline(minecraftUuid, "Craft completed. Progression fulfillment will recover automatically.");
