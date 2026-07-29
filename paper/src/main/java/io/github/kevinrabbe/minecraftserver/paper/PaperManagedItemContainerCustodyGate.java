@@ -47,15 +47,13 @@ final class PaperManagedItemContainerCustodyGate implements Listener {
         Inventory top = event.getView().getTopInventory();
         Inventory clicked = event.getClickedInventory();
 
-        // A managed cursor can be placed/swapped/collected through many click actions. While an external inventory is
-        // open, keep that cursor inside player custody by rejecting the interaction instead of attempting to infer every
-        // client-side click variant.
-        if (isManagedOrMalformed(event.getCursor(), "container-cursor")) {
-            deny(event, player);
-            return;
-        }
-
         if (clicked == top) {
+            // Any managed cursor interaction with the external top inventory could move persistent player custody into
+            // an untracked container. Bottom-inventory clicks remain untouched even while an external view is open.
+            if (isManagedOrMalformed(event.getCursor(), "container-cursor")) {
+                deny(event, player);
+                return;
+            }
             if (isManagedOrMalformed(event.getCurrentItem(), "container-top-slot")) {
                 deny(event, player);
                 return;
