@@ -8,6 +8,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.sql.SQLException;
@@ -32,7 +34,7 @@ final class PaperPveDeathLossListener implements Listener {
     private final PveDeathLossRepository deathLoss;
     private final PveDeathLossConfig config;
     private final boolean ordinaryPersistentZone;
-    private final ConcurrentHashMap<UUID, UUID> inFlightByMinecraftUuid = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, UUID> deathOperationByMinecraftUuid = new ConcurrentHashMap<>();
 
     PaperPveDeathLossListener(
             JavaPlugin plugin,
@@ -57,8 +59,12 @@ final class PaperPveDeathLossListener implements Listener {
 
         UUID minecraftUuid = player.getUniqueId();
         UUID operationId = UUID.randomUUID();
-        if (inFlightByMinecraftUuid.putIfAbsent(minecraftUuid, operationId) != null) {
-            plugin.getLogger().warning("Ignoring overlapping PvE death-loss signal for " + minecraftUuid);
+        UUID existing = deathOperationByMinecraftUuid.putIfAbsent(minecraftUuid, operationId);
+        if (existing != null) {
+            plugin.getLogger().warning(
+                    "Ignoring duplicate PvE death-loss signal for " + minecraftUuid + "; operation " + existing
+                            + " already owns this death lifecycle"
+            );
             return;
         }
 
@@ -88,10 +94,18 @@ final class PaperPveDeathLossListener implements Listener {
                         "Could not settle ordinary-PvE pocket-Coin death loss operation " + operationId,
                         exception
                 );
-            } finally {
-                inFlightByMinecraftUuid.remove(minecraftUuid, operationId);
             }
         });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        deathOperationByMinecraftUuid.remove(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        deathOperationByMinecraftUuid.remove(event.getPlayer().getUniqueId());
     }
 
     static boolean shouldApply(boolean enabled, boolean ordinaryPersistentZone, boolean playerKillerPresent) {
