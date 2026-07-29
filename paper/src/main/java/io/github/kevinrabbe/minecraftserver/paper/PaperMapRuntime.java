@@ -1,6 +1,9 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.economy.CommodityDeliveryAuthority;
+import io.github.kevinrabbe.minecraftserver.common.economy.PveDeathLossConfig;
+import io.github.kevinrabbe.minecraftserver.common.economy.PveDeathLossConfigLoader;
+import io.github.kevinrabbe.minecraftserver.common.economy.PveDeathLossRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 import io.github.kevinrabbe.minecraftserver.common.item.PendingUniqueDeliveryRepository;
@@ -30,6 +33,7 @@ import java.util.logging.Level;
 final class PaperMapRuntime {
     private static final String ROUTE_RESOURCE = "/content/map-encounter-routes.json";
     private static final String ENCOUNTER_CONTENT_RESOURCE = "/content/map-encounters.json";
+    private static final String PVE_DEATH_LOSS_RESOURCE = "/content/pve-death-loss.json";
     private static final Duration ROUTE_HEARTBEAT_FRESHNESS = Duration.ofSeconds(15);
     private static final Duration NO_HANDOFF_GRACE = Duration.ofSeconds(30);
     private static final Duration TARGET_START_GRACE = Duration.ofSeconds(30);
@@ -162,6 +166,21 @@ final class PaperMapRuntime {
             plugin.getServer().getPluginManager().registerEvents(gameplay, plugin);
             plugin.getServer().getPluginManager().registerEvents(encounterController, plugin);
             gameplay.start();
+        }
+
+        PveDeathLossConfig deathLossConfig = new PveDeathLossConfigLoader().loadResource(PVE_DEATH_LOSS_RESOURCE);
+        if (deathLossConfig.enabled()) {
+            boolean ordinaryPersistentZone = bootstrapZoneInstance != null && encounterController == null;
+            plugin.getServer().getPluginManager().registerEvents(
+                    new PaperPveDeathLossListener(
+                            plugin,
+                            identities,
+                            new PveDeathLossRepository(dataSource),
+                            deathLossConfig,
+                            ordinaryPersistentZone
+                    ),
+                    plugin
+            );
         }
 
         PaperMapCommand.install(plugin, openService);
