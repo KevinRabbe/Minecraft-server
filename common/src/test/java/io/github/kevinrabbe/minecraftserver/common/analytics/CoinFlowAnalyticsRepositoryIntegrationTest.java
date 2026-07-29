@@ -4,6 +4,7 @@ import io.github.kevinrabbe.minecraftserver.common.economy.BazaarOrderRequest;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarOrderSide;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.PveDeathLossRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCategory;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
@@ -45,6 +46,7 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
     private PlayerIdentityRepository identities;
     private PlayerSessionRepository sessions;
     private CoinWalletRepository wallets;
+    private PveDeathLossRepository deathLoss;
     private BazaarRepository bazaar;
 
     @BeforeAll
@@ -60,6 +62,7 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         identities = new PlayerIdentityRepository(dataSource);
         sessions = new PlayerSessionRepository(dataSource);
         wallets = new CoinWalletRepository(dataSource);
+        deathLoss = new PveDeathLossRepository(dataSource);
         ItemCatalog items = new ItemCatalog(List.of(new ItemDefinition(
                 TEST_COMMODITY,
                 "IRON_INGOT",
@@ -77,11 +80,12 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
     }
 
     @Test
-    void classifiedSupplySeparatesFaucetSinkTransferEscrowAndBazaarFee() throws Exception {
+    void classifiedSupplySeparatesFaucetSinkDeathLossTransferEscrowAndBazaarFee() throws Exception {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String faucetReason = "verify.analytics.reward." + suffix;
         String transferReason = "verify.analytics.transfer." + suffix;
         String sinkReason = "verify.analytics.sink." + suffix;
+        String deathReason = "verify.analytics.death." + suffix;
         String escrowReason = "verify.analytics.escrow." + suffix;
         String sellReason = "verify.analytics.sell." + suffix;
         String matchReason = "verify.analytics.match." + suffix;
@@ -93,6 +97,13 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         wallets.creditFromSystem(UUID.randomUUID(), sourcePlayer, 1_000L, faucetReason);
         wallets.transfer(UUID.randomUUID(), sourcePlayer, targetPlayer, 200L, transferReason);
         wallets.debitToSystem(UUID.randomUUID(), sourcePlayer, 150L, sinkReason);
+        deathLoss.apply(
+                UUID.randomUUID(),
+                sourcePlayer,
+                "verify.analytics.fixed_v1",
+                lockedBalance -> 50L,
+                deathReason
+        );
         bazaar.createBuyOrder(
                 UUID.randomUUID(),
                 sourcePlayer,
@@ -151,6 +162,13 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         assertEquals(BigInteger.valueOf(150L), sink.grossMovementMinor());
         assertEquals(1L, sink.operationCount());
 
+        CoinFlowReasonSummary death = reason(summary, deathReason);
+        assertEquals(BigInteger.ZERO, death.createdMinor());
+        assertEquals(BigInteger.valueOf(50L), death.destroyedMinor());
+        assertEquals(BigInteger.valueOf(-50L), death.netSupplyChangeMinor());
+        assertEquals(BigInteger.valueOf(50L), death.grossMovementMinor());
+        assertEquals(1L, death.operationCount());
+
         CoinFlowReasonSummary escrow = reason(summary, escrowReason);
         assertEquals(BigInteger.ZERO, escrow.createdMinor());
         assertEquals(BigInteger.ZERO, escrow.destroyedMinor());
@@ -166,7 +184,7 @@ class CoinFlowAnalyticsRepositoryIntegrationTest {
         assertEquals(1L, match.operationCount());
 
         assertTrue(summary.confirmedCreatedMinor().compareTo(BigInteger.valueOf(1_000L)) >= 0);
-        assertTrue(summary.confirmedDestroyedMinor().compareTo(BigInteger.valueOf(152L)) >= 0);
+        assertTrue(summary.confirmedDestroyedMinor().compareTo(BigInteger.valueOf(202L)) >= 0);
     }
 
     @Test
