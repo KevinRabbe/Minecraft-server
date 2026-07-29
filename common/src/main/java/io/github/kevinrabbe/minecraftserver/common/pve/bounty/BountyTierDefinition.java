@@ -4,10 +4,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-/** Immutable content definition for one tier inside a bounty family. */
+/** Immutable versioned content definition for one tier inside a bounty family. */
 public record BountyTierDefinition(
         BountyFamilyId familyId,
         int tier,
+        int contentVersion,
         long contractFeeMinor,
         int requiredEligibleKills,
         String bossDefinitionId,
@@ -19,6 +20,9 @@ public record BountyTierDefinition(
         familyId = Objects.requireNonNull(familyId, "familyId");
         if (tier <= 0) {
             throw new IllegalArgumentException("tier must be > 0");
+        }
+        if (contentVersion <= 0) {
+            throw new IllegalArgumentException("contentVersion must be > 0");
         }
         if (contractFeeMinor < 0) {
             throw new IllegalArgumentException("contractFeeMinor must be >= 0");
