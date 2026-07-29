@@ -4,6 +4,7 @@
     {
       "family_id": "zombie",
       "tier": 1,
+      "content_version": 1,
       "contract_fee_minor": 100,
       "required_eligible_kills": 10,
       "boss_definition_id": "boss.zombie.t1",
