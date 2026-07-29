@@ -141,6 +141,16 @@ class ResourceEntityLifecycleLoadIntegrationTest {
                         players
                     RESTART IDENTITY CASCADE
                     """);
+            // Other progression integration tests may have advanced this global singleton before this class runs.
+            // Since processed_operations is intentionally reset above, restore the matching canonical launch-cap evidence.
+            statement.execute("""
+                    UPDATE progression_state
+                    SET active_skill_cap = 50,
+                        state_version = 0,
+                        source_operation_id = NULL,
+                        changed_at = NOW()
+                    WHERE singleton = TRUE
+                    """);
         }
     }
 
