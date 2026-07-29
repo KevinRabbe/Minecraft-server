@@ -176,6 +176,10 @@ final class PaperMapRuntime {
         return openService;
     }
 
+    boolean hostsManagedMapEncounter() {
+        return encounterController != null;
+    }
+
     void shutdown() {
         recoveryTask.cancel();
         if (encounterController != null) {
