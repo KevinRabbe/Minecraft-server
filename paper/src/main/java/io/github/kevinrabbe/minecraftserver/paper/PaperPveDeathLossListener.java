@@ -53,7 +53,11 @@ final class PaperPveDeathLossListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getPlayer();
-        if (!shouldApply(config.enabled(), ordinaryPersistentZone, player.getKiller() != null)) {
+        if (!PveDeathLossEligibility.shouldApply(
+                config.enabled(),
+                ordinaryPersistentZone,
+                player.getKiller() != null
+        )) {
             return;
         }
 
@@ -106,9 +110,5 @@ final class PaperPveDeathLossListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         deathOperationByMinecraftUuid.remove(event.getPlayer().getUniqueId());
-    }
-
-    static boolean shouldApply(boolean enabled, boolean ordinaryPersistentZone, boolean playerKillerPresent) {
-        return enabled && ordinaryPersistentZone && !playerKillerPresent;
     }
 }
