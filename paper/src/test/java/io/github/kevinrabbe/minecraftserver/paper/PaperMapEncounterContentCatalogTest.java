@@ -41,15 +41,19 @@ class PaperMapEncounterContentCatalogTest {
 
         assertThrows(
                 MapAuthorityException.class,
-                () -> content.require(definition(1, 123L, List.of("volatile"), 1, 1))
+                () -> content.require(definition(1, 123L, "defense", List.of(), 1, 1))
         );
         assertThrows(
                 MapAuthorityException.class,
-                () -> content.require(definition(1, 123L, List.of(), 2, 1))
+                () -> content.require(definition(1, 123L, "extermination", List.of("volatile"), 1, 1))
         );
         assertThrows(
                 MapAuthorityException.class,
-                () -> content.require(definition(1, 123L, List.of(), 1, 2))
+                () -> content.require(definition(1, 123L, "extermination", List.of(), 2, 1))
+        );
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, "extermination", List.of(), 1, 2))
         );
     }
 
@@ -92,12 +96,13 @@ class PaperMapEncounterContentCatalogTest {
     }
 
     private static MapRunDefinition definition(int difficulty, long seed) {
-        return definition(difficulty, seed, List.of(), 1, 1);
+        return definition(difficulty, seed, "extermination", List.of(), 1, 1);
     }
 
     private static MapRunDefinition definition(
             int difficulty,
             long seed,
+            String objectiveId,
             List<String> modifierIds,
             int generationVersion,
             int balanceVersion
@@ -106,7 +111,7 @@ class PaperMapEncounterContentCatalogTest {
                 new MapDifficulty(difficulty),
                 "forest",
                 "spider",
-                "extermination",
+                objectiveId,
                 modifierIds,
                 seed,
                 generationVersion,
