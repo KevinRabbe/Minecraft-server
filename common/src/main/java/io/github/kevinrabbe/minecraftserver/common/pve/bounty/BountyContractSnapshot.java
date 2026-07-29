@@ -16,6 +16,32 @@ public record BountyContractSnapshot(
         int summonAuthorizationsRemaining,
         long stateVersion
 ) {
+    /** Compatibility constructor for v1 fixtures/callers that predate explicit content versioning. */
+    public BountyContractSnapshot(
+            UUID contractId,
+            UUID playerId,
+            BountyFamilyId familyId,
+            int tier,
+            BountyContractStatus status,
+            int eligibleKillProgress,
+            int requiredEligibleKills,
+            int summonAuthorizationsRemaining,
+            long stateVersion
+    ) {
+        this(
+                contractId,
+                playerId,
+                familyId,
+                tier,
+                1,
+                status,
+                eligibleKillProgress,
+                requiredEligibleKills,
+                summonAuthorizationsRemaining,
+                stateVersion
+        );
+    }
+
     public BountyContractSnapshot {
         contractId = Objects.requireNonNull(contractId, "contractId");
         playerId = Objects.requireNonNull(playerId, "playerId");
