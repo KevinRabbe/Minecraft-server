@@ -161,7 +161,9 @@ try {
     Write-Host "Waiting for Paper backends..."
     Wait-ForBackends
 
-    Start-JavaProcess "velocity" $VelocityRoot "-Xms256M -Xmx512M -jar velocity.jar" @{} | Out-Null
+    Start-JavaProcess "velocity" $VelocityRoot "-Xms256M -Xmx512M -jar velocity.jar" @{
+        PERSISTENT_HUB_ZONE_ID = $LocalNetwork.HubZone
+    } | Out-Null
 
     Write-Host ""
     Write-Host "Local network is running." -ForegroundColor Green
