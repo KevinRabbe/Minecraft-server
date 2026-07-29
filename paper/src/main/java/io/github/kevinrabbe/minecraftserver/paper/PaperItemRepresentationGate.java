@@ -48,6 +48,7 @@ final class PaperItemRepresentationGate implements Listener {
                 new PaperManagedItemNestedBlockPlacementGate(plugin),
                 plugin
         );
+        plugin.getServer().getPluginManager().registerEvents(new PaperManagedItemCreativeCustodyGate(plugin), plugin);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
