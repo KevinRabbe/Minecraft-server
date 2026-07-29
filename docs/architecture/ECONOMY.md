@@ -20,6 +20,16 @@ Ordinary PvE death may destroy a configurable portion of pocket money. The death
 
 Exact loss percentages/curves are balance configuration.
 
+### PvE pocket-loss authority
+
+`PveDeathLossRepository` provides the policy-neutral persistent authority for that sink without choosing the launch loss curve. One stable `PVE_DEATH_LOSS` operation locks the player's current pocket wallet first, evaluates a caller-supplied policy identified by a stable policy version against that exact locked balance, and freezes the resulting pre/post wallet balance, wallet versions, destroyed amount and reason in `processed_operations`.
+
+A positive loss advances the pocket wallet `state_version` exactly once and appends one matching Coin `DEBIT` ledger line. A zero-loss policy result is still an idempotently committed death-loss outcome, but it does not fabricate a wallet mutation or economic ledger movement. Retries return the frozen result without re-evaluating the policy, while distinct concurrent deaths serialize on the current locked wallet balance rather than racing a stale precomputed percentage.
+
+Protected Bank Manager custody is deliberately outside this transaction and is neither read nor mutated by the death-loss authority. Bounded integrity verification reconstructs the committed arithmetic, monotonic wallet version and exact sink ledger evidence, and Coin-flow analytics classifies positive `PVE_DEATH_LOSS` operations as confirmed destruction.
+
+This proves the economic authority only. The exact launch percentage/curve, wider death consequences and the Paper death-event adapter remain explicit gameplay/tuning decisions; no default death-loss policy is silently chosen here.
+
 ## Bank Manager
 
 The Bank Manager provides protected Coin custody.
@@ -258,39 +268,3 @@ Compression is quantity density, not industrial automation.
 
 - explicit player action unless future convenience evidence justifies automation;
 - reversible where configured;
-- no XP from reversible conversion;
-- no yield bonus;
-- each compression tier is its own commodity/order book;
-- no automatic cross-tier price matching/arbitrage.
-
-Add further tiers only when real quantities require them.
-
-## Refining/crafting commissions
-
-A simple labor market may allow a requester to escrow materials + payment for a qualified player to perform a job.
-
-No giant bidding/contract platform is required for V1. The important architecture is secure escrow and exactly-once settlement.
-
-## Market read models
-
-Order book/listing state is authoritative in PostgreSQL. Cached views/history may be derived for UI/performance.
-
-## Economy observability
-
-Track enough structured events/ledger information to answer:
-
-- what creates/removes Coins;
-- Coin location split between pocket/bank/escrow;
-- interest credited and death loss destroyed;
-- what creates/removes important commodities;
-- Bazaar/AH volume/spread/liquidity;
-- bounty contract sink/material supply;
-- Map material/Map-item supply;
-- crafting/salvage volume;
-- bootstrap supplier usage;
-- suspicious supply discontinuities;
-- activity by skill/system.
-
-## Anti-arbitrage rule
-
-Configured NPC prices, bank rates, recipes, compression, salvage, and conversion rules must be validated so the server does not unintentionally provide a deterministic infinite money/resource loop.
