@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRoute;
 import io.github.kevinrabbe.minecraftserver.common.control.ZoneRouter;
 import io.github.kevinrabbe.minecraftserver.common.session.BackendSessionLeaseRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.BackendZoneInstanceBindingRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerStateRepository;
@@ -85,6 +86,17 @@ final class PaperSessionController implements Listener {
     private final ConcurrentHashMap<UUID, AttachedPlayerSession> activeByMinecraftUuid = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, CompletableFuture<PaperAuthoritativeStateMutation.Result>>
             authorityMutationsByMinecraftUuid = new ConcurrentHashMap<>();
+
+    PaperSessionController(JavaPlugin plugin, String backendId, String currentZoneId, DataSource dataSource)
+            throws SQLException {
+        this(
+                plugin,
+                backendId,
+                currentZoneId,
+                resolveBootstrapInstanceId(backendId, currentZoneId, dataSource),
+                dataSource
+        );
+    }
 
     PaperSessionController(
             JavaPlugin plugin,
@@ -710,6 +722,19 @@ final class PaperSessionController implements Listener {
             return;
         }
         plugin.getServer().getScheduler().runTask(plugin, task);
+    }
+
+    private static UUID resolveBootstrapInstanceId(String backendId, String currentZoneId, DataSource dataSource)
+            throws SQLException {
+        String normalizedZoneId = normalizeOptional(currentZoneId);
+        if (normalizedZoneId == null) {
+            return null;
+        }
+        return new BackendZoneInstanceBindingRepository(dataSource, ROUTE_HEARTBEAT_FRESHNESS)
+                .findSingleFreshActiveInstance(requireBackendId(backendId), normalizedZoneId)
+                .orElseThrow(() -> new SessionConflictException(
+                        "No fresh ACTIVE bootstrap instance exists for backend " + backendId + " zone " + normalizedZoneId
+                ));
     }
 
     private static String requireBackendId(String value) {
