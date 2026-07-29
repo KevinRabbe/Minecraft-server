@@ -42,6 +42,7 @@ final class PaperItemRepresentationGate implements Listener {
         this.presentation = new PaperItemRuntimePresentation(plugin, plugin.itemCatalog());
         plugin.getServer().getPluginManager().registerEvents(new PaperManagedItemWorldCustodyGate(plugin), plugin);
         plugin.getServer().getPluginManager().registerEvents(new PaperManagedItemContainerCustodyGate(plugin), plugin);
+        plugin.getServer().getPluginManager().registerEvents(new PaperManagedItemDisplayCustodyGate(plugin), plugin);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
