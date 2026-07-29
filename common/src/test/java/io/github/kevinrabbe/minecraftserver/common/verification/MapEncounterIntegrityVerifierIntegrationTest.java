@@ -143,20 +143,23 @@ class MapEncounterIntegrityVerifierIntegrationTest {
     void healthyStartedCompletedAndReleasedEncounterReconcilesCleanly() throws Exception {
         PreparedRun prepared = prepareBound("MapHealthy");
         beginPinnedTransfer(prepared);
-        MapRunSnapshot active = maps.startRun(
+        long startVersion = maps.loadRun(prepared.opened().runId()).stateVersion();
+        maps.startRun(
                 UUID.randomUUID(),
                 prepared.opened().runId(),
-                maps.loadRun(prepared.opened().runId()).stateVersion(),
+                startVersion,
                 List.of(prepared.playerId()),
                 "map.start"
         );
-        MapRunSnapshot completed = maps.completeRun(
+        MapRunSnapshot active = maps.loadRun(prepared.opened().runId());
+        maps.completeRun(
                 UUID.randomUUID(),
                 active.runId(),
                 active.stateVersion(),
                 15_000,
                 "map.complete"
         );
+        MapRunSnapshot completed = maps.loadRun(active.runId());
 
         // A terminal run may still be BOUND until the recovery/release pass executes.
         assertTrue(verifier.verify(100).isEmpty());
@@ -231,13 +234,14 @@ class MapEncounterIntegrityVerifierIntegrationTest {
     void startedReservedRunWithoutHandoffIsReported() throws Exception {
         PreparedRun prepared = prepareBound("MapNoHandoff");
         beginPinnedTransfer(prepared);
-        MapRunSnapshot active = maps.startRun(
+        maps.startRun(
                 UUID.randomUUID(),
                 prepared.opened().runId(),
                 maps.loadRun(prepared.opened().runId()).stateVersion(),
                 List.of(prepared.playerId()),
                 "map.start"
         );
+        MapRunSnapshot active = maps.loadRun(prepared.opened().runId());
 
         corrupt(connection -> {
             try (PreparedStatement statement = connection.prepareStatement(
@@ -254,16 +258,18 @@ class MapEncounterIntegrityVerifierIntegrationTest {
     void terminalRunVersionDriftIsReported() throws Exception {
         PreparedRun prepared = prepareBound("MapTerminal");
         beginPinnedTransfer(prepared);
-        MapRunSnapshot active = maps.startRun(
+        maps.startRun(
                 UUID.randomUUID(),
                 prepared.opened().runId(),
                 maps.loadRun(prepared.opened().runId()).stateVersion(),
                 List.of(prepared.playerId()),
                 "map.start"
         );
-        MapRunSnapshot completed = maps.completeRun(
+        MapRunSnapshot active = maps.loadRun(prepared.opened().runId());
+        maps.completeRun(
                 UUID.randomUUID(), active.runId(), active.stateVersion(), 12_000, "map.complete"
         );
+        MapRunSnapshot completed = maps.loadRun(active.runId());
 
         corrupt(connection -> {
             try (PreparedStatement statement = connection.prepareStatement("""
@@ -282,12 +288,13 @@ class MapEncounterIntegrityVerifierIntegrationTest {
     @Test
     void failedBeforeStartCanReleaseWithoutHandoff() throws Exception {
         PreparedRun prepared = prepareBound("MapFailEarly");
-        MapRunSnapshot failed = maps.failRun(
+        maps.failRun(
                 UUID.randomUUID(),
                 prepared.opened().runId(),
                 maps.loadRun(prepared.opened().runId()).stateVersion(),
                 "map.handoff_timeout"
         );
+        MapRunSnapshot failed = maps.loadRun(prepared.opened().runId());
         releases.releaseTerminalRun(prepared.reservation().reservationId(), failed.runId());
 
         assertTrue(verifier.verify(100).isEmpty());
