@@ -12,6 +12,7 @@ import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionD
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
+import io.github.kevinrabbe.minecraftserver.common.verification.IntegrityIssue;
 import io.github.kevinrabbe.minecraftserver.common.verification.PersistentIntegrityVerifier;
 import io.github.kevinrabbe.minecraftserver.common.verification.ResourceSourceIntegrityVerifier;
 import org.junit.jupiter.api.AfterAll;
@@ -193,8 +194,10 @@ class ResourceEntityLifecycleLoadIntegrationTest {
         assertEquals(SOURCE_COUNT, countSourcesAtCycle(CYCLES));
         assertEquals(SOURCE_COUNT, countPlayersAtCombatExperience(CYCLES * 10L));
 
-        assertTrue(new ResourceSourceIntegrityVerifier(dataSource).verify(1_000).isEmpty());
-        assertTrue(new PersistentIntegrityVerifier(dataSource).verify(1_000).isEmpty());
+        List<IntegrityIssue> resourceIssues = new ResourceSourceIntegrityVerifier(dataSource).verify(1_000);
+        assertTrue(resourceIssues.isEmpty(), resourceIssues.toString());
+        List<IntegrityIssue> aggregateIssues = new PersistentIntegrityVerifier(dataSource).verify(1_000);
+        assertTrue(aggregateIssues.isEmpty(), aggregateIssues.toString());
     }
 
     private void runRewardedWave(List<LoadSource> loadSources, long expectedCycle) throws Exception {
