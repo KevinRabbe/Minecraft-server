@@ -187,7 +187,8 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
             } catch (SQLException | RuntimeException exception) {
                 plugin.getLogger().log(
                         Level.WARNING,
-                        "Could not recover Crafting XP for craft " + result.craft().craftId(),
+                        "Craft committed but Crafting XP fulfillment remains recoverable for "
+                                + result.craft().craftId(),
                         exception
                 );
                 sendIfOnline(minecraftUuid, "Craft completed. Progression fulfillment will recover automatically.");
