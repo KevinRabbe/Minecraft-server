@@ -24,6 +24,7 @@ final class PaperMapEncounterContentCatalog {
     private static final int SCHEMA_VERSION = 1;
     private static final int SUPPORTED_GENERATION_VERSION = 1;
     private static final int SUPPORTED_BALANCE_VERSION = 1;
+    private static final String SUPPORTED_OBJECTIVE_ID = "extermination";
 
     private final Map<Key, PaperMapEncounterDefinition> definitions;
 
@@ -119,6 +120,12 @@ final class PaperMapEncounterContentCatalog {
     }
 
     private static void requireSupportedRuntimeSemantics(MapRunDefinition run) {
+        if (!SUPPORTED_OBJECTIVE_ID.equals(run.objectiveId())) {
+            throw new MapAuthorityException(
+                    "Paper Map runtime does not support objective_id " + run.objectiveId()
+                            + "; supported=" + SUPPORTED_OBJECTIVE_ID
+            );
+        }
         if (run.generationVersion() != SUPPORTED_GENERATION_VERSION) {
             throw new MapAuthorityException(
                     "Paper Map runtime does not support generation_version " + run.generationVersion()
