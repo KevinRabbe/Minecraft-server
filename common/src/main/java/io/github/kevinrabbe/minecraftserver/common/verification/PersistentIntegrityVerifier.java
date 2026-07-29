@@ -14,7 +14,7 @@ import java.util.Objects;
 /**
  * Bounded aggregate verifier across session/state, economy/custody, shared commodity and unique-delivery claims,
  * Auction/Bank/Bazaar/Secure Trade/salvage/clan assets, progression/crafting/resources/world state,
- * Artifacts/Attunement, PvE/Bounty rewards and lifecycle evidence, clan, and competitive evidence.
+ * Artifacts/Attunement, Map encounter/reward and PvE/Bounty lifecycle evidence, clan, and competitive evidence.
  */
 public final class PersistentIntegrityVerifier {
     private static final int MAX_ALLOWED_ISSUES = 10_000;
@@ -37,6 +37,7 @@ public final class PersistentIntegrityVerifier {
     private final WorldProgressionIntegrityVerifier worldProgression;
     private final ArtifactIntegrityVerifier artifacts;
     private final BountyLifecycleIntegrityVerifier bountyLifecycle;
+    private final MapEncounterIntegrityVerifier mapEncounters;
     private final PersistentPveIntegrityVerifier pve;
     private final MapRewardIntegrityVerifier mapRewards;
     private final ClanIntegrityVerifier clans;
@@ -107,6 +108,7 @@ public final class PersistentIntegrityVerifier {
                 ? new ArtifactIntegrityVerifier(dataSource)
                 : new ArtifactIntegrityVerifier(dataSource, attunementProfiles);
         this.bountyLifecycle = new BountyLifecycleIntegrityVerifier(dataSource);
+        this.mapEncounters = new MapEncounterIntegrityVerifier(dataSource);
         this.pve = new PersistentPveIntegrityVerifier(dataSource);
         this.mapRewards = new MapRewardIntegrityVerifier(dataSource);
         this.clans = new ClanIntegrityVerifier(dataSource);
@@ -153,6 +155,8 @@ public final class PersistentIntegrityVerifier {
         if (remaining > 0) issues.addAll(artifacts.verify(remaining));
         remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(bountyLifecycle.verify(remaining));
+        remaining = maxIssues - issues.size();
+        if (remaining > 0) issues.addAll(mapEncounters.verify(remaining));
         remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(pve.verify(remaining));
         remaining = maxIssues - issues.size();
