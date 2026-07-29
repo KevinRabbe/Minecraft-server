@@ -2,6 +2,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityException;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapDifficulty;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRewardDefinition;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRunDefinition;
@@ -15,6 +16,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PaperMapEncounterContentCatalogTest {
     @Test
@@ -31,6 +33,24 @@ class PaperMapEncounterContentCatalogTest {
         assertEquals(2, encounter.successorDifficulty(1));
         assertEquals(100, encounter.successorDifficulty(100));
         assertEquals(100, encounter.successorDifficulty(1_000));
+    }
+
+    @Test
+    void unsupportedRuntimeSemanticsFailClosedInsteadOfBeingIgnored() {
+        PaperMapEncounterContentCatalog content = launchCatalog();
+
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, List.of("volatile"), 1, 1))
+        );
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, List.of(), 2, 1))
+        );
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, List.of(), 1, 2))
+        );
     }
 
     @Test
@@ -72,15 +92,25 @@ class PaperMapEncounterContentCatalogTest {
     }
 
     private static MapRunDefinition definition(int difficulty, long seed) {
+        return definition(difficulty, seed, List.of(), 1, 1);
+    }
+
+    private static MapRunDefinition definition(
+            int difficulty,
+            long seed,
+            List<String> modifierIds,
+            int generationVersion,
+            int balanceVersion
+    ) {
         return new MapRunDefinition(
                 new MapDifficulty(difficulty),
                 "forest",
                 "spider",
                 "extermination",
-                List.of(),
+                modifierIds,
                 seed,
-                1,
-                1,
+                generationVersion,
+                balanceVersion,
                 "founding"
         );
     }
