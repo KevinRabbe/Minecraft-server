@@ -78,6 +78,7 @@ These are intentionally deferred to playtesting/configuration rather than archit
 Do **not** reopen these during ordinary implementation:
 
 - compact purpose-built zones rather than endless vanilla wilderness;
+- the persistent City/Town is the starter Hub/Town: fresh players enter it, returning players restore their last valid durable logical zone, and invalid/unavailable saved destinations fall back to Hub/Town rather than an arbitrary backend;
 - horizontal zone-instance replication for concurrency;
 - per-zone demand determines instance count; total network population does not;
 - backend identity is infrastructure, not gameplay identity;
