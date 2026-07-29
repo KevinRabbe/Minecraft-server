@@ -22,6 +22,8 @@ import java.util.Objects;
 /** Strict Paper materialization catalog for the small set of launch Map encounter combinations. */
 final class PaperMapEncounterContentCatalog {
     private static final int SCHEMA_VERSION = 1;
+    private static final int SUPPORTED_GENERATION_VERSION = 1;
+    private static final String SUPPORTED_OBJECTIVE_ID = "extermination";
 
     private final Map<Key, PaperMapEncounterDefinition> definitions;
 
@@ -74,6 +76,8 @@ final class PaperMapEncounterContentCatalog {
                         value.environmentId(),
                         value.enemyFamilyId(),
                         value.objectiveId(),
+                        value.generationVersion(),
+                        value.balanceVersion(),
                         entityType,
                         value.baseKills(),
                         value.difficultyPerExtraKill(),
@@ -87,13 +91,9 @@ final class PaperMapEncounterContentCatalog {
                         value.successorDifficultyDelta(),
                         value.maxSuccessorDifficulty()
                 );
-                Key key = new Key(
-                        definition.environmentId(),
-                        definition.enemyFamilyId(),
-                        definition.objectiveId()
-                );
+                Key key = Key.from(definition);
                 if (definitions.putIfAbsent(key, definition) != null) {
-                    throw new IllegalStateException("Duplicate Map encounter tuple: " + key);
+                    throw new IllegalStateException("Duplicate Map encounter materialization: " + key);
                 }
             }
             if (definitions.isEmpty()) {
@@ -107,12 +107,33 @@ final class PaperMapEncounterContentCatalog {
 
     PaperMapEncounterDefinition require(MapRunDefinition run) {
         Objects.requireNonNull(run, "run");
-        Key key = new Key(run.environmentId(), run.enemyFamilyId(), run.objectiveId());
+        requireSupportedRuntimeSemantics(run);
+        Key key = Key.from(run);
         PaperMapEncounterDefinition definition = definitions.get(key);
         if (definition == null) {
-            throw new MapAuthorityException("No Paper encounter materialization for Map tuple: " + key);
+            throw new MapAuthorityException("No Paper encounter materialization for exact Map profile: " + key);
         }
         return definition;
+    }
+
+    private static void requireSupportedRuntimeSemantics(MapRunDefinition run) {
+        if (!SUPPORTED_OBJECTIVE_ID.equals(run.objectiveId())) {
+            throw new MapAuthorityException(
+                    "Paper Map runtime does not support objective_id " + run.objectiveId()
+                            + "; supported=" + SUPPORTED_OBJECTIVE_ID
+            );
+        }
+        if (run.generationVersion() != SUPPORTED_GENERATION_VERSION) {
+            throw new MapAuthorityException(
+                    "Paper Map runtime does not support generation_version " + run.generationVersion()
+                            + "; supported=" + SUPPORTED_GENERATION_VERSION
+            );
+        }
+        if (!run.modifierIds().isEmpty()) {
+            throw new MapAuthorityException(
+                    "Paper Map runtime does not yet materialize modifiers: " + run.modifierIds()
+            );
+        }
     }
 
     private static EntityType requireEntityType(String raw) {
@@ -131,16 +152,46 @@ final class PaperMapEncounterContentCatalog {
         return type;
     }
 
-    private record Key(String environmentId, String enemyFamilyId, String objectiveId) {
+    private record Key(
+            String environmentId,
+            String enemyFamilyId,
+            String objectiveId,
+            int generationVersion,
+            int balanceVersion
+    ) {
         private Key {
             environmentId = Objects.requireNonNull(environmentId, "environmentId");
             enemyFamilyId = Objects.requireNonNull(enemyFamilyId, "enemyFamilyId");
             objectiveId = Objects.requireNonNull(objectiveId, "objectiveId");
+            if (generationVersion < 1 || balanceVersion < 1) {
+                throw new IllegalArgumentException("Map encounter versions must be >= 1");
+            }
+        }
+
+        private static Key from(PaperMapEncounterDefinition definition) {
+            return new Key(
+                    definition.environmentId(),
+                    definition.enemyFamilyId(),
+                    definition.objectiveId(),
+                    definition.generationVersion(),
+                    definition.balanceVersion()
+            );
+        }
+
+        private static Key from(MapRunDefinition definition) {
+            return new Key(
+                    definition.environmentId(),
+                    definition.enemyFamilyId(),
+                    definition.objectiveId(),
+                    definition.generationVersion(),
+                    definition.balanceVersion()
+            );
         }
 
         @Override
         public String toString() {
-            return environmentId + "/" + enemyFamilyId + "/" + objectiveId;
+            return environmentId + "/" + enemyFamilyId + "/" + objectiveId
+                    + "@generation-" + generationVersion + "/balance-" + balanceVersion;
         }
     }
 
@@ -154,6 +205,8 @@ final class PaperMapEncounterContentCatalog {
             @JsonProperty("environment_id") String environmentId,
             @JsonProperty("enemy_family_id") String enemyFamilyId,
             @JsonProperty("objective_id") String objectiveId,
+            @JsonProperty("generation_version") int generationVersion,
+            @JsonProperty("balance_version") int balanceVersion,
             @JsonProperty("entity_type") String entityType,
             @JsonProperty("base_kills") int baseKills,
             @JsonProperty("difficulty_per_extra_kill") int difficultyPerExtraKill,

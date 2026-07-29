@@ -2,6 +2,7 @@ package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityException;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapDifficulty;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRewardDefinition;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRunDefinition;
@@ -15,12 +16,15 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PaperMapEncounterContentCatalogTest {
     @Test
-    void launchEncounterHasBoundedScalingAndKillCount() {
+    void launchEncounterHasBoundedScalingAndExactVersionedContent() {
         PaperMapEncounterDefinition encounter = launchCatalog().require(definition(1, 123L));
 
+        assertEquals(1, encounter.generationVersion());
+        assertEquals(1, encounter.balanceVersion());
         assertEquals(6, encounter.requiredKills(1));
         assertEquals(7, encounter.requiredKills(11));
         assertEquals(20, encounter.requiredKills(10_000));
@@ -31,6 +35,28 @@ class PaperMapEncounterContentCatalogTest {
         assertEquals(2, encounter.successorDifficulty(1));
         assertEquals(100, encounter.successorDifficulty(100));
         assertEquals(100, encounter.successorDifficulty(1_000));
+    }
+
+    @Test
+    void unsupportedRuntimeSemanticsFailClosedInsteadOfBeingIgnored() {
+        PaperMapEncounterContentCatalog content = launchCatalog();
+
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, "defense", List.of(), 1, 1))
+        );
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, "extermination", List.of("volatile"), 1, 1))
+        );
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, "extermination", List.of(), 2, 1))
+        );
+        assertThrows(
+                MapAuthorityException.class,
+                () -> content.require(definition(1, 123L, "extermination", List.of(), 1, 2))
+        );
     }
 
     @Test
@@ -63,6 +89,8 @@ class PaperMapEncounterContentCatalogTest {
         assertEquals(completed.definition().environmentId(), reward.successorMapDefinition().environmentId());
         assertEquals(completed.definition().enemyFamilyId(), reward.successorMapDefinition().enemyFamilyId());
         assertEquals(completed.definition().objectiveId(), reward.successorMapDefinition().objectiveId());
+        assertEquals(completed.definition().generationVersion(), reward.successorMapDefinition().generationVersion());
+        assertEquals(completed.definition().balanceVersion(), reward.successorMapDefinition().balanceVersion());
         assertNotEquals(completed.definition().generationSeed(), reward.successorMapDefinition().generationSeed());
     }
 
@@ -72,15 +100,26 @@ class PaperMapEncounterContentCatalogTest {
     }
 
     private static MapRunDefinition definition(int difficulty, long seed) {
+        return definition(difficulty, seed, "extermination", List.of(), 1, 1);
+    }
+
+    private static MapRunDefinition definition(
+            int difficulty,
+            long seed,
+            String objectiveId,
+            List<String> modifierIds,
+            int generationVersion,
+            int balanceVersion
+    ) {
         return new MapRunDefinition(
                 new MapDifficulty(difficulty),
                 "forest",
                 "spider",
-                "extermination",
-                List.of(),
+                objectiveId,
+                modifierIds,
                 seed,
-                1,
-                1,
+                generationVersion,
+                balanceVersion,
                 "founding"
         );
     }

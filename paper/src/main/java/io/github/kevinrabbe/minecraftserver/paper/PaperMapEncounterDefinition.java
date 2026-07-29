@@ -10,6 +10,8 @@ record PaperMapEncounterDefinition(
         String environmentId,
         String enemyFamilyId,
         String objectiveId,
+        int generationVersion,
+        int balanceVersion,
         EntityType entityType,
         int baseKills,
         int difficultyPerExtraKill,
@@ -28,6 +30,12 @@ record PaperMapEncounterDefinition(
         environmentId = requireId(environmentId, "environmentId");
         enemyFamilyId = requireId(enemyFamilyId, "enemyFamilyId");
         objectiveId = requireId(objectiveId, "objectiveId");
+        if (generationVersion < 1) {
+            throw new IllegalArgumentException("generationVersion must be >= 1");
+        }
+        if (balanceVersion < 1) {
+            throw new IllegalArgumentException("balanceVersion must be >= 1");
+        }
         if (entityType == null || !entityType.isAlive()) {
             throw new IllegalArgumentException("entityType must be a living entity type");
         }
@@ -57,7 +65,9 @@ record PaperMapEncounterDefinition(
     boolean matches(MapRunDefinition definition) {
         return environmentId.equals(definition.environmentId())
                 && enemyFamilyId.equals(definition.enemyFamilyId())
-                && objectiveId.equals(definition.objectiveId());
+                && objectiveId.equals(definition.objectiveId())
+                && generationVersion == definition.generationVersion()
+                && balanceVersion == definition.balanceVersion();
     }
 
     int requiredKills(int difficulty) {
