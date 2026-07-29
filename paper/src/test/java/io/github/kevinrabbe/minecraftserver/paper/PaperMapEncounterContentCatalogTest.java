@@ -20,9 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PaperMapEncounterContentCatalogTest {
     @Test
-    void launchEncounterHasBoundedScalingAndKillCount() {
+    void launchEncounterHasBoundedScalingAndExactVersionedContent() {
         PaperMapEncounterDefinition encounter = launchCatalog().require(definition(1, 123L));
 
+        assertEquals(1, encounter.generationVersion());
+        assertEquals(1, encounter.balanceVersion());
         assertEquals(6, encounter.requiredKills(1));
         assertEquals(7, encounter.requiredKills(11));
         assertEquals(20, encounter.requiredKills(10_000));
@@ -87,6 +89,8 @@ class PaperMapEncounterContentCatalogTest {
         assertEquals(completed.definition().environmentId(), reward.successorMapDefinition().environmentId());
         assertEquals(completed.definition().enemyFamilyId(), reward.successorMapDefinition().enemyFamilyId());
         assertEquals(completed.definition().objectiveId(), reward.successorMapDefinition().objectiveId());
+        assertEquals(completed.definition().generationVersion(), reward.successorMapDefinition().generationVersion());
+        assertEquals(completed.definition().balanceVersion(), reward.successorMapDefinition().balanceVersion());
         assertNotEquals(completed.definition().generationSeed(), reward.successorMapDefinition().generationSeed());
     }
 
