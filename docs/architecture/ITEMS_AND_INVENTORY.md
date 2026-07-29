@@ -78,7 +78,7 @@ The initial equipment pool should contain a small number of mechanically distinc
 
 Use Minecraft item/render/inventory behavior where suitable. A definition may map directly to a vanilla material.
 
-Custom code adds only the network/persistent semantics Minecraft does not provide.
+Custom code adds only the network/persistent semantics Minecraft does not provide. Native behavior is reused only while it preserves the authoritative value/custody contract; a vanilla transformation or holder is not implicitly trusted merely because Minecraft supports it.
 
 ## Ownership versus use
 
@@ -227,17 +227,19 @@ Exact mathematics may vary by stat but must be centralized/deterministic rather 
 
 Vanilla and custom enchantments may share one logical definition/validation layer. V1 should keep the custom catalog small and retain Minecraft enchanting/anvil behavior where it already works.
 
+For network-managed items, vanilla anvil/enchanting/smithing/merchant or other processing inventories remain fail-closed until the relevant adapter can preserve authoritative custody and persist the resulting item-state transition. This does not restrict ordinary untracked vanilla items.
+
 ## Map items
 
 A tradable Map is an individualized item whose instance carries the authoritative challenge definition needed to create at most one run, such as:
 
-- numeric difficulty
-- environment ID
-- enemy-family ID
-- objective ID
-- modifier IDs
-- deterministic generation/seed data
-- map-generation/balance version context where needed
+- numeric difficulty;
+- environment ID;
+- enemy-family ID;
+- objective ID;
+- modifier IDs;
+- deterministic generation/seed data;
+- map-generation/balance version context where needed.
 
 The Map item is persistent economic state. The live Map run/instance is disposable runtime state.
 
@@ -256,11 +258,39 @@ Do not store the entire authoritative database record inside ItemStack metadata.
 
 For high-value individual items, authenticity comes from persistent identity/ownership, not display name/lore.
 
+### Nested ItemStacks
+
+Modern ItemStacks may contain other ItemStacks. Nested storage does not automatically create a new custody authority:
+
+- managed items inside supported bundle/container-item data remain under coarse `PLAYER_INVENTORY` custody because the complete outer ItemStack is serialized as part of persistent player state;
+- join validation recursively extracts managed identity claims from supported nested bundle/container contents and subjects them to the same definition, instance, version, location, and duplicate-instance checks as top-level stacks;
+- nested traversal is bounded and malformed/adversarial nesting fails closed;
+- managed items may not hide inside vanilla transformation/consumption components such as charged-projectile or use-remainder state until those mechanics have an explicit persistent-value adapter.
+
 ## Inventory authority
 
 Minecraft inventory is the active gameplay representation of network-owned persistent state while one backend owns the session.
 
 Important boundaries (login, transfer, market listing, secure trade, Map opening, carried-item upgrading, recovery) validate authoritative state. Do not query PostgreSQL for every routine inventory click if the loaded single-writer state is already valid.
+
+### Managed-value custody perimeter
+
+A network-managed ItemStack must remain in a custody model that the persistent system actually owns. Vanilla Minecraft storage or transformation is not an implicit custody transition.
+
+Current fail-closed Paper boundaries therefore prevent managed representations from moving through untracked paths including:
+
+- vanilla crafting-table recipes outside the authoritative crafting transaction;
+- manual world drops and disposable ground Item entities;
+- ordinary external containers/processing inventories and automated hopper-style inventory movement;
+- item frames and armor stands;
+- lectern and flower-pot holders;
+- managed nested transform/consumption state that lacks an explicit settlement adapter.
+
+On ordinary player death, managed carried items are selectively retained rather than materialized as world drops. This is a custody-safety rule, not soulbinding and not a decision that all items are permanently protected from every future death mechanic.
+
+Explicit durable custody transitions such as Auction House escrow, secure trade escrow/settlement, clan storage, pending delivery, Map consumption, salvage, crafting, and other proven authorities remain valid.
+
+A future feature may reopen a currently closed vanilla surface only after it defines how ownership/location, state version, provenance/value evidence, retries, failure recovery, and crash windows remain correct. Do not bypass this rule with display metadata or a broad event exception.
 
 ## Pouches
 
