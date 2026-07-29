@@ -119,6 +119,7 @@ public final class BountyContentCatalogLoader {
                 BountyTierDefinition definition = new BountyTierDefinition(
                         familyId,
                         value.tier(),
+                        value.contentVersion(),
                         value.contractFeeMinor(),
                         value.requiredEligibleKills(),
                         value.bossDefinitionId(),
@@ -152,6 +153,7 @@ public final class BountyContentCatalogLoader {
     private record RawTier(
             @JsonProperty("family_id") String familyId,
             @JsonProperty("tier") int tier,
+            @JsonProperty("content_version") int contentVersion,
             @JsonProperty("contract_fee_minor") long contractFeeMinor,
             @JsonProperty("required_eligible_kills") int requiredEligibleKills,
             @JsonProperty("boss_definition_id") String bossDefinitionId,
