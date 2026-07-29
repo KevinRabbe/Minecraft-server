@@ -63,6 +63,7 @@ final class PaperCraftingController implements CommandExecutor, TabCompleter {
         this.commodityDeliveries = Objects.requireNonNull(commodityDeliveries, "commodityDeliveries");
         this.uniqueDeliveries = Objects.requireNonNull(uniqueDeliveries, "uniqueDeliveries");
         this.currentRecipes = latestVersions(Objects.requireNonNull(recipes, "recipes"));
+        plugin.getServer().getPluginManager().registerEvents(new PaperManagedItemVanillaCraftingGate(plugin), plugin);
     }
 
     void recoverPendingExperience() {
