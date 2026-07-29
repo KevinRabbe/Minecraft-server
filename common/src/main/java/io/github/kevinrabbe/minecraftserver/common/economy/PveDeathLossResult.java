@@ -28,7 +28,14 @@ public record PveDeathLossResult(
         if (lossMinor > previousBalanceMinor || walletBalanceMinor != previousBalanceMinor - lossMinor) {
             throw new IllegalArgumentException("PvE death-loss balance arithmetic is invalid");
         }
-        long expectedVersion = lossMinor == 0 ? previousWalletStateVersion : previousWalletStateVersion + 1;
+        long expectedVersion;
+        try {
+            expectedVersion = lossMinor == 0
+                    ? previousWalletStateVersion
+                    : Math.addExact(previousWalletStateVersion, 1L);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("PvE death-loss wallet state_version overflow", exception);
+        }
         if (walletStateVersion != expectedVersion) {
             throw new IllegalArgumentException("PvE death-loss wallet state_version transition is invalid");
         }
