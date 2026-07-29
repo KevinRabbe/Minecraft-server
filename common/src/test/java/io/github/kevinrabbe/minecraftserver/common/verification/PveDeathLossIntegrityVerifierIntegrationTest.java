@@ -52,7 +52,10 @@ class PveDeathLossIntegrityVerifierIntegrationTest {
     @BeforeEach
     void resetDatabase() throws SQLException {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            statement.execute("TRUNCATE TABLE players RESTART IDENTITY CASCADE");
+            statement.execute("""
+                    TRUNCATE TABLE processed_operations, economic_ledger, players
+                    RESTART IDENTITY CASCADE
+                    """);
         }
     }
 
