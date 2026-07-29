@@ -69,6 +69,9 @@ public final class CoinFlowAnalyticsRepository {
                            WHEN operation.operation_type IN ('COIN_SYSTEM_CREDIT', 'COIN_SYSTEM_DEBIT')
                                 AND COALESCE(operation.result ->> 'amount_minor', '') ~ '^[0-9]+$'
                                THEN (operation.result ->> 'amount_minor')::NUMERIC
+                           WHEN operation.operation_type = 'PVE_DEATH_LOSS'
+                                AND COALESCE(operation.result ->> 'loss_minor', '') ~ '^[0-9]+$'
+                               THEN (operation.result ->> 'loss_minor')::NUMERIC
                            WHEN operation.operation_type = 'BANK_TIER_UPGRADE'
                                 AND COALESCE(operation.result ->> 'cost_minor', '') ~ '^[0-9]+$'
                                THEN (operation.result ->> 'cost_minor')::NUMERIC
@@ -105,6 +108,8 @@ public final class CoinFlowAnalyticsRepository {
                            WHEN processed.operation_type = 'COIN_SYSTEM_CREDIT'
                                THEN processed.expected_amount_minor
                            WHEN processed.operation_type = 'COIN_SYSTEM_DEBIT'
+                               THEN -processed.expected_amount_minor
+                           WHEN processed.operation_type = 'PVE_DEATH_LOSS'
                                THEN -processed.expected_amount_minor
                            WHEN processed.operation_type = 'BANK_INTEREST_CREDIT'
                                THEN processed.expected_amount_minor
@@ -161,6 +166,7 @@ public final class CoinFlowAnalyticsRepository {
                                 AND processed.ledger_net_minor = processed.expected_amount_minor
                            WHEN processed.operation_type IN (
                                'COIN_SYSTEM_DEBIT',
+                               'PVE_DEATH_LOSS',
                                'BANK_TIER_UPGRADE',
                                'BOUNTY_CONTRACT_START'
                            ) THEN processed.expected_amount_minor IS NOT NULL
