@@ -45,6 +45,7 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemUseRequirementCatalo
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillLeaderboardRepository;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionQueryRepository;
@@ -188,6 +189,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
             AttunementLiveProfileCompatibilityValidator.validate(database.dataSource(), attunementProfiles);
+            SkillLiveContentCompatibilityValidator.validate(database.dataSource(), skillCatalog);
             BankLiveTierCompatibilityValidator.validate(database.dataSource(), bankTiers);
             CraftingLiveContentCompatibilityValidator.validate(database.dataSource(), craftingContent);
             BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
