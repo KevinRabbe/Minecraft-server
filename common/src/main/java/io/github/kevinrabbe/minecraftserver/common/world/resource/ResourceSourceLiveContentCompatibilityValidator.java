@@ -6,16 +6,17 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
+import java.util.UUID;
 
-/** Startup compatibility gate for resource sources still attached to runnable zone instances. */
+/** Startup compatibility gate for live or recoverable renewable source state. */
 public final class ResourceSourceLiveContentCompatibilityValidator {
     private ResourceSourceLiveContentCompatibilityValidator() { }
 
     /**
-     * Verifies that every source on a STARTING/ACTIVE instance still has a loaded stable definition for the same
-     * logical zone and template. Quantity, XP and respawn tuning may change behind that stable identity.
+     * Verifies that every source still capable of live/recovery work retains its stable definition and logical
+     * zone/template identity. Quantity, XP and respawn tuning may change behind that stable identity.
      *
-     * <p>Stopped/draining historical instances and immutable harvest entitlements do not retain obsolete live content.</p>
+     * <p>Terminal source history no longer pins obsolete definitions once no managed entity cycle remains unresolved.</p>
      */
     public static void validate(DataSource dataSource, ResourceSourceCatalog catalog) throws SQLException {
         Objects.requireNonNull(dataSource, "dataSource");
@@ -23,27 +24,37 @@ public final class ResourceSourceLiveContentCompatibilityValidator {
 
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT s.definition_id,
+                     SELECT s.source_id,
+                            s.definition_id,
                             z.zone_id,
-                            z.template_version
+                            z.template_version,
+                            z.status
                      FROM resource_sources s
                      JOIN zone_instances z ON z.instance_id = s.instance_id
-                     WHERE z.status IN ('STARTING', 'ACTIVE')
-                     GROUP BY s.definition_id, z.zone_id, z.template_version
-                     ORDER BY s.definition_id, z.zone_id, z.template_version
+                     WHERE z.status IN ('STARTING', 'ACTIVE', 'DRAINING')
+                        OR EXISTS (
+                            SELECT 1
+                            FROM resource_entity_spawns e
+                            WHERE e.source_id = s.source_id
+                              AND e.status IN ('PENDING', 'ACTIVE')
+                        )
+                     ORDER BY s.source_id
                      """);
              ResultSet rows = statement.executeQuery()) {
             while (rows.next()) {
+                UUID sourceId = rows.getObject("source_id", UUID.class);
                 String definitionId = rows.getString("definition_id");
                 String zoneId = rows.getString("zone_id");
                 String templateVersion = rows.getString("template_version");
+                String status = rows.getString("status");
                 ResourceSourceDefinition definition;
                 try {
                     definition = catalog.require(definitionId);
                 } catch (ResourceSourceException exception) {
                     throw new ResourceSourceException(
-                            "Loaded resource content is missing runnable definition " + definitionId
-                                    + " for " + zoneId + "/" + templateVersion,
+                            "Loaded resource content is missing definition " + definitionId
+                                    + " required by source " + sourceId
+                                    + " in " + status + " " + zoneId + "/" + templateVersion,
                             exception
                     );
                 }
@@ -51,8 +62,9 @@ public final class ResourceSourceLiveContentCompatibilityValidator {
                         || !definition.templateVersion().equals(templateVersion)) {
                     throw new ResourceSourceException(
                             "Loaded resource definition " + definitionId
-                                    + " cannot represent runnable source identity " + zoneId + "/" + templateVersion
-                                    + "; loaded identity is " + definition.zoneId() + "/" + definition.templateVersion()
+                                    + " cannot represent source " + sourceId
+                                    + ": persisted=" + zoneId + "/" + templateVersion
+                                    + ", loaded=" + definition.zoneId() + "/" + definition.templateVersion()
                     );
                 }
             }
