@@ -50,6 +50,7 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyBossMaterial
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalog;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyContentCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyKillProgressRepository;
+import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
@@ -183,6 +184,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
+            BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
 
             backendRegistry = new BackendRegistry(database.dataSource());
             onlinePlayers.set(getServer().getOnlinePlayers().size());
