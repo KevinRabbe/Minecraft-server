@@ -65,7 +65,7 @@ class AttunementLiveProfileCompatibilityValidatorIntegrationTest {
         assertDoesNotThrow(() -> AttunementLiveProfileCompatibilityValidator.validate(dataSource, arcaneV1));
         assertDoesNotThrow(() -> AttunementLiveProfileCompatibilityValidator.validate(dataSource, arcaneRetuned));
         assertThrows(
-                IllegalArgumentException.class,
+                AttunementException.class,
                 () -> AttunementLiveProfileCompatibilityValidator.validate(dataSource, replacementOnly)
         );
 
