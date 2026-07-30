@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.artifact.ArtifactRepository;
+import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementLiveProfileCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalog;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementRepository;
@@ -186,6 +187,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
+            AttunementLiveProfileCompatibilityValidator.validate(database.dataSource(), attunementProfiles);
             BankLiveTierCompatibilityValidator.validate(database.dataSource(), bankTiers);
             CraftingLiveContentCompatibilityValidator.validate(database.dataSource(), craftingContent);
             BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
