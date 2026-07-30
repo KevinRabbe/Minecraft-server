@@ -62,7 +62,7 @@ final class PaperMapRuntime {
             PaperPlayerIdentityResolver identities,
             ItemCatalog itemCatalog,
             PaperUniqueItemStateRemovalMutator uniqueItemRemoval
-    ) {
+    ) throws SQLException {
         Objects.requireNonNull(plugin, "plugin");
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(sessions, "sessions");
@@ -76,6 +76,7 @@ final class PaperMapRuntime {
                 itemCatalog
         );
         MapAuthorityRepository maps = new MapAuthorityRepository(dataSource, itemCatalog);
+        PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, content);
         MapEncounterReservationRepository reservations = new MapEncounterReservationRepository(
                 dataSource,
                 ROUTE_HEARTBEAT_FRESHNESS
