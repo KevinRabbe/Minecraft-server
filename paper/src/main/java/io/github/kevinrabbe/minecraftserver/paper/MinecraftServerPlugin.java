@@ -19,6 +19,7 @@ import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingRepository;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingStateExecutionService;
 import io.github.kevinrabbe.minecraftserver.common.economy.AuctionHouseQueryRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.AuctionHouseRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.BankLiveTierCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankManagerRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalogLoader;
@@ -185,6 +186,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
+            BankLiveTierCompatibilityValidator.validate(database.dataSource(), bankTiers);
             CraftingLiveContentCompatibilityValidator.validate(database.dataSource(), craftingContent);
             BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
 
