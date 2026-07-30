@@ -76,7 +76,7 @@ class BountyLiveContentCompatibilityValidatorIntegrationTest {
         BountyTierCatalog v2Only = new BountyTierCatalog(List.of(v2));
         BountyTierCatalog both = new BountyTierCatalog(List.of(v1, v2));
 
-        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "BountyCompatibility");
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "BountyCompat");
         BountyRepository repository = new BountyRepository(
                 dataSource,
                 v1Only,
