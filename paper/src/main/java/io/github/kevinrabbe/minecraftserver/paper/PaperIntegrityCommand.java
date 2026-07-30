@@ -119,19 +119,7 @@ final class PaperIntegrityCommand implements CommandExecutor {
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(itemCatalog, "itemCatalog");
         Objects.requireNonNull(skillCatalog, "skillCatalog");
-        ResourceSourceCatalog resourceSources = new ResourceSourceCatalogLoader().loadResource(
-                RESOURCE_SOURCE_CATALOG_RESOURCE,
-                itemCatalog,
-                skillCatalog
-        );
-        install(plugin, new PersistentIntegrityVerifier(
-                dataSource,
-                itemCatalog,
-                skillCatalog,
-                null,
-                null,
-                resourceSources
-        ));
+        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog));
     }
 
     private static void install(JavaPlugin plugin, PersistentIntegrityVerifier verifier) {
