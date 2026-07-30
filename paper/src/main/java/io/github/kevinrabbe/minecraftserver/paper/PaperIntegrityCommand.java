@@ -9,6 +9,8 @@ import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionC
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.verification.IntegrityIssue;
 import io.github.kevinrabbe.minecraftserver.common.verification.PersistentIntegrityVerifier;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalog;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalogLoader;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -30,6 +32,7 @@ final class PaperIntegrityCommand implements CommandExecutor {
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_COMMAND_LIMIT = 100;
     private static final String SKILL_CATALOG_RESOURCE = "/content/skills.json";
+    private static final String RESOURCE_SOURCE_CATALOG_RESOURCE = "/content/resource-sources.json";
     private static final String ATTUNEMENT_PROFILE_CATALOG_RESOURCE = "/content/attunement-profiles.json";
     private static final String BANK_TIER_CATALOG_RESOURCE = "/content/bank-tiers.json";
 
@@ -47,13 +50,19 @@ final class PaperIntegrityCommand implements CommandExecutor {
     }
 
     /**
-     * Bundled Paper installer. Item definitions are supplied by the caller; immutable bundled skill, Attunement and
-     * Bank tier catalogs are re-read once at startup so the operator command gets the strongest catalog-aware pass.
+     * Bundled Paper installer. Item definitions are supplied by the caller; immutable bundled skill, resource,
+     * Attunement and Bank tier catalogs are re-read once at startup so the operator command gets the strongest
+     * catalog-aware pass.
      */
     static void install(JavaPlugin plugin, DataSource dataSource, ItemCatalog itemCatalog) {
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(itemCatalog, "itemCatalog");
         SkillProgressionCatalog skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
+        ResourceSourceCatalog resourceSources = new ResourceSourceCatalogLoader().loadResource(
+                RESOURCE_SOURCE_CATALOG_RESOURCE,
+                itemCatalog,
+                skillCatalog
+        );
         AttunementProfileCatalog attunementProfiles = new AttunementProfileCatalogLoader().loadResource(
                 ATTUNEMENT_PROFILE_CATALOG_RESOURCE
         );
@@ -63,13 +72,14 @@ final class PaperIntegrityCommand implements CommandExecutor {
                 itemCatalog,
                 skillCatalog,
                 attunementProfiles,
-                bankTiers
+                bankTiers,
+                resourceSources
         ));
     }
 
     /**
      * Explicit live installer for callers that already own the exact validated Bank tier catalog.
-     * Skill and Attunement catalogs remain immutable bundled content loaded once for diagnostics.
+     * Skill, resource and Attunement catalogs remain immutable bundled content loaded once for diagnostics.
      */
     static void install(
             JavaPlugin plugin,
@@ -81,6 +91,11 @@ final class PaperIntegrityCommand implements CommandExecutor {
         Objects.requireNonNull(itemCatalog, "itemCatalog");
         Objects.requireNonNull(bankTiers, "bankTiers");
         SkillProgressionCatalog skillCatalog = new SkillProgressionCatalogLoader().loadResource(SKILL_CATALOG_RESOURCE);
+        ResourceSourceCatalog resourceSources = new ResourceSourceCatalogLoader().loadResource(
+                RESOURCE_SOURCE_CATALOG_RESOURCE,
+                itemCatalog,
+                skillCatalog
+        );
         AttunementProfileCatalog attunementProfiles = new AttunementProfileCatalogLoader().loadResource(
                 ATTUNEMENT_PROFILE_CATALOG_RESOURCE
         );
@@ -89,7 +104,8 @@ final class PaperIntegrityCommand implements CommandExecutor {
                 itemCatalog,
                 skillCatalog,
                 attunementProfiles,
-                bankTiers
+                bankTiers,
+                resourceSources
         ));
     }
 
@@ -103,7 +119,19 @@ final class PaperIntegrityCommand implements CommandExecutor {
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(itemCatalog, "itemCatalog");
         Objects.requireNonNull(skillCatalog, "skillCatalog");
-        install(plugin, new PersistentIntegrityVerifier(dataSource, itemCatalog, skillCatalog));
+        ResourceSourceCatalog resourceSources = new ResourceSourceCatalogLoader().loadResource(
+                RESOURCE_SOURCE_CATALOG_RESOURCE,
+                itemCatalog,
+                skillCatalog
+        );
+        install(plugin, new PersistentIntegrityVerifier(
+                dataSource,
+                itemCatalog,
+                skillCatalog,
+                null,
+                null,
+                resourceSources
+        ));
     }
 
     private static void install(JavaPlugin plugin, PersistentIntegrityVerifier verifier) {
