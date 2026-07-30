@@ -96,10 +96,22 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
     }
 
     @Test
-    void unresolvedHistoricalRunRequiresExactContentUntilRewardSettlementIsFrozen() throws Exception {
+    void historicalMapRequiresExactContentUntilItsPersistentPromiseIsFullyFrozen() throws Exception {
         UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "MapCompat");
-        UUID runId = issueAndOpen(playerId, unsupportedV2(101L));
+        MapItemProfile unopened = issue(playerId, unsupportedV2(101L));
 
+        assertThrows(
+                MapAuthorityException.class,
+                () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
+        );
+
+        UUID runId = maps.openMap(
+                UUID.randomUUID(),
+                unopened.itemInstanceId(),
+                playerId,
+                0L,
+                "map.open"
+        );
         assertThrows(
                 MapAuthorityException.class,
                 () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
@@ -142,27 +154,27 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
                 () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
         );
 
-        UUID failedRun = issueAndOpen(playerId, unsupportedV2(202L));
+        MapItemProfile failedSource = issue(playerId, unsupportedV2(202L));
+        UUID failedRun = maps.openMap(
+                UUID.randomUUID(),
+                failedSource.itemInstanceId(),
+                playerId,
+                0L,
+                "map.open"
+        );
         maps.failRun(UUID.randomUUID(), failedRun, 0L, "map.fail");
         assertDoesNotThrow(
                 () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
         );
     }
 
-    private UUID issueAndOpen(UUID playerId, MapRunDefinition definition) throws SQLException {
-        MapItemProfile issued = maps.issueMap(
+    private MapItemProfile issue(UUID playerId, MapRunDefinition definition) throws SQLException {
+        return maps.issueMap(
                 UUID.randomUUID(),
                 MAP_DEFINITION,
                 playerId,
                 definition,
                 "map.issue"
-        );
-        return maps.openMap(
-                UUID.randomUUID(),
-                issued.itemInstanceId(),
-                playerId,
-                0L,
-                "map.open"
         );
     }
 
