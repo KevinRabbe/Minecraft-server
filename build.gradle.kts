@@ -38,3 +38,16 @@ subprojects {
         }
     }
 }
+
+gradle.projectsEvaluated {
+    val commonTest = project(":common").tasks.named<Test>("test")
+    val paperTest = project(":paper").tasks.named<Test>("test")
+    val competitiveControlTest = project(":competitive-control").tasks.named<Test>("test")
+
+    paperTest.configure {
+        mustRunAfter(commonTest)
+    }
+    competitiveControlTest.configure {
+        mustRunAfter(paperTest)
+    }
+}
