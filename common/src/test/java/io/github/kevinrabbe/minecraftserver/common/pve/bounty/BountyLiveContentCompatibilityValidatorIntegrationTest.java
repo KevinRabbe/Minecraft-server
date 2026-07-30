@@ -113,7 +113,7 @@ class BountyLiveContentCompatibilityValidatorIntegrationTest {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
                      UPDATE bounty_contracts
-                     SET status = 'CANCELLED', updated_at = NOW()
+                     SET status = 'CANCELLED', completed_at = NOW(), updated_at = NOW()
                      WHERE contract_id = ?
                      """)) {
             statement.setObject(1, contractId);
