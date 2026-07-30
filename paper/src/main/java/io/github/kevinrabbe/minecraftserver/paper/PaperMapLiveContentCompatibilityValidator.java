@@ -13,12 +13,13 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Startup compatibility gate for persisted Map runs that still depend on Paper encounter content.
+ * Startup compatibility gate for persisted Maps that still depend on Paper encounter content.
  *
- * <p>CREATED and ACTIVE runs may still materialize gameplay. A COMPLETED run still needs the exact historical
- * encounter definition until reward settlement freezes its durable grants. Once reward_operation_id exists, later
- * fulfillment/release no longer consults encounter content, so settled or otherwise terminal history does not keep
- * obsolete definitions alive forever.</p>
+ * <p>Every non-destroyed Map item remains a player-owned challenge promise and must still be openable under its exact
+ * immutable profile. After opening, the source item is DESTROYED and the persistent run becomes the dependency:
+ * CREATED and ACTIVE runs may still materialize gameplay, while a COMPLETED run still needs the historical encounter
+ * definition until reward settlement freezes durable grants. Settled completed runs and otherwise terminal history no
+ * longer consult encounter content and therefore do not keep obsolete definitions alive forever.</p>
  */
 final class PaperMapLiveContentCompatibilityValidator {
     private PaperMapLiveContentCompatibilityValidator() { }
@@ -32,8 +33,29 @@ final class PaperMapLiveContentCompatibilityValidator {
         Objects.requireNonNull(maps, "maps");
         Objects.requireNonNull(content, "content");
 
+        for (UUID itemInstanceId : dependentMapItemIds(dataSource)) {
+            content.require(maps.loadMapProfile(itemInstanceId).runDefinition());
+        }
         for (UUID runId : dependentRunIds(dataSource)) {
             content.require(maps.loadRun(runId).definition());
+        }
+    }
+
+    private static List<UUID> dependentMapItemIds(DataSource dataSource) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT p.item_instance_id
+                     FROM map_item_profiles p
+                     JOIN item_instances i ON i.item_instance_id = p.item_instance_id
+                     WHERE i.location_kind <> 'DESTROYED'
+                     ORDER BY p.item_instance_id
+                     """);
+             ResultSet rows = statement.executeQuery()) {
+            ArrayList<UUID> result = new ArrayList<>();
+            while (rows.next()) {
+                result.add(rows.getObject("item_instance_id", UUID.class));
+            }
+            return List.copyOf(result);
         }
     }
 
