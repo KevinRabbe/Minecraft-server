@@ -24,4 +24,19 @@ It verifies:
 
 An immutable harvest without a `resource_harvest_fulfillments` row is intentionally **not** corruption. Fulfillment is separately recoverable and may be resumed after a crash. Likewise, a prepared kill claim can legitimately exist before its harvest commits, and a claim can remain as historical evidence after a no-reward terminal entity resolution.
 
+## Live content compatibility
+
+Resource-source content is live balance data, but stable source identity must remain interpretable while runtime or recovery can still use it.
+
+Paper therefore validates the loaded resource catalog after migration and before backend registration:
+
+- a source head attached to a `STARTING`, `ACTIVE`, or `DRAINING` zone instance retains its stable `definition_id`;
+- that definition must retain the persisted logical `zone_id` and `template_version` identity;
+- a source with an unresolved managed-entity cycle in `PENDING` or `ACTIVE` state retains the same dependency even if its zone instance has already become terminal;
+- commodity quantity, optional requested skill XP, respawn delay, cooldown, and equivalent balance values may change behind the same stable definition identity;
+- once the instance is terminal and no managed-entity cycle remains unresolved, historical source rows may release an obsolete definition;
+- immutable harvest entitlements do not pin old source definitions because commodity identity, quantity, optional skill and requested XP were frozen when the harvest committed.
+
+The operator `/integrity` pass applies the same catalog-aware identity check to currently runnable source heads. The startup validator is stricter around recovery by also retaining definitions needed by draining instances and unresolved entity cycles.
+
 This verifier proves issuance/origin evidence only. The generic commodity-delivery claim verifier remains responsible for later materialization into fenced player state, so the resource verifier does not duplicate delivery-consumption checks.
