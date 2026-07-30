@@ -14,6 +14,7 @@ import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingCommissionCo
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalog;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingContentCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingExperienceFulfillmentRepository;
+import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingRepository;
 import io.github.kevinrabbe.minecraftserver.common.crafting.CraftingStateExecutionService;
 import io.github.kevinrabbe.minecraftserver.common.economy.AuctionHouseQueryRepository;
@@ -184,6 +185,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
+            CraftingLiveContentCompatibilityValidator.validate(database.dataSource(), craftingContent);
             BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
 
             backendRegistry = new BackendRegistry(database.dataSource());
