@@ -34,11 +34,28 @@ final class PaperManagedItemScanner {
 
     List<ItemRepresentationClaim> collectPlayerInventoryClaims(PlayerInventory inventory) {
         Objects.requireNonNull(inventory, "inventory");
+        return collectInventoryClaims(
+                inventory.getStorageContents(),
+                inventory.getArmorContents(),
+                inventory.getExtraContents()
+        );
+    }
+
+    List<ItemRepresentationClaim> collectStoredInventoryClaims(PaperPlayerStateCodec.InventoryState state) {
+        Objects.requireNonNull(state, "state");
+        return collectInventoryClaims(state.storage(), state.armor(), state.extra());
+    }
+
+    private List<ItemRepresentationClaim> collectInventoryClaims(
+            ItemStack[] storage,
+            ItemStack[] armor,
+            ItemStack[] extra
+    ) {
         ArrayList<ItemRepresentationClaim> claims = new ArrayList<>();
         TraversalBudget budget = new TraversalBudget();
-        collectSection(inventory.getStorageContents(), "storage", claims, budget);
-        collectSection(inventory.getArmorContents(), "armor", claims, budget);
-        collectSection(inventory.getExtraContents(), "extra", claims, budget);
+        collectSection(storage, "storage", claims, budget);
+        collectSection(armor, "armor", claims, budget);
+        collectSection(extra, "extra", claims, budget);
         return List.copyOf(claims);
     }
 
