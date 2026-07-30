@@ -46,6 +46,7 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
     private PlayerIdentityRepository identities;
     private MapAuthorityRepository maps;
     private PaperMapEncounterContentCatalog launchContent;
+    private PaperMapEncounterRouteCatalog launchRoutes;
 
     @BeforeAll
     void openDatabase() {
@@ -61,6 +62,7 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
         identities = new PlayerIdentityRepository(dataSource);
         maps = new MapAuthorityRepository(dataSource, itemCatalog);
         launchContent = PaperMapEncounterContentCatalog.loadResource("/content/map-encounters.json", itemCatalog);
+        launchRoutes = PaperMapEncounterRouteCatalog.loadResource("/content/map-encounter-routes.json");
     }
 
     @BeforeEach
@@ -102,7 +104,7 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
 
         assertThrows(
                 MapAuthorityException.class,
-                () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
+                () -> validate()
         );
 
         UUID runId = maps.openMap(
@@ -114,19 +116,19 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
         );
         assertThrows(
                 MapAuthorityException.class,
-                () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
+                () -> validate()
         );
 
         maps.startRun(UUID.randomUUID(), runId, 0L, List.of(playerId), "map.start");
         assertThrows(
                 MapAuthorityException.class,
-                () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
+                () -> validate()
         );
 
         maps.completeRun(UUID.randomUUID(), runId, 1L, 5_000L, "map.complete");
         assertThrows(
                 MapAuthorityException.class,
-                () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
+                () -> validate()
         );
 
         MapRewardResolver frozenRewardPolicy = new MapRewardResolver() {
@@ -150,9 +152,7 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
                 runId,
                 2L
         );
-        assertDoesNotThrow(
-                () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
-        );
+        assertDoesNotThrow(this::validate);
 
         MapItemProfile failedSource = issue(playerId, unsupportedV2(202L));
         UUID failedRun = maps.openMap(
@@ -163,9 +163,11 @@ class PaperMapLiveContentCompatibilityValidatorIntegrationTest {
                 "map.open"
         );
         maps.failRun(UUID.randomUUID(), failedRun, 0L, "map.fail");
-        assertDoesNotThrow(
-                () -> PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent)
-        );
+        assertDoesNotThrow(this::validate);
+    }
+
+    private void validate() throws SQLException {
+        PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, launchContent, launchRoutes);
     }
 
     private MapItemProfile issue(UUID playerId, MapRunDefinition definition) throws SQLException {
