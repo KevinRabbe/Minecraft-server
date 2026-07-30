@@ -76,7 +76,7 @@ final class PaperMapRuntime {
                 itemCatalog
         );
         MapAuthorityRepository maps = new MapAuthorityRepository(dataSource, itemCatalog);
-        PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, content);
+        PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, content, routes);
         MapEncounterReservationRepository reservations = new MapEncounterReservationRepository(
                 dataSource,
                 ROUTE_HEARTBEAT_FRESHNESS
