@@ -4,6 +4,7 @@ import io.github.kevinrabbe.minecraftserver.common.artifact.AttunementProfileCat
 import io.github.kevinrabbe.minecraftserver.common.economy.BankTierCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalog;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -34,6 +35,7 @@ public final class PersistentIntegrityVerifier {
     private final ItemUpgradeIntegrityVerifier itemUpgrades;
     private final SkillProgressionIntegrityVerifier skills;
     private final ResourceSourceIntegrityVerifier resources;
+    private final ResourceSourceLiveCatalogIntegrityVerifier resourceContent;
     private final CraftingIntegrityVerifier crafting;
     private final WorldProgressionIntegrityVerifier worldProgression;
     private final ArtifactIntegrityVerifier artifacts;
@@ -47,40 +49,52 @@ public final class PersistentIntegrityVerifier {
 
     /** Compatibility constructor for environments without loaded content catalogs. */
     public PersistentIntegrityVerifier(DataSource dataSource) {
-        this(dataSource, null, null, null, null);
+        this(dataSource, null, null, null, null, null);
     }
 
     /** Compatibility constructor with item-definition-aware upgrade reconciliation only. */
     public PersistentIntegrityVerifier(DataSource dataSource, ItemCatalog itemCatalog) {
-        this(dataSource, itemCatalog, null, null, null);
+        this(dataSource, itemCatalog, null, null, null, null);
     }
 
-    /** Compatibility constructor with live item and skill catalogs but no Attunement or Bank tier catalog. */
+    /** Compatibility constructor with live item and skill catalogs but no Attunement, Bank, or resource catalog. */
     public PersistentIntegrityVerifier(
             DataSource dataSource,
             ItemCatalog itemCatalog,
             SkillProgressionCatalog skillCatalog
     ) {
-        this(dataSource, itemCatalog, skillCatalog, null, null);
+        this(dataSource, itemCatalog, skillCatalog, null, null, null);
     }
 
-    /** Compatibility constructor with live item, skill and Attunement catalogs but no Bank tier catalog. */
+    /** Compatibility constructor with live item, skill and Attunement catalogs but no Bank or resource catalog. */
     public PersistentIntegrityVerifier(
             DataSource dataSource,
             ItemCatalog itemCatalog,
             SkillProgressionCatalog skillCatalog,
             AttunementProfileCatalog attunementProfiles
     ) {
-        this(dataSource, itemCatalog, skillCatalog, attunementProfiles, null);
+        this(dataSource, itemCatalog, skillCatalog, attunementProfiles, null, null);
     }
 
-    /** Strong aggregate verifier with live item, skill, Attunement-profile, and Bank-tier catalogs. */
+    /** Compatibility constructor with live item, skill, Attunement-profile, and Bank-tier catalogs. */
     public PersistentIntegrityVerifier(
             DataSource dataSource,
             ItemCatalog itemCatalog,
             SkillProgressionCatalog skillCatalog,
             AttunementProfileCatalog attunementProfiles,
             BankTierCatalog bankTiers
+    ) {
+        this(dataSource, itemCatalog, skillCatalog, attunementProfiles, bankTiers, null);
+    }
+
+    /** Strong aggregate verifier with all currently loaded content catalogs used by bounded reconciliation. */
+    public PersistentIntegrityVerifier(
+            DataSource dataSource,
+            ItemCatalog itemCatalog,
+            SkillProgressionCatalog skillCatalog,
+            AttunementProfileCatalog attunementProfiles,
+            BankTierCatalog bankTiers,
+            ResourceSourceCatalog resourceSourceCatalog
     ) {
         Objects.requireNonNull(dataSource, "dataSource");
         this.sessions = new PlayerSessionIntegrityVerifier(dataSource);
@@ -104,6 +118,9 @@ public final class PersistentIntegrityVerifier {
                 ? new SkillProgressionIntegrityVerifier(dataSource)
                 : new SkillProgressionIntegrityVerifier(dataSource, skillCatalog);
         this.resources = new ResourceSourceIntegrityVerifier(dataSource);
+        this.resourceContent = resourceSourceCatalog == null
+                ? null
+                : new ResourceSourceLiveCatalogIntegrityVerifier(dataSource, resourceSourceCatalog);
         this.crafting = new CraftingIntegrityVerifier(dataSource);
         this.worldProgression = new WorldProgressionIntegrityVerifier(dataSource);
         this.artifacts = attunementProfiles == null
@@ -151,6 +168,8 @@ public final class PersistentIntegrityVerifier {
         if (remaining > 0) issues.addAll(skills.verify(remaining));
         remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(resources.verify(remaining));
+        remaining = maxIssues - issues.size();
+        if (remaining > 0 && resourceContent != null) issues.addAll(resourceContent.verify(remaining));
         remaining = maxIssues - issues.size();
         if (remaining > 0) issues.addAll(crafting.verify(remaining));
         remaining = maxIssues - issues.size();
