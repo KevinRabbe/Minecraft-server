@@ -127,7 +127,8 @@ The first Paper bridge additionally implements:
 - exact-block interaction requesting discovery while PostgreSQL remains the authority;
 - break/explosion protection for the representation;
 - a minimal `/attune [profile]` player surface;
-- `/integrity` loading the bundled Attunement-profile catalog so persisted active profiles that no longer exist in current content are reported as critical integrity issues.
+- `/integrity` loading the bundled Attunement-profile catalog so persisted active profiles that no longer exist in current content are reported as critical integrity issues;
+- Paper startup validating every non-null active profile ID against the loaded catalog before backend registration, so a deployment cannot come online with current Attunement state it cannot represent.
 
 The first content row is deliberately only a structural proof. More starter Artifacts are content expansion, not new mechanics.
 
@@ -158,4 +159,5 @@ The system is correct when:
 5. one active attunement determines the stat effect from the earned point pool;
 6. switching attunement cannot duplicate points or leave multiple profiles active;
 7. artifact progress remains independent from tradable economy custody;
-8. bounded integrity verification detects missing/mismatched Artifact source-operation evidence and active Attunement profiles that are unknown to the loaded catalog.
+8. bounded integrity verification detects missing/mismatched Artifact source-operation evidence and active Attunement profiles that are unknown to the loaded catalog;
+9. Paper refuses to register online while any current active profile ID is absent from the loaded catalog, while allowing tuning or stat-mapping changes behind an existing stable profile ID.
