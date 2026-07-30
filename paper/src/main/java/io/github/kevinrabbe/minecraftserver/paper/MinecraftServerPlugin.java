@@ -41,6 +41,7 @@ import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeResolution
 import io.github.kevinrabbe.minecraftserver.common.economy.SecureTradeWithdrawalRepository;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemUseRequirementCatalogValidator;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
@@ -189,6 +190,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
             database = Database.open(DatabaseConfig.fromEnvironment());
             database.migrate();
+            ItemLiveContentCompatibilityValidator.validate(database.dataSource(), itemCatalog);
             AttunementLiveProfileCompatibilityValidator.validate(database.dataSource(), attunementProfiles);
             SkillLiveContentCompatibilityValidator.validate(database.dataSource(), skillCatalog);
             ResourceSourceLiveContentCompatibilityValidator.validate(database.dataSource(), resourceSourceCatalog);
