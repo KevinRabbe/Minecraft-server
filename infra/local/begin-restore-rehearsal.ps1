@@ -237,7 +237,7 @@ try {
         INTEGRITY_OUTPUT = Join-Path $EvidencePath "transcripts\integrity-100.txt"
     }
 
-    Write-Template (Join-Path $EvidencePath "state.md") @'
+    $stateTemplate = @'
 # Restore rehearsal state evidence
 
 Repository commit: __COMMIT__
@@ -282,9 +282,10 @@ City-world mutation:
 
 Observed result:
 
-'@ $templateValues
+'@
+    Write-Template (Join-Path $EvidencePath "state.md") $stateTemplate $templateValues
 
-    Write-Template (Join-Path $EvidencePath "negative-tests.md") @'
+    $negativeTemplate = @'
 # Negative recovery proofs
 
 - [ ] tampered copied backup rejected by checksum verification before destructive work
@@ -297,9 +298,10 @@ Observed result:
 
 Record exact commands, outputs and every ambiguity below.
 
-'@ $templateValues
+'@
+    Write-Template (Join-Path $EvidencePath "negative-tests.md") $negativeTemplate $templateValues
 
-    Write-Template (Join-Path $EvidencePath "result.md") @'
+    $resultTemplate = @'
 # Coherent restore rehearsal result
 
 Status: **PENDING — NOT ACCEPTED**
@@ -314,9 +316,10 @@ Unexplained CRITICAL integrity issues:
 Observed mismatches or ambiguities:
 
 Final result must remain PENDING until every check in `REHEARSAL.md` and issue #58 has objective evidence. This initializer cannot declare PASS.
-'@ $templateValues
+'@
+    Write-Template (Join-Path $EvidencePath "result.md") $resultTemplate $templateValues
 
-    Write-Template (Join-Path $EvidencePath "REHEARSAL.md") @'
+    $rehearsalTemplate = @'
 # Windows/Docker coherent restore rehearsal
 
 Status: **INITIALIZED — NOT ACCEPTED**
@@ -394,7 +397,8 @@ Run only against disposable copied snapshots/state. Record commands and outputs 
 ## 9. Final classification
 
 The rehearsal passes only when PostgreSQL and persistent world state recover to the same selected point with no unexplained authority corruption or duplicated value. Manually change `result.md` from PENDING only after all evidence is present. The initializer never creates an acceptance marker.
-'@ $templateValues
+'@
+    Write-Template (Join-Path $EvidencePath "REHEARSAL.md") $rehearsalTemplate $templateValues
 
     "PENDING - evidence directory initialized; recovery has not been accepted." | Set-Content -Encoding UTF8 $StatusPath
 
