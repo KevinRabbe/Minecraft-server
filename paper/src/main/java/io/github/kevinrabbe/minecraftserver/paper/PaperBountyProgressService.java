@@ -41,7 +41,7 @@ final class PaperBountyProgressService {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.content = Objects.requireNonNull(content, "content");
-        this.progress = Objects.requireNonNull(progress, "progress");
+        this.progress = Objects.requireNonNull(progress, "progress").withContent(this.content);
     }
 
     void start() {

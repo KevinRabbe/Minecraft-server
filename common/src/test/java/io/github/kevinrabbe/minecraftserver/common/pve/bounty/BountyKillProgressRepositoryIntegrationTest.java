@@ -37,6 +37,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -106,7 +107,22 @@ class BountyKillProgressRepositoryIntegrationTest {
                 sources,
                 new ResourceHarvestFulfillmentRepository(dataSource, skills)
         );
-        progress = new BountyKillProgressRepository(dataSource);
+        BountyTierDefinition tier = new BountyTierDefinition(
+                FAMILY,
+                1,
+                0L,
+                1,
+                "boss.zombie.t1",
+                List.of(DROP)
+        );
+        BountyContentCatalog bountyContent = new BountyContentCatalog(List.of(
+                new BountyContentCatalog.ConfiguredTier(
+                        tier,
+                        List.of(SOURCE_DEFINITION),
+                        Map.of(DROP, 1L)
+                )
+        ));
+        progress = new BountyKillProgressRepository(dataSource, bountyContent);
     }
 
     @BeforeEach

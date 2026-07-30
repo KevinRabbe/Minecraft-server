@@ -72,10 +72,14 @@ public final class BountyBossMaterializationRepository {
                 if (!backend.equals(summon.ownerBackendId())) {
                     throw new BountyException("Backend does not own ACTIVE bounty summon: " + summonId);
                 }
-                BountyTierDefinition tier = catalog.require(summon.familyId(), summon.tier());
+                BountyTierDefinition tier = catalog.require(
+                        summon.familyId(),
+                        summon.tier(),
+                        summon.contentVersion()
+                );
                 if (!bossDefinition.equals(tier.bossDefinitionId())) {
                     throw new BountyException(
-                            "Boss definition does not match bounty tier for summon " + summonId
+                            "Boss definition does not match frozen bounty tier content for summon " + summonId
                     );
                 }
 
@@ -185,7 +189,8 @@ public final class BountyBossMaterializationRepository {
                 SELECT s.status,
                        s.owner_backend_id,
                        c.family_id,
-                       c.tier
+                       c.tier,
+                       c.content_version
                 FROM bounty_summons s
                 JOIN bounty_contracts c ON c.contract_id = s.contract_id
                 WHERE s.summon_id = ?
@@ -204,7 +209,8 @@ public final class BountyBossMaterializationRepository {
                 return new LockedSummon(
                         ownerBackend,
                         new BountyFamilyId(row.getString("family_id")),
-                        row.getInt("tier")
+                        row.getInt("tier"),
+                        row.getInt("content_version")
                 );
             }
         }
@@ -410,7 +416,9 @@ public final class BountyBossMaterializationRepository {
     }
 
     private static BountyException reused(UUID operationId) {
-        return new BountyException("operation_id reused with a different bounty boss materialization request: " + operationId);
+        return new BountyException(
+                "operation_id reused with a different bounty boss materialization request: " + operationId
+        );
     }
 
     private static String requireText(String value, String field) {
@@ -434,7 +442,12 @@ public final class BountyBossMaterializationRepository {
         }
     }
 
-    private record LockedSummon(String ownerBackendId, BountyFamilyId familyId, int tier) { }
+    private record LockedSummon(
+            String ownerBackendId,
+            BountyFamilyId familyId,
+            int tier,
+            int contentVersion
+    ) { }
 
     private record ProcessedOperation(String operationType, Map<String, Object> result) {
         private ProcessedOperation {

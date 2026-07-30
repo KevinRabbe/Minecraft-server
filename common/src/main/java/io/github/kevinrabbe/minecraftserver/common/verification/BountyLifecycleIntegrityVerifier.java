@@ -45,8 +45,8 @@ public final class BountyLifecycleIntegrityVerifier {
         if (remaining == 0) return;
         try (PreparedStatement statement = connection.prepareStatement("""
                 WITH start_evidence AS (
-                    SELECT c.contract_id, c.player_id, c.family_id, c.tier, c.required_eligible_kills,
-                           c.fee_operation_id, op.operation_type, op.result,
+                    SELECT c.contract_id, c.player_id, c.family_id, c.tier, c.content_version,
+                           c.required_eligible_kills, c.fee_operation_id, op.operation_type, op.result,
                            COALESCE((SELECT COUNT(*) FROM economic_ledger l
                                      WHERE l.operation_id = c.fee_operation_id), 0) AS ledger_count,
                            COALESCE((SELECT COUNT(*) FROM economic_ledger l
@@ -76,6 +76,7 @@ public final class BountyLifecycleIntegrityVerifier {
                        OR result #>> '{contract,player_id}' IS DISTINCT FROM player_id::text
                        OR result #>> '{contract,family_id}' IS DISTINCT FROM family_id
                        OR result #>> '{contract,tier}' IS DISTINCT FROM tier::text
+                       OR result #>> '{contract,content_version}' IS DISTINCT FROM content_version::text
                        OR result #>> '{contract,status}' IS DISTINCT FROM 'ACTIVE_HUNT'
                        OR result #>> '{contract,eligible_kill_progress}' IS DISTINCT FROM '0'
                        OR result #>> '{contract,summon_authorizations_remaining}' IS DISTINCT FROM '0'
@@ -99,7 +100,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     UUID contractId = rows.getObject("contract_id", UUID.class);
                     issues.add(new IntegrityIssue(IntegritySeverity.CRITICAL,
                             "BOUNTY_CONTRACT_START_EVIDENCE_MISMATCH", contractId.toString(),
-                            "Bounty contract does not reconcile to its exact start request and Coin-fee evidence"));
+                            "Bounty contract does not reconcile to its exact start request, frozen content version, and Coin-fee evidence"));
                 }
             }
         }
@@ -125,6 +126,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     OR op.result #>> '{contract,player_id}' IS DISTINCT FROM c.player_id::text
                     OR op.result #>> '{contract,family_id}' IS DISTINCT FROM c.family_id
                     OR op.result #>> '{contract,tier}' IS DISTINCT FROM c.tier::text
+                    OR op.result #>> '{contract,content_version}' IS DISTINCT FROM c.content_version::text
                     OR CASE
                         WHEN jsonb_typeof(op.result #> '{contract,state_version}') = 'number'
                         THEN (op.result #>> '{contract,state_version}')::numeric > c.state_version::numeric
@@ -145,7 +147,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     UUID operationId = rows.getObject("operation_id", UUID.class);
                     issues.add(new IntegrityIssue(IntegritySeverity.CRITICAL,
                             "BOUNTY_PROGRESS_EVIDENCE_MISMATCH", operationId.toString(),
-                            "Bounty progress operation does not reconcile to its contract identity and monotonic history"));
+                            "Bounty progress operation does not reconcile to its contract identity, frozen content version, and monotonic history"));
                 }
             }
         }
@@ -182,6 +184,8 @@ public final class BountyLifecycleIntegrityVerifier {
                             OR op.result #>> '{contract,contract_id}' IS DISTINCT FROM b.contract_id::text
                             OR op.result #>> '{contract,player_id}' IS DISTINCT FROM b.player_id::text
                             OR op.result #>> '{contract,family_id}' IS DISTINCT FROM b.family_id
+                            OR op.result #>> '{contract,tier}' IS DISTINCT FROM c.tier::text
+                            OR op.result #>> '{contract,content_version}' IS DISTINCT FROM c.content_version::text
                             OR CASE
                                 WHEN jsonb_typeof(op.result #> '{contract,state_version}') = 'number'
                                 THEN (op.result #>> '{contract,state_version}')::numeric > c.state_version::numeric
@@ -202,7 +206,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     UUID operationId = rows.getObject("progress_operation_id", UUID.class);
                     issues.add(new IntegrityIssue(IntegritySeverity.CRITICAL,
                             "BOUNTY_MANAGED_KILL_EVIDENCE_MISMATCH", operationId.toString(),
-                            "Managed Bounty kill classification does not match its resource harvest, bridge, or processed result"));
+                            "Managed Bounty kill classification does not match its resource harvest, frozen contract content, bridge, or processed result"));
                 }
             }
         }
@@ -252,7 +256,7 @@ public final class BountyLifecycleIntegrityVerifier {
         if (remaining == 0) return;
         try (PreparedStatement statement = connection.prepareStatement("""
                 WITH evidence AS (
-                    SELECT s.summon_id, s.contract_id, c.player_id, c.family_id, c.tier,
+                    SELECT s.summon_id, s.contract_id, c.player_id, c.family_id, c.tier, c.content_version,
                            COUNT(op.operation_id) AS prepare_count,
                            COUNT(op.operation_id) FILTER (
                                WHERE op.result ->> 'request_contract_id' = s.contract_id::text
@@ -267,6 +271,7 @@ public final class BountyLifecycleIntegrityVerifier {
                                  AND op.result #>> '{contract,player_id}' = c.player_id::text
                                  AND op.result #>> '{contract,family_id}' = c.family_id
                                  AND op.result #>> '{contract,tier}' = c.tier::text
+                                 AND op.result #>> '{contract,content_version}' = c.content_version::text
                                  AND op.result #>> '{contract,status}' = 'SUMMONED'
                            ) AS matching_count
                     FROM bounty_summons s
@@ -274,7 +279,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     LEFT JOIN processed_operations op
                       ON op.operation_type = 'BOUNTY_SUMMON_PREPARE'
                      AND op.result #>> '{summon,summon_id}' = s.summon_id::text
-                    GROUP BY s.summon_id, s.contract_id, c.player_id, c.family_id, c.tier
+                    GROUP BY s.summon_id, s.contract_id, c.player_id, c.family_id, c.tier, c.content_version
                 )
                 SELECT summon_id FROM evidence WHERE prepare_count <> 1 OR matching_count <> 1
                 ORDER BY summon_id LIMIT ?
@@ -285,7 +290,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     UUID summonId = rows.getObject("summon_id", UUID.class);
                     issues.add(new IntegrityIssue(IntegritySeverity.CRITICAL,
                             "BOUNTY_SUMMON_PREPARE_EVIDENCE_MISMATCH", summonId.toString(),
-                            "Bounty summon does not reconcile to one exact historical prepare result"));
+                            "Bounty summon does not reconcile to one exact historical prepare result/content version"));
                 }
             }
         }
@@ -401,7 +406,7 @@ public final class BountyLifecycleIntegrityVerifier {
         if (remaining == 0) return;
         try (PreparedStatement statement = connection.prepareStatement("""
                 WITH terminal AS (
-                    SELECT c.contract_id, c.player_id, c.family_id, c.tier,
+                    SELECT c.contract_id, c.player_id, c.family_id, c.tier, c.content_version,
                            c.status AS contract_status, c.state_version AS contract_state_version,
                            c.reward_operation_id, s.summon_id, s.status AS summon_status,
                            s.owner_backend_id, s.state_version AS summon_state_version,
@@ -420,6 +425,7 @@ public final class BountyLifecycleIntegrityVerifier {
                                  AND op.result #>> '{contract,player_id}' = t.player_id::text
                                  AND op.result #>> '{contract,family_id}' = t.family_id
                                  AND op.result #>> '{contract,tier}' = t.tier::text
+                                 AND op.result #>> '{contract,content_version}' = t.content_version::text
                                  AND op.result #>> '{contract,status}' = t.contract_status
                                  AND op.result #>> '{contract,state_version}' = t.contract_state_version::text
                                  AND CASE
@@ -431,7 +437,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     LEFT JOIN processed_operations op
                       ON op.operation_type = t.expected_type
                      AND op.result #>> '{contract,contract_id}' = t.contract_id::text
-                    GROUP BY t.contract_id, t.player_id, t.family_id, t.tier, t.contract_status,
+                    GROUP BY t.contract_id, t.player_id, t.family_id, t.tier, t.content_version, t.contract_status,
                              t.contract_state_version, t.reward_operation_id, t.summon_id, t.summon_status,
                              t.owner_backend_id, t.summon_state_version, t.expected_type
                 )
@@ -453,7 +459,7 @@ public final class BountyLifecycleIntegrityVerifier {
                     UUID contractId = rows.getObject("contract_id", UUID.class);
                     issues.add(new IntegrityIssue(IntegritySeverity.CRITICAL,
                             "BOUNTY_TERMINAL_EVIDENCE_MISMATCH", contractId.toString(),
-                            "Terminal Bounty contract/summon state does not match exactly one completion or failure operation"));
+                            "Terminal Bounty contract/summon state does not match exactly one completion/failure operation and frozen content version"));
                 }
             }
         }

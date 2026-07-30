@@ -25,9 +25,10 @@ import java.util.regex.Pattern;
 /**
  * Exactly-once bridge from an already-authorized managed entity harvest to the player's current family bounty.
  *
- * <p>Every eligible resource kill is classified once into either one ACTIVE_HUNT contract or a permanent no-op.
- * The bridge verifies the immutable resource harvest before mutation and appends durable classification evidence so
- * restart recovery can find authoritative entity harvests that were committed immediately before a server crash.</p>
+ * <p>Every broadly bounty-classifiable resource kill is classified once into either one exact ACTIVE_HUNT contract
+ * whose frozen tier/content-version accepts that source, or a permanent no-op. The bridge verifies the immutable
+ * resource harvest before mutation and appends durable classification evidence so restart recovery can find
+ * authoritative entity harvests that were committed immediately before a server crash.</p>
  */
 public final class BountyKillProgressRepository {
     private static final String OPERATION_TYPE = "BOUNTY_MANAGED_KILL_PROGRESS";
@@ -36,9 +37,21 @@ public final class BountyKillProgressRepository {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final DataSource dataSource;
+    private final BountyContentCatalog content;
 
+    /** Unbound construction is retained for bootstrap compatibility; mutation fails closed until content is bound. */
     public BountyKillProgressRepository(DataSource dataSource) {
+        this(dataSource, null);
+    }
+
+    public BountyKillProgressRepository(DataSource dataSource, BountyContentCatalog content) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.content = content;
+    }
+
+    /** Returns an immutable repository view bound to the exact loaded bounty content catalog. */
+    public BountyKillProgressRepository withContent(BountyContentCatalog content) {
+        return new BountyKillProgressRepository(dataSource, Objects.requireNonNull(content, "content"));
     }
 
     public BountyKillProgressResult recordManagedKill(
@@ -56,6 +69,7 @@ public final class BountyKillProgressRepository {
         if (eligibleKills <= 0) {
             throw new IllegalArgumentException("eligibleKills must be > 0");
         }
+        BountyContentCatalog boundContent = requireContent();
         String normalizedReason = requireReason(reason);
         UUID progressOperationId = progressOperationId(resourceKillOperationId);
 
@@ -84,9 +98,18 @@ public final class BountyKillProgressRepository {
                         sourceDefinition
                 );
                 Optional<BountyContractSnapshot> active = lockActiveHunt(connection, playerId, familyId);
-                BountyContractSnapshot updated = active.isEmpty()
-                        ? null
-                        : advanceProgress(connection, active.orElseThrow(), eligibleKills);
+                BountyContractSnapshot updated = null;
+                if (active.isPresent()) {
+                    BountyContractSnapshot contract = active.orElseThrow();
+                    if (boundContent.isEligibleSource(
+                            contract.familyId(),
+                            contract.tier(),
+                            contract.contentVersion(),
+                            sourceDefinition
+                    )) {
+                        updated = advanceProgress(connection, contract, eligibleKills);
+                    }
+                }
 
                 insertBridgeEvidence(
                         connection,
@@ -188,6 +211,13 @@ public final class BountyKillProgressRepository {
         );
     }
 
+    private BountyContentCatalog requireContent() {
+        if (content == null) {
+            throw new BountyException("Managed bounty kill progress requires a bound BountyContentCatalog");
+        }
+        return content;
+    }
+
     private static HarvestEvidence requireAuthoritativeEntityHarvest(
             Connection connection,
             UUID resourceKillOperationId,
@@ -235,6 +265,7 @@ public final class BountyKillProgressRepository {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT contract_id,
                        tier,
+                       content_version,
                        eligible_kill_progress,
                        required_eligible_kills,
                        summon_authorizations_remaining,
@@ -255,6 +286,7 @@ public final class BountyKillProgressRepository {
                         playerId,
                         familyId,
                         rows.getInt("tier"),
+                        rows.getInt("content_version"),
                         BountyContractStatus.ACTIVE_HUNT,
                         rows.getInt("eligible_kill_progress"),
                         rows.getInt("required_eligible_kills"),
@@ -317,6 +349,7 @@ public final class BountyKillProgressRepository {
                 SELECT player_id,
                        family_id,
                        tier,
+                       content_version,
                        status,
                        eligible_kill_progress,
                        required_eligible_kills,
@@ -333,6 +366,7 @@ public final class BountyKillProgressRepository {
                         row.getObject("player_id", UUID.class),
                         new BountyFamilyId(row.getString("family_id")),
                         row.getInt("tier"),
+                        row.getInt("content_version"),
                         BountyContractStatus.valueOf(row.getString("status")),
                         row.getInt("eligible_kill_progress"),
                         row.getInt("required_eligible_kills"),
@@ -433,6 +467,7 @@ public final class BountyKillProgressRepository {
         value.put("player_id", contract.playerId().toString());
         value.put("family_id", contract.familyId().value());
         value.put("tier", contract.tier());
+        value.put("content_version", contract.contentVersion());
         value.put("status", contract.status().name());
         value.put("eligible_kill_progress", contract.eligibleKillProgress());
         value.put("required_eligible_kills", contract.requiredEligibleKills());
@@ -448,6 +483,7 @@ public final class BountyKillProgressRepository {
                 UUID.fromString(stringValue(value, "player_id")),
                 new BountyFamilyId(stringValue(value, "family_id")),
                 intValue(value, "tier"),
+                intValue(value, "content_version"),
                 BountyContractStatus.valueOf(stringValue(value, "status")),
                 intValue(value, "eligible_kill_progress"),
                 intValue(value, "required_eligible_kills"),

@@ -3,18 +3,45 @@ package io.github.kevinrabbe.minecraftserver.common.pve.bounty;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Persistent state snapshot for one player's bounty contract. */
+/** Persistent state snapshot for one player's bounty contract and its frozen content version. */
 public record BountyContractSnapshot(
         UUID contractId,
         UUID playerId,
         BountyFamilyId familyId,
         int tier,
+        int contentVersion,
         BountyContractStatus status,
         int eligibleKillProgress,
         int requiredEligibleKills,
         int summonAuthorizationsRemaining,
         long stateVersion
 ) {
+    /** Compatibility constructor for v1 fixtures/callers that predate explicit content versioning. */
+    public BountyContractSnapshot(
+            UUID contractId,
+            UUID playerId,
+            BountyFamilyId familyId,
+            int tier,
+            BountyContractStatus status,
+            int eligibleKillProgress,
+            int requiredEligibleKills,
+            int summonAuthorizationsRemaining,
+            long stateVersion
+    ) {
+        this(
+                contractId,
+                playerId,
+                familyId,
+                tier,
+                1,
+                status,
+                eligibleKillProgress,
+                requiredEligibleKills,
+                summonAuthorizationsRemaining,
+                stateVersion
+        );
+    }
+
     public BountyContractSnapshot {
         contractId = Objects.requireNonNull(contractId, "contractId");
         playerId = Objects.requireNonNull(playerId, "playerId");
@@ -22,6 +49,9 @@ public record BountyContractSnapshot(
         status = Objects.requireNonNull(status, "status");
         if (tier <= 0) {
             throw new IllegalArgumentException("tier must be > 0");
+        }
+        if (contentVersion <= 0) {
+            throw new IllegalArgumentException("contentVersion must be > 0");
         }
         if (requiredEligibleKills <= 0) {
             throw new IllegalArgumentException("requiredEligibleKills must be > 0");
