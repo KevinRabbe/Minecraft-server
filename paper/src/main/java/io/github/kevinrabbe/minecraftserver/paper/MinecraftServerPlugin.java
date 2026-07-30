@@ -74,6 +74,7 @@ import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGather
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceHarvestFulfillmentRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalog;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalogLoader;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceRepository;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.event.EventHandler;
@@ -190,6 +191,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             database.migrate();
             AttunementLiveProfileCompatibilityValidator.validate(database.dataSource(), attunementProfiles);
             SkillLiveContentCompatibilityValidator.validate(database.dataSource(), skillCatalog);
+            ResourceSourceLiveContentCompatibilityValidator.validate(database.dataSource(), resourceSourceCatalog);
             BankLiveTierCompatibilityValidator.validate(database.dataSource(), bankTiers);
             CraftingLiveContentCompatibilityValidator.validate(database.dataSource(), craftingContent);
             BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
