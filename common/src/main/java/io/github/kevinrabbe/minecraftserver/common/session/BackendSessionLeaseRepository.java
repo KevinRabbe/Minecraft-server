@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.session;
 
+import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
+
 import javax.sql.DataSource;
 import java.sql.Array;
 import java.sql.Connection;
@@ -27,8 +29,8 @@ public final class BackendSessionLeaseRepository {
     }
 
     /**
-     * Extends only still-valid leases owned by {@code backendId}. Expired, moved, or disconnected sessions are
-     * omitted from the returned set and are never revived.
+     * Extends only still-valid leases owned by {@code backendId}'s current process incarnation. Expired, moved,
+     * replaced, or disconnected sessions are omitted from the returned set and are never revived.
      */
     public Set<UUID> heartbeatAttachedSessions(
             String backendId,
@@ -36,6 +38,7 @@ public final class BackendSessionLeaseRepository {
             Duration leaseDuration
     ) throws SQLException {
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
         Objects.requireNonNull(sessionIds, "sessionIds");
         long leaseMillis = requirePositiveDurationMillis(leaseDuration, "leaseDuration");
         Set<UUID> requested = normalizedSessionIds(sessionIds);
@@ -48,6 +51,7 @@ public final class BackendSessionLeaseRepository {
                 SET last_heartbeat_at = NOW(),
                     lease_expires_at = NOW() + (? * INTERVAL '1 millisecond')
                 WHERE owner_backend_id = ?
+                  AND owner_backend_incarnation_id = ?
                   AND network_session_id = ANY (?)
                   AND status IN ('ACTIVE', 'TRANSFERRING', 'RECOVERING')
                   AND lease_expires_at > NOW()
@@ -60,7 +64,8 @@ public final class BackendSessionLeaseRepository {
                 try (PreparedStatement statement = connection.prepareStatement(sql)) {
                     statement.setLong(1, leaseMillis);
                     statement.setString(2, normalizedBackendId);
-                    statement.setArray(3, sessionArray);
+                    statement.setObject(3, backendIncarnationId);
+                    statement.setArray(4, sessionArray);
 
                     Set<UUID> renewed = new HashSet<>();
                     try (ResultSet results = statement.executeQuery()) {
@@ -83,10 +88,12 @@ public final class BackendSessionLeaseRepository {
     public boolean disconnectAttachedSession(UUID sessionId, String backendId) throws SQLException {
         Objects.requireNonNull(sessionId, "sessionId");
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
 
         String sql = """
                 UPDATE player_sessions
                 SET owner_backend_id = NULL,
+                    owner_backend_incarnation_id = NULL,
                     owner_instance_id = NULL,
                     status = 'DISCONNECTED',
                     lease_expires_at = NULL,
@@ -94,6 +101,7 @@ public final class BackendSessionLeaseRepository {
                     disconnected_at = NOW()
                 WHERE network_session_id = ?
                   AND owner_backend_id = ?
+                  AND owner_backend_incarnation_id = ?
                   AND status IN ('ACTIVE', 'RECOVERING')
                 """;
 
@@ -101,6 +109,7 @@ public final class BackendSessionLeaseRepository {
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, sessionId);
             statement.setString(2, normalizedBackendId);
+            statement.setObject(3, backendIncarnationId);
             return statement.executeUpdate() == 1;
         }
     }
@@ -111,6 +120,7 @@ public final class BackendSessionLeaseRepository {
      */
     public Set<UUID> disconnectAttachedSessions(String backendId, Collection<UUID> sessionIds) throws SQLException {
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
         Objects.requireNonNull(sessionIds, "sessionIds");
         Set<UUID> requested = normalizedSessionIds(sessionIds);
         if (requested.isEmpty()) {
@@ -120,12 +130,14 @@ public final class BackendSessionLeaseRepository {
         String sql = """
                 UPDATE player_sessions
                 SET owner_backend_id = NULL,
+                    owner_backend_incarnation_id = NULL,
                     owner_instance_id = NULL,
                     status = 'DISCONNECTED',
                     lease_expires_at = NULL,
                     last_heartbeat_at = NOW(),
                     disconnected_at = NOW()
                 WHERE owner_backend_id = ?
+                  AND owner_backend_incarnation_id = ?
                   AND network_session_id = ANY (?)
                   AND status IN ('ACTIVE', 'RECOVERING')
                 RETURNING network_session_id
@@ -136,7 +148,8 @@ public final class BackendSessionLeaseRepository {
             try {
                 try (PreparedStatement statement = connection.prepareStatement(sql)) {
                     statement.setString(1, normalizedBackendId);
-                    statement.setArray(2, sessionArray);
+                    statement.setObject(2, backendIncarnationId);
+                    statement.setArray(3, sessionArray);
 
                     Set<UUID> disconnected = new HashSet<>();
                     try (ResultSet results = statement.executeQuery()) {
