@@ -105,10 +105,13 @@ public final class ZoneInstanceRegistry {
         }
 
         String sql = """
-                UPDATE zone_instances
+                UPDATE zone_instances zone_instance
                 SET status = ?, player_count = ?, last_heartbeat_at = NOW()
-                WHERE instance_id = ?
-                  AND backend_incarnation_id = ?
+                FROM backends backend
+                WHERE zone_instance.instance_id = ?
+                  AND zone_instance.backend_incarnation_id = ?
+                  AND backend.backend_id = zone_instance.backend_id
+                  AND backend.incarnation_id = zone_instance.backend_incarnation_id
                 """;
 
         try (Connection connection = dataSource.getConnection();
