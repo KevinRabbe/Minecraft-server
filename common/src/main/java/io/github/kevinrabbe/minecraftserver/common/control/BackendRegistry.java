@@ -11,6 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Shared control-plane registry for Paper backend health and capacity signals. */
 public final class BackendRegistry {
+    private static final Map<String, UUID> PROCESS_INCARNATIONS = new ConcurrentHashMap<>();
+
     private final DataSource dataSource;
     private final Map<String, UUID> registeredIncarnations = new ConcurrentHashMap<>();
 
@@ -50,6 +52,7 @@ public final class BackendRegistry {
             statement.executeUpdate();
         }
         registeredIncarnations.put(normalizedBackendId, incarnationId);
+        PROCESS_INCARNATIONS.put(normalizedBackendId, incarnationId);
         return incarnationId;
     }
 
@@ -111,6 +114,7 @@ public final class BackendRegistry {
             statement.executeUpdate();
         }
         registeredIncarnations.put(normalizedBackendId, incarnationId);
+        PROCESS_INCARNATIONS.put(normalizedBackendId, incarnationId);
         return incarnationId;
     }
 
@@ -144,10 +148,12 @@ public final class BackendRegistry {
     }
 
     public void markOffline(String backendId) throws SQLException {
-        updateStatus(backendId, BackendStatus.OFFLINE);
+        String normalizedBackendId = requireBackendId(backendId);
+        UUID incarnationId = updateStatus(normalizedBackendId, BackendStatus.OFFLINE);
+        PROCESS_INCARNATIONS.remove(normalizedBackendId, incarnationId);
     }
 
-    private void updateStatus(String backendId, BackendStatus status) throws SQLException {
+    private UUID updateStatus(String backendId, BackendStatus status) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
         UUID incarnationId = requireRegisteredIncarnation(normalizedBackendId);
 
@@ -167,6 +173,16 @@ public final class BackendRegistry {
                 throw new SQLException("Backend incarnation no longer owns status authority: " + normalizedBackendId);
             }
         }
+        return incarnationId;
+    }
+
+    static UUID requireProcessIncarnation(String backendId) throws SQLException {
+        String normalizedBackendId = requireBackendId(backendId);
+        UUID incarnationId = PROCESS_INCARNATIONS.get(normalizedBackendId);
+        if (incarnationId == null) {
+            throw new SQLException("Backend has no process-local registered incarnation: " + normalizedBackendId);
+        }
+        return incarnationId;
     }
 
     private UUID requireRegisteredIncarnation(String backendId) throws SQLException {
