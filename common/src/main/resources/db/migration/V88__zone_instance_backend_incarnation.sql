@@ -1,5 +1,5 @@
 -- A zone instance belongs to one concrete backend process incarnation, not merely to a reusable backend name.
--- The trigger preserves trusted direct SQL fixtures while the Java registry supplies the captured token explicitly.
+-- The insert trigger preserves trusted direct SQL fixtures while the Java registry supplies the captured token explicitly.
 ALTER TABLE zone_instances
     ADD COLUMN backend_incarnation_id UUID;
 
@@ -36,6 +36,29 @@ EXECUTE FUNCTION fill_zone_instance_backend_incarnation();
 
 ALTER TABLE zone_instances
     ALTER COLUMN backend_incarnation_id SET NOT NULL;
+
+CREATE FUNCTION retire_previous_backend_zone_instances()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF OLD.incarnation_id IS DISTINCT FROM NEW.incarnation_id THEN
+        UPDATE zone_instances
+        SET status = 'STOPPED',
+            player_count = 0,
+            last_heartbeat_at = NOW()
+        WHERE backend_id = NEW.backend_id
+          AND backend_incarnation_id = OLD.incarnation_id
+          AND status <> 'STOPPED';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER backends_retire_previous_zone_instances
+AFTER UPDATE OF incarnation_id ON backends
+FOR EACH ROW
+EXECUTE FUNCTION retire_previous_backend_zone_instances();
 
 CREATE INDEX zone_instances_backend_incarnation_idx
     ON zone_instances(backend_id, backend_incarnation_id, status, last_heartbeat_at);
