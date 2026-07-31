@@ -61,6 +61,7 @@ import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchLiveCon
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyPouchRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountyRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.bounty.BountySummonRecoveryRepository;
+import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRewardLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLifecycleRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLoadoutReadinessRepository;
 import io.github.kevinrabbe.minecraftserver.common.pvp.ClanWarLoadoutRepository;
@@ -208,6 +209,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             CraftingLiveContentCompatibilityValidator.validate(database.dataSource(), craftingContent);
             BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
             BountyPouchLiveContentCompatibilityValidator.validate(database.dataSource(), itemCatalog);
+            MapRewardLiveContentCompatibilityValidator.validate(database.dataSource(), itemCatalog);
 
             backendRegistry = new BackendRegistry(database.dataSource());
             onlinePlayers.set(getServer().getOnlinePlayers().size());
