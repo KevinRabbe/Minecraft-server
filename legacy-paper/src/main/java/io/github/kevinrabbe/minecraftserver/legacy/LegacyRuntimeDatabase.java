@@ -75,8 +75,11 @@ final class LegacyRuntimeDatabase {
         }
         LinkedHashMap<UUID, ExecutionBuilder> builders = new LinkedHashMap<UUID, ExecutionBuilder>();
         try (Connection connection = connect();
-             PreparedStatement statement = connection.prepareStatement("SELECT * FROM competitive_runtime_poll_active(?)")) {
-            statement.setInt(1, executionLimit);
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT * FROM competitive_runtime_poll_active(?, ?)"
+             )) {
+            statement.setObject(1, backendIncarnationId);
+            statement.setInt(2, executionLimit);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     UUID executionId = rows.getObject("execution_id", UUID.class);
@@ -107,9 +110,10 @@ final class LegacyRuntimeDatabase {
         Objects.requireNonNull(minecraftUuid, "minecraftUuid");
         try (Connection connection = connect();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_find_player_execution(?)"
+                     "SELECT * FROM competitive_runtime_find_player_execution(?, ?)"
              )) {
-            statement.setObject(1, minecraftUuid);
+            statement.setObject(1, backendIncarnationId);
+            statement.setObject(2, minecraftUuid);
             try (ResultSet rows = statement.executeQuery()) {
                 ExecutionBuilder builder = null;
                 while (rows.next()) {
@@ -148,17 +152,18 @@ final class LegacyRuntimeDatabase {
 
         try (Connection connection = connect();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_page_loadout(?, ?, ?, ?)"
+                     "SELECT * FROM competitive_runtime_page_loadout(?, ?, ?, ?, ?)"
              )) {
-            statement.setObject(1, executionId);
+            statement.setObject(1, backendIncarnationId);
+            statement.setObject(2, executionId);
             if (afterParticipantIndex == null) {
-                statement.setNull(2, java.sql.Types.INTEGER);
                 statement.setNull(3, java.sql.Types.INTEGER);
+                statement.setNull(4, java.sql.Types.INTEGER);
             } else {
-                statement.setInt(2, afterParticipantIndex);
-                statement.setInt(3, afterLoadoutItemIndex);
+                statement.setInt(3, afterParticipantIndex);
+                statement.setInt(4, afterLoadoutItemIndex);
             }
-            statement.setInt(4, itemLimit);
+            statement.setInt(5, itemLimit);
 
             try (ResultSet rows = statement.executeQuery()) {
                 ArrayList<LegacyLoadoutItem> result = new ArrayList<LegacyLoadoutItem>();
@@ -183,11 +188,12 @@ final class LegacyRuntimeDatabase {
         }
         try (Connection connection = connect();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_heartbeat_execution(?, ?, ?)"
+                     "SELECT * FROM competitive_runtime_heartbeat_execution(?, ?, ?, ?)"
              )) {
-            statement.setObject(1, execution.getExecutionId());
-            statement.setLong(2, execution.getStateVersion());
-            statement.setInt(3, requestedLeaseSeconds);
+            statement.setObject(1, backendIncarnationId);
+            statement.setObject(2, execution.getExecutionId());
+            statement.setLong(3, execution.getStateVersion());
+            statement.setInt(4, requestedLeaseSeconds);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) throw new SQLException("competitive_runtime_heartbeat_execution returned no row");
                 long nextStateVersion = row.getLong("state_version");
@@ -213,13 +219,14 @@ final class LegacyRuntimeDatabase {
         Objects.requireNonNull(executionId, "executionId");
         try (Connection connection = connect();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT competitive_runtime_submit_report(?, ?, ?, ?)"
+                     "SELECT competitive_runtime_submit_report(?, ?, ?, ?, ?)"
              )) {
-            statement.setObject(1, operationId);
-            statement.setObject(2, executionId);
-            statement.setString(3, kind);
-            if (winnerId == null) statement.setNull(4, java.sql.Types.OTHER);
-            else statement.setObject(4, winnerId);
+            statement.setObject(1, backendIncarnationId);
+            statement.setObject(2, operationId);
+            statement.setObject(3, executionId);
+            statement.setString(4, kind);
+            if (winnerId == null) statement.setNull(5, java.sql.Types.OTHER);
+            else statement.setObject(5, winnerId);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) throw new SQLException("competitive_runtime_submit_report returned no row");
                 return row.getObject(1, UUID.class);
