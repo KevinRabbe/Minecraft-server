@@ -169,20 +169,53 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     }
 
     @Test
-    void replacementRuntimeIncarnationFencesOlderProcessWrites() throws Exception {
+    void replacementRuntimeIncarnationFencesCompleteApiSurface() throws Exception {
         mapCurrentLogin(BACKEND, 120);
         UUID oldIncarnation = UUID.randomUUID();
         UUID replacementIncarnation = UUID.randomUUID();
 
         assertEquals(BACKEND, runtimeRegister(oldIncarnation, 2));
-        assertEquals(BACKEND, runtimeHeartbeat(oldIncarnation, 3));
+
+        PlayerRef playerA = player("RuntimeFenceA");
+        PlayerRef playerB = player("RuntimeFenceB");
+        RankedMatchSnapshot match = ranked.createMatch(UUID.randomUUID(), playerA.playerId(), playerB.playerId());
+        CompetitiveExecutionSnapshot assigned = executions.assign(
+                UUID.randomUUID(),
+                CompetitiveActivityKind.RANKED_ARENA,
+                match.matchId(),
+                BACKEND,
+                Duration.ofMinutes(2)
+        );
+        CompetitiveExecutionSnapshot active = service.activate(
+                assigned.executionId(), BACKEND, Duration.ofMinutes(2)
+        );
+        assertEquals(2, pollActive(oldIncarnation, 10).size());
+
         assertEquals(BACKEND, runtimeRegister(replacementIncarnation, 4));
 
         assertThrows(SQLException.class, () -> runtimeHeartbeat(oldIncarnation, 5));
         assertThrows(SQLException.class, () -> runtimeMarkOffline(oldIncarnation));
+        assertThrows(SQLException.class, () -> pollActive(oldIncarnation, 10));
+        assertThrows(
+                SQLException.class,
+                () -> heartbeatExecution(oldIncarnation, active.executionId(), active.stateVersion(), 30)
+        );
+        assertThrows(
+                SQLException.class,
+                () -> submitReport(oldIncarnation, UUID.randomUUID(), active.executionId(), "FAILURE", null)
+        );
         assertEquals("ONLINE", backendStatus(BACKEND));
 
-        assertEquals(BACKEND, runtimeHeartbeat(replacementIncarnation, 6));
+        assertEquals(2, pollActive(replacementIncarnation, 10).size());
+        RuntimeLease renewed = heartbeatExecution(
+                replacementIncarnation, active.executionId(), active.stateVersion(), 30
+        );
+        assertEquals(active.stateVersion() + 1, renewed.stateVersion());
+        UUID reportId = submitReport(
+                replacementIncarnation, UUID.randomUUID(), active.executionId(), "FAILURE", null
+        );
+        assertEquals(CompetitiveReportStatus.PENDING, executions.loadReport(reportId).orElseThrow().status());
+
         assertEquals(BACKEND, runtimeMarkOffline(replacementIncarnation));
         assertEquals("OFFLINE", backendStatus(BACKEND));
     }
@@ -299,11 +332,16 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     }
 
     private List<RuntimeRow> pollActive(int limit) throws SQLException {
+        return pollActive(runtimeIncarnation, limit);
+    }
+
+    private List<RuntimeRow> pollActive(UUID incarnationId, int limit) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_poll_active(?)"
+                     "SELECT * FROM competitive_runtime_poll_active(?, ?)"
              )) {
-            statement.setInt(1, limit);
+            statement.setObject(1, incarnationId);
+            statement.setInt(2, limit);
             try (ResultSet rows = statement.executeQuery()) {
                 ArrayList<RuntimeRow> result = new ArrayList<>();
                 while (rows.next()) {
@@ -325,13 +363,23 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     }
 
     private RuntimeLease heartbeatExecution(UUID executionId, long stateVersion, int seconds) throws SQLException {
+        return heartbeatExecution(runtimeIncarnation, executionId, stateVersion, seconds);
+    }
+
+    private RuntimeLease heartbeatExecution(
+            UUID incarnationId,
+            UUID executionId,
+            long stateVersion,
+            int seconds
+    ) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_heartbeat_execution(?, ?, ?)"
+                     "SELECT * FROM competitive_runtime_heartbeat_execution(?, ?, ?, ?)"
              )) {
-            statement.setObject(1, executionId);
-            statement.setLong(2, stateVersion);
-            statement.setInt(3, seconds);
+            statement.setObject(1, incarnationId);
+            statement.setObject(2, executionId);
+            statement.setLong(3, stateVersion);
+            statement.setInt(4, seconds);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return new RuntimeLease(
@@ -343,15 +391,26 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     }
 
     private UUID submitReport(UUID operationId, UUID executionId, String kind, UUID winnerId) throws SQLException {
+        return submitReport(runtimeIncarnation, operationId, executionId, kind, winnerId);
+    }
+
+    private UUID submitReport(
+            UUID incarnationId,
+            UUID operationId,
+            UUID executionId,
+            String kind,
+            UUID winnerId
+    ) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT competitive_runtime_submit_report(?, ?, ?, ?)"
+                     "SELECT competitive_runtime_submit_report(?, ?, ?, ?, ?)"
              )) {
-            statement.setObject(1, operationId);
-            statement.setObject(2, executionId);
-            statement.setString(3, kind);
-            if (winnerId == null) statement.setNull(4, java.sql.Types.OTHER);
-            else statement.setObject(4, winnerId);
+            statement.setObject(1, incarnationId);
+            statement.setObject(2, operationId);
+            statement.setObject(3, executionId);
+            statement.setString(4, kind);
+            if (winnerId == null) statement.setNull(5, java.sql.Types.OTHER);
+            else statement.setObject(5, winnerId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getObject(1, UUID.class);
