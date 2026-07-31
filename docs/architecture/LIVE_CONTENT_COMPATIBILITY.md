@@ -45,11 +45,13 @@ A handoff must be explicit. Two validators may overlap during a transaction boun
 
 The main Paper bootstrap performs migrations and common/catalog compatibility checks before creating a routeable backend.
 
-After those checks pass, `BackendRegistry.registerStarting(...)` records the stable backend ID, a fresh UUID incarnation token, status `STARTING`, and player count zero. Bootstrap-zone rows may reference that backend, but routing and competitive dispatch continue requiring exact `ONLINE`, so even an ACTIVE zone instance remains hidden during initialization.
+After those checks pass, `BackendRegistry.registerStarting(...)` records the stable backend ID, a fresh UUID incarnation token, status `STARTING`, and player count zero. Each bootstrap zone snapshots that exact token in `zone_instances.backend_incarnation_id`. Routing and competitive dispatch continue requiring exact `ONLINE`, so even an ACTIVE zone instance remains hidden during initialization.
 
 Paper then completes adapter-specific Map content/route validation, repository/controller construction, listener and command registration, recovery scheduling, and recurring task installation. `BackendRegistry.publishOnline(...)` is the final enable transition. Ordinary heartbeat is accepted only from `ONLINE` or `DRAINING`: it cannot publish `STARTING`, and it cannot revive terminal `OFFLINE` after shutdown. A new process incarnation must explicitly register again.
 
 Every registry publish, heartbeat, drain, and offline write is fenced by the incarnation token held by the registry instance that performed registration. Registering a replacement process rotates the durable token for that backend ID, so an older overlapping process can no longer alter the replacement's status, heartbeat, or player count even if one of its asynchronous writes completes late.
+
+Backend-token rotation also atomically marks every zone from the previous incarnation `STOPPED`. Zone heartbeat requires its captured token to remain the backend's current token, and routing requires the zone token to equal the current backend token. A stale JVM therefore cannot reactivate or route its former zone after a replacement process claims the same backend ID.
 
 A failure before final publication never exposes the backend to routing. A publication failure invokes full plugin shutdown, marks the backend offline where possible, and fails enable.
 

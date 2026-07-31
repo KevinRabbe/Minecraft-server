@@ -63,6 +63,7 @@ class BackendZoneInstanceBindingRepositoryIntegrationTest {
     void resolvesTheSingleFreshActiveBootstrapInstance() throws Exception {
         String backendId = "paper-city";
         String zoneId = "city";
+        backends.registerOnline(backendId, 0);
         UUID instanceId = activeInstance(backendId, zoneId);
 
         assertEquals(instanceId, bindings.findSingleFreshActiveInstance(backendId, zoneId).orElseThrow());
@@ -71,6 +72,7 @@ class BackendZoneInstanceBindingRepositoryIntegrationTest {
     @Test
     void ignoresDifferentZoneOnSameBackend() throws Exception {
         String backendId = "paper-city";
+        backends.registerOnline(backendId, 0);
         UUID city = activeInstance(backendId, "city");
         activeInstance(backendId, "starter-woods");
 
@@ -81,6 +83,7 @@ class BackendZoneInstanceBindingRepositoryIntegrationTest {
     void stoppedInstanceIsNotBindable() throws Exception {
         String backendId = "paper-city";
         String zoneId = "city";
+        backends.registerOnline(backendId, 0);
         UUID instanceId = activeInstance(backendId, zoneId);
         instances.markStopped(instanceId);
 
@@ -91,6 +94,7 @@ class BackendZoneInstanceBindingRepositoryIntegrationTest {
     void multipleFreshInstancesFailClosedInsteadOfGuessing() throws Exception {
         String backendId = "paper-city";
         String zoneId = "city";
+        backends.registerOnline(backendId, 0);
         activeInstance(backendId, zoneId);
         activeInstance(backendId, zoneId);
 
@@ -101,7 +105,6 @@ class BackendZoneInstanceBindingRepositoryIntegrationTest {
     }
 
     private UUID activeInstance(String backendId, String zoneId) throws SQLException {
-        backends.registerOnline(backendId, 0);
         UUID instanceId = UUID.randomUUID();
         instances.registerStarting(instanceId, zoneId, "test-v1", backendId, 20, 25);
         instances.heartbeat(instanceId, ZoneInstanceStatus.ACTIVE, 0);

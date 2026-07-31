@@ -32,7 +32,9 @@ public final class ZoneRouter {
         String sql = """
                 SELECT zi.instance_id, zi.backend_id
                 FROM zone_instances zi
-                JOIN backends b ON b.backend_id = zi.backend_id
+                JOIN backends b
+                  ON b.backend_id = zi.backend_id
+                 AND b.incarnation_id = zi.backend_incarnation_id
                 WHERE zi.zone_id = ?
                   AND zi.status = 'ACTIVE'
                   AND b.status = 'ONLINE'
