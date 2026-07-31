@@ -171,9 +171,10 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
 
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_find_player_execution(?)"
+                     "SELECT * FROM competitive_runtime_find_player_execution(?, ?)"
              )) {
-            statement.setObject(1, UUID.randomUUID());
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, UUID.randomUUID());
             try (ResultSet rows = statement.executeQuery()) {
                 ResultSetMetaData metadata = rows.getMetaData();
                 ArrayList<String> columns = new ArrayList<>();
@@ -203,9 +204,10 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
     private List<AdmissionRow> findPlayerExecution(UUID minecraftUuid) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_find_player_execution(?)"
+                     "SELECT * FROM competitive_runtime_find_player_execution(?, ?)"
              )) {
-            statement.setObject(1, minecraftUuid);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, minecraftUuid);
             try (ResultSet rows = statement.executeQuery()) {
                 ArrayList<AdmissionRow> result = new ArrayList<>();
                 while (rows.next()) {
@@ -258,10 +260,11 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
     private UUID submitFailure(UUID executionId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT competitive_runtime_submit_report(?, ?, 'FAILURE', NULL)"
+                     "SELECT competitive_runtime_submit_report(?, ?, ?, 'FAILURE', NULL)"
              )) {
-            statement.setObject(1, UUID.randomUUID());
-            statement.setObject(2, executionId);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, UUID.randomUUID());
+            statement.setObject(3, executionId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getObject(1, UUID.class);
