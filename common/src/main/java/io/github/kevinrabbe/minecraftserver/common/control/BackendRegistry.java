@@ -14,6 +14,60 @@ public final class BackendRegistry {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
+    /**
+     * Registers a backend identity for bootstrap dependencies without making it eligible for routing.
+     * The caller must explicitly publish the fully initialized backend with {@link #publishOnline(String, int)}.
+     */
+    public void registerStarting(String backendId) throws SQLException {
+        requireBackendId(backendId);
+
+        String sql = """
+                INSERT INTO backends (
+                    backend_id,
+                    status,
+                    started_at,
+                    last_heartbeat_at,
+                    player_count
+                ) VALUES (?, 'STARTING', NOW(), NOW(), 0)
+                ON CONFLICT (backend_id) DO UPDATE SET
+                    status = 'STARTING',
+                    started_at = NOW(),
+                    last_heartbeat_at = NOW(),
+                    player_count = 0
+                """;
+
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, backendId.trim());
+            statement.executeUpdate();
+        }
+    }
+
+    /** Publishes a previously registered STARTING backend after initialization has completed successfully. */
+    public void publishOnline(String backendId, int playerCount) throws SQLException {
+        requireBackendId(backendId);
+        requirePlayerCount(playerCount);
+
+        String sql = """
+                UPDATE backends
+                SET status = 'ONLINE',
+                    last_heartbeat_at = NOW(),
+                    player_count = ?
+                WHERE backend_id = ?
+                  AND status IN ('STARTING', 'ONLINE')
+                """;
+
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, playerCount);
+            statement.setString(2, backendId.trim());
+            if (statement.executeUpdate() != 1) {
+                throw new SQLException("Backend is not awaiting online publication: " + backendId);
+            }
+        }
+    }
+
+    /** Compatibility path for callers that deliberately have no separate initialization phase. */
     public void registerOnline(String backendId, int playerCount) throws SQLException {
         requireBackendId(backendId);
         requirePlayerCount(playerCount);
@@ -49,6 +103,7 @@ public final class BackendRegistry {
                 UPDATE backends
                 SET last_heartbeat_at = NOW(), player_count = ?, status = 'ONLINE'
                 WHERE backend_id = ?
+                  AND status <> 'STARTING'
                 """;
 
         try (Connection connection = dataSource.getConnection();
@@ -57,7 +112,7 @@ public final class BackendRegistry {
             statement.setString(2, backendId.trim());
             int updated = statement.executeUpdate();
             if (updated != 1) {
-                throw new SQLException("Backend is not registered: " + backendId);
+                throw new SQLException("Backend is not heartbeat-eligible: " + backendId);
             }
         }
     }
