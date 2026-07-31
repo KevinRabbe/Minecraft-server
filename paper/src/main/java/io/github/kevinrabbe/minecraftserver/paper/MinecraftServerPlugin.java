@@ -193,6 +193,10 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             ItemLiveContentCompatibilityValidator.validate(database.dataSource(), itemCatalog);
             PaperPlayerStateLiveContentCompatibilityValidator.validate(this, database.dataSource(), itemCatalog);
             AttunementLiveProfileCompatibilityValidator.validate(database.dataSource(), attunementProfiles);
+            PaperArtifactPlacementCatalog.validateLiveCompatibility(
+                    ARTIFACT_PLACEMENT_CATALOG_RESOURCE,
+                    database.dataSource()
+            );
             SkillLiveContentCompatibilityValidator.validate(database.dataSource(), skillCatalog);
             ResourceSourceLiveContentCompatibilityValidator.validate(database.dataSource(), resourceSourceCatalog);
             BankLiveTierCompatibilityValidator.validate(database.dataSource(), bankTiers);
