@@ -53,7 +53,7 @@ class BountyPouchLiveContentCompatibilityValidatorIntegrationTest {
         dataSource = database.dataSource();
         identities = new PlayerIdentityRepository(dataSource);
         originalCatalog = catalog(commodity(COMMODITY, "ROTTEN_FLESH", "Compatibility Fang", 64));
-        retunedCatalog = catalog(commodity(COMMODITY, "BONE", "Retuned Fang", 1));
+        retunedCatalog = catalog(commodity(COMMODITY, "BONE", "Retuned Fang", 2));
         missingCatalog = catalog(commodity(OTHER, "SPIDER_EYE", "Other Fang", 64));
         nonCommodityCatalog = catalog(new ItemDefinition(
                 COMMODITY,
