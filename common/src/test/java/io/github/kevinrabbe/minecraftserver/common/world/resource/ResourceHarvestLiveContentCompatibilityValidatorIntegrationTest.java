@@ -11,6 +11,8 @@ import io.github.kevinrabbe.minecraftserver.common.progression.SkillId;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionDefinition;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
+import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,7 +25,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Types;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -34,9 +36,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
 class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
+    private static final Duration LEASE = Duration.ofSeconds(30);
     private static final String ZONE = "starter_mine";
     private static final String TEMPLATE = "mine-v1";
     private static final String SOURCE_DEFINITION = "starter.mine.iron";
+    private static final String NO_XP_SOURCE_DEFINITION = "starter.mine.iron_no_xp";
     private static final String COMMODITY = "starter.iron_ore";
     private static final String OTHER_COMMODITY = "starter.copper_ore";
     private static final SkillId MINING = new SkillId("mining");
@@ -45,6 +49,8 @@ class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
     private Database database;
     private DataSource dataSource;
     private PlayerIdentityRepository identities;
+    private PlayerSessionRepository sessions;
+    private ResourceSourceRepository sources;
     private ResourceHarvestFulfillmentRepository fulfillments;
     private ItemCatalog originalItems;
     private ItemCatalog retunedItems;
@@ -65,6 +71,7 @@ class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
         database.migrate();
         dataSource = database.dataSource();
         identities = new PlayerIdentityRepository(dataSource);
+        sessions = new PlayerSessionRepository(dataSource);
 
         originalItems = itemCatalog(commodity(COMMODITY, "RAW_IRON", "Starter Iron Ore", 64));
         retunedItems = itemCatalog(commodity(COMMODITY, "IRON_NUGGET", "Retuned Iron Ore", 2));
@@ -81,6 +88,34 @@ class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
         originalSkills = skillCatalog(linearSkill(MINING, 100L));
         retunedSkills = skillCatalog(linearSkill(MINING, 250L));
         missingSkills = skillCatalog(linearSkill(WOODCUTTING, 100L));
+
+        ResourceSourceCatalog sourceCatalog = new ResourceSourceCatalog(
+                List.of(
+                        new ResourceSourceDefinition(
+                                SOURCE_DEFINITION,
+                                ZONE,
+                                TEMPLATE,
+                                COMMODITY,
+                                20,
+                                MINING,
+                                25,
+                                Duration.ofHours(1)
+                        ),
+                        new ResourceSourceDefinition(
+                                NO_XP_SOURCE_DEFINITION,
+                                ZONE,
+                                TEMPLATE,
+                                COMMODITY,
+                                20,
+                                null,
+                                0,
+                                Duration.ofHours(1)
+                        )
+                ),
+                originalItems,
+                originalSkills
+        );
+        sources = new ResourceSourceRepository(dataSource, sourceCatalog);
         fulfillments = new ResourceHarvestFulfillmentRepository(dataSource, originalSkills);
     }
 
@@ -97,6 +132,7 @@ class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
                         economic_ledger,
                         processed_operations,
                         player_skills,
+                        player_sessions,
                         zone_instances,
                         backends,
                         player_names,
@@ -114,7 +150,7 @@ class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
 
     @Test
     void unfulfilledHarvestPinsCommodityAndSkillUntilFulfillmentEvidenceExists() throws Exception {
-        HarvestContext harvest = createUnfulfilledHarvest("RecoveryMiner", true);
+        ResourceHarvestEntitlement harvest = createUnfulfilledHarvest("RecoveryMiner", true);
 
         assertDoesNotThrow(() -> validate(originalItems, originalSkills));
         assertDoesNotThrow(() -> validate(retunedItems, retunedSkills));
@@ -135,87 +171,52 @@ class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
         assertThrows(ItemCatalogException.class, () -> validate(missingItems, missingSkills));
     }
 
-    private HarvestContext createUnfulfilledHarvest(String playerName, boolean withSkill) throws SQLException {
+    private ResourceHarvestEntitlement createUnfulfilledHarvest(String playerName, boolean withSkill)
+            throws SQLException {
+        UUID instanceId = createInstance();
         UUID playerId = identities.ensurePlayer(UUID.randomUUID(), playerName);
-        UUID instanceId = UUID.randomUUID();
-        UUID sourceId = UUID.randomUUID();
-        UUID harvestId = UUID.randomUUID();
+        SessionLease session = sessions.openSession(playerId, "paper-a", instanceId, LEASE);
+        String definitionId = withSkill ? SOURCE_DEFINITION : NO_XP_SOURCE_DEFINITION;
+        String sourceKey = withSkill ? "iron.xp" : "iron.no_xp";
+        ResourceSourceSnapshot source = sources.ensureSource(instanceId, sourceKey, definitionId);
+        return sources.harvest(
+                UUID.randomUUID(),
+                session.sessionId(),
+                "paper-a",
+                session.stateVersion(),
+                source.sourceId(),
+                "resource.harvest"
+        );
+    }
 
+    private UUID createInstance() throws SQLException {
+        UUID instanceId = UUID.randomUUID();
         try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                try (PreparedStatement statement = connection.prepareStatement("""
-                        INSERT INTO backends(backend_id, status)
-                        VALUES ('paper-a', 'ONLINE')
-                        """)) {
-                    statement.executeUpdate();
-                }
-                try (PreparedStatement statement = connection.prepareStatement("""
-                        INSERT INTO zone_instances(
-                            instance_id,
-                            zone_id,
-                            template_version,
-                            backend_id,
-                            status,
-                            player_count,
-                            soft_capacity,
-                            hard_capacity
-                        ) VALUES (?, ?, ?, 'paper-a', 'ACTIVE', 0, 20, 30)
-                        """)) {
-                    statement.setObject(1, instanceId);
-                    statement.setString(2, ZONE);
-                    statement.setString(3, TEMPLATE);
-                    statement.executeUpdate();
-                }
-                try (PreparedStatement statement = connection.prepareStatement("""
-                        INSERT INTO resource_sources(
-                            source_id,
-                            instance_id,
-                            source_key,
-                            definition_id,
-                            cycle_no,
-                            state_version
-                        ) VALUES (?, ?, 'iron.01', ?, 1, 1)
-                        """)) {
-                    statement.setObject(1, sourceId);
-                    statement.setObject(2, instanceId);
-                    statement.setString(3, SOURCE_DEFINITION);
-                    statement.executeUpdate();
-                }
-                try (PreparedStatement statement = connection.prepareStatement("""
-                        INSERT INTO resource_harvests(
-                            harvest_id,
-                            operation_id,
-                            source_id,
-                            source_cycle_no,
-                            player_id,
-                            commodity_definition_id,
-                            commodity_quantity,
-                            skill_id,
-                            requested_experience
-                        ) VALUES (?, ?, ?, 0, ?, ?, 20, ?, ?)
-                        """)) {
-                    statement.setObject(1, harvestId);
-                    statement.setObject(2, UUID.randomUUID());
-                    statement.setObject(3, sourceId);
-                    statement.setObject(4, playerId);
-                    statement.setString(5, COMMODITY);
-                    if (withSkill) {
-                        statement.setString(6, MINING.value());
-                        statement.setLong(7, 25L);
-                    } else {
-                        statement.setNull(6, Types.VARCHAR);
-                        statement.setLong(7, 0L);
-                    }
-                    statement.executeUpdate();
-                }
-                connection.commit();
-            } catch (SQLException | RuntimeException exception) {
-                connection.rollback();
-                throw exception;
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO backends(backend_id, status)
+                    VALUES ('paper-a', 'ONLINE')
+                    """)) {
+                statement.executeUpdate();
+            }
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO zone_instances(
+                        instance_id,
+                        zone_id,
+                        template_version,
+                        backend_id,
+                        status,
+                        player_count,
+                        soft_capacity,
+                        hard_capacity
+                    ) VALUES (?, ?, ?, 'paper-a', 'ACTIVE', 0, 20, 30)
+                    """)) {
+                statement.setObject(1, instanceId);
+                statement.setString(2, ZONE);
+                statement.setString(3, TEMPLATE);
+                statement.executeUpdate();
             }
         }
-        return new HarvestContext(harvestId);
+        return instanceId;
     }
 
     private void validate(ItemCatalog itemCatalog, SkillProgressionCatalog skillCatalog) throws SQLException {
@@ -256,6 +257,4 @@ class ResourceHarvestLiveContentCompatibilityValidatorIntegrationTest {
         }
         return value;
     }
-
-    private record HarvestContext(UUID harvestId) { }
 }
