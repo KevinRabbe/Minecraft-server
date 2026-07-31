@@ -39,6 +39,7 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     private RankedArenaRepository ranked;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -95,6 +96,7 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
                     RESTART IDENTITY CASCADE
                     """);
         }
+        runtimeIncarnation = UUID.randomUUID();
     }
 
     @AfterAll
@@ -105,7 +107,10 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     @Test
     void unmappedDatabaseLoginCannotUseRuntimeApi() throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT competitive_runtime_heartbeat(0)")) {
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_register(?, 0)"
+             )) {
+            statement.setObject(1, runtimeIncarnation);
             assertThrows(SQLException.class, statement::executeQuery);
         }
     }
@@ -113,6 +118,7 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     @Test
     void mappedRuntimeCanOnlyOperateItsSanitizedExecutionSurface() throws Exception {
         mapCurrentLogin(BACKEND, 120);
+        assertEquals(BACKEND, runtimeRegister(0));
         assertEquals(BACKEND, runtimeHeartbeat(0));
         assertEquals("ONLINE", backendStatus(BACKEND));
 
@@ -163,9 +169,28 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     }
 
     @Test
+    void replacementRuntimeIncarnationFencesOlderProcessWrites() throws Exception {
+        mapCurrentLogin(BACKEND, 120);
+        UUID oldIncarnation = UUID.randomUUID();
+        UUID replacementIncarnation = UUID.randomUUID();
+
+        assertEquals(BACKEND, runtimeRegister(oldIncarnation, 2));
+        assertEquals(BACKEND, runtimeHeartbeat(oldIncarnation, 3));
+        assertEquals(BACKEND, runtimeRegister(replacementIncarnation, 4));
+
+        assertThrows(SQLException.class, () -> runtimeHeartbeat(oldIncarnation, 5));
+        assertThrows(SQLException.class, () -> runtimeMarkOffline(oldIncarnation));
+        assertEquals("ONLINE", backendStatus(BACKEND));
+
+        assertEquals(BACKEND, runtimeHeartbeat(replacementIncarnation, 6));
+        assertEquals(BACKEND, runtimeMarkOffline(replacementIncarnation));
+        assertEquals("OFFLINE", backendStatus(BACKEND));
+    }
+
+    @Test
     void mappedRuntimeCannotReportForAnotherBackendExecution() throws Exception {
         mapCurrentLogin(BACKEND, 120);
-        runtimeHeartbeat(0);
+        runtimeRegister(0);
         backends.registerOnline(OTHER_BACKEND, 0);
 
         PlayerRef playerA = player("RuntimeXAA");
@@ -192,7 +217,7 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     @Test
     void runtimeLeaseExtensionIsPrincipalBoundAndCapped() throws Exception {
         mapCurrentLogin(BACKEND, 30);
-        runtimeHeartbeat(0);
+        runtimeRegister(0);
         PlayerRef playerA = player("RuntimeCapA");
         PlayerRef playerB = player("RuntimeCapB");
         RankedMatchSnapshot match = ranked.createMatch(UUID.randomUUID(), playerA.playerId(), playerB.playerId());
@@ -220,10 +245,35 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
         }
     }
 
-    private String runtimeHeartbeat(int playerCount) throws SQLException {
+    private String runtimeRegister(int playerCount) throws SQLException {
+        return runtimeRegister(runtimeIncarnation, playerCount);
+    }
+
+    private String runtimeRegister(UUID incarnationId, int playerCount) throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT competitive_runtime_heartbeat(?)")) {
-            statement.setInt(1, playerCount);
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_register(?, ?)"
+             )) {
+            statement.setObject(1, incarnationId);
+            statement.setInt(2, playerCount);
+            try (ResultSet row = statement.executeQuery()) {
+                row.next();
+                return row.getString(1);
+            }
+        }
+    }
+
+    private String runtimeHeartbeat(int playerCount) throws SQLException {
+        return runtimeHeartbeat(runtimeIncarnation, playerCount);
+    }
+
+    private String runtimeHeartbeat(UUID incarnationId, int playerCount) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_heartbeat(?, ?)"
+             )) {
+            statement.setObject(1, incarnationId);
+            statement.setInt(2, playerCount);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getString(1);
@@ -232,8 +282,15 @@ class CompetitiveRuntimeDatabaseApiIntegrationTest {
     }
 
     private String runtimeMarkOffline() throws SQLException {
+        return runtimeMarkOffline(runtimeIncarnation);
+    }
+
+    private String runtimeMarkOffline(UUID incarnationId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT competitive_runtime_mark_offline()")) {
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_mark_offline(?)"
+             )) {
+            statement.setObject(1, incarnationId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getString(1);

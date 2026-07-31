@@ -39,6 +39,7 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
     private RankedArenaRepository ranked;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -96,6 +97,7 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
                     RESTART IDENTITY CASCADE
                     """);
         }
+        runtimeIncarnation = UUID.randomUUID();
     }
 
     @AfterAll
@@ -106,7 +108,7 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
     @Test
     void exactPlayerLookupReturnsOnlyItsActiveSanitizedManifest() throws Exception {
         mapCurrentLogin(BACKEND);
-        assertEquals(BACKEND, runtimeHeartbeat());
+        assertEquals(BACKEND, runtimeRegister());
 
         PlayerRef playerA = player("AdmissionA");
         PlayerRef playerB = player("AdmissionB");
@@ -144,7 +146,7 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
     @Test
     void mappedRuntimeCannotAdmitPlayerFromAnotherBackend() throws Exception {
         mapCurrentLogin(BACKEND);
-        runtimeHeartbeat();
+        runtimeRegister();
         backends.registerOnline(OTHER_BACKEND, 0);
 
         PlayerRef playerA = player("AdmissionOtherA");
@@ -165,7 +167,7 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
     @Test
     void admissionSurfaceContainsOnlySanitizedExecutionAndParticipantFields() throws Exception {
         mapCurrentLogin(BACKEND);
-        runtimeHeartbeat();
+        runtimeRegister();
 
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
@@ -240,9 +242,12 @@ class CompetitiveRuntimePlayerAdmissionIntegrationTest {
         }
     }
 
-    private String runtimeHeartbeat() throws SQLException {
+    private String runtimeRegister() throws SQLException {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("SELECT competitive_runtime_heartbeat(0)")) {
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_register(?, 0)"
+             )) {
+            statement.setObject(1, runtimeIncarnation);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getString(1);

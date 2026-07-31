@@ -19,11 +19,11 @@ Use a distinct database login for each backend. Do not reuse the persistent MMO/
 
 ## Database privileges
 
-Migration V78 revokes `PUBLIC` execution from the privileged runtime functions. A trusted database owner/operator grants the dedicated runtime login only:
+Migration V78 revokes `PUBLIC` execution from the privileged runtime functions. Migration V86 replaces the original registration-by-heartbeat signatures with incarnation-fenced registration, heartbeat, and shutdown functions. A trusted database owner/operator grants the dedicated runtime login only:
 
 1. `CONNECT` to the target database;
 2. `USAGE` on schema `public`;
-3. `EXECUTE` on the seven externally callable runtime functions below.
+3. `EXECUTE` on the eight externally callable runtime functions below.
 
 Example, replacing the placeholders with the real database/role names:
 
@@ -31,9 +31,11 @@ Example, replacing the placeholders with the real database/role names:
 GRANT CONNECT ON DATABASE minecraft TO legacy_competitive_01;
 GRANT USAGE ON SCHEMA public TO legacy_competitive_01;
 
-GRANT EXECUTE ON FUNCTION public.competitive_runtime_heartbeat(INTEGER)
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_register(UUID, INTEGER)
     TO legacy_competitive_01;
-GRANT EXECUTE ON FUNCTION public.competitive_runtime_mark_offline()
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_heartbeat(UUID, INTEGER)
+    TO legacy_competitive_01;
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_mark_offline(UUID)
     TO legacy_competitive_01;
 GRANT EXECUTE ON FUNCTION public.competitive_runtime_poll_active(INTEGER)
     TO legacy_competitive_01;
@@ -49,7 +51,15 @@ GRANT EXECUTE ON FUNCTION public.competitive_runtime_page_loadout(UUID, INTEGER,
 
 `require_competitive_runtime_backend()` is an internal helper executed under the owning `SECURITY DEFINER` functions. Do **not** grant it directly to the runtime login.
 
+V86 drops the old `competitive_runtime_heartbeat(INTEGER)` and `competitive_runtime_mark_offline()` functions. Existing runtime-role grants on those removed signatures do not transfer to the replacements; apply the UUID-signature grants above after deploying V86.
+
 Do not grant the runtime role direct `SELECT`, `INSERT`, `UPDATE`, or `DELETE` privileges on persistent tables.
+
+## Runtime incarnation lifecycle
+
+Each legacy JVM generates one random UUID incarnation token. Its first successful control-plane call uses `competitive_runtime_register(UUID, INTEGER)`, which claims the principal's stable backend ID and rotates `backends.incarnation_id`. Recurring polls use `competitive_runtime_heartbeat(UUID, INTEGER)` with the same token, and shutdown uses `competitive_runtime_mark_offline(UUID)`.
+
+A replacement JVM registers a new token. Any overlapping older JVM still has the same database login, but its heartbeat and shutdown calls update no row and fail closed because it no longer owns the current backend incarnation. Recurring heartbeat must never call the registration function; otherwise a stale process could reclaim authority after replacement.
 
 ## Principal registration
 
