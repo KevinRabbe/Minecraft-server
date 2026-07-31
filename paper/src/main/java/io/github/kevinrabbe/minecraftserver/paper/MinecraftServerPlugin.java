@@ -75,6 +75,7 @@ import io.github.kevinrabbe.minecraftserver.common.transfer.TransferPluginMessag
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceEntitySpawnRepository;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceGatheringService;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceHarvestFulfillmentRepository;
+import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceHarvestLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalog;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceCatalogLoader;
 import io.github.kevinrabbe.minecraftserver.common.world.resource.ResourceSourceLiveContentCompatibilityValidator;
@@ -198,6 +199,11 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             AttunementLiveProfileCompatibilityValidator.validate(database.dataSource(), attunementProfiles);
             SkillLiveContentCompatibilityValidator.validate(database.dataSource(), skillCatalog);
             ResourceSourceLiveContentCompatibilityValidator.validate(database.dataSource(), resourceSourceCatalog);
+            ResourceHarvestLiveContentCompatibilityValidator.validate(
+                    database.dataSource(),
+                    itemCatalog,
+                    skillCatalog
+            );
             BankLiveTierCompatibilityValidator.validate(database.dataSource(), bankTiers);
             CraftingLiveContentCompatibilityValidator.validate(database.dataSource(), craftingContent);
             BountyLiveContentCompatibilityValidator.validate(database.dataSource(), bountyContent.tiers());
