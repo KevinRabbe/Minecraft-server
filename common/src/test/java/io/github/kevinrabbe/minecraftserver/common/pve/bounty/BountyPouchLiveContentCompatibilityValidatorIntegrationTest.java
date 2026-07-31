@@ -146,7 +146,7 @@ class BountyPouchLiveContentCompatibilityValidatorIntegrationTest {
                 material,
                 displayName,
                 maxStack,
-                ItemCategory.BOUNTY_MATERIALS,
+                ItemCategory.MATERIALS,
                 ItemIdentityKind.COMMODITY
         );
     }
