@@ -18,6 +18,27 @@ public final class ZoneInstanceRegistry {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
+    /** Registers a zone against the backend incarnation owned by this JVM. */
+    public void registerStarting(
+            UUID instanceId,
+            String zoneId,
+            String templateVersion,
+            String backendId,
+            int softCapacity,
+            int hardCapacity
+    ) throws SQLException {
+        registerStarting(
+                instanceId,
+                zoneId,
+                templateVersion,
+                backendId,
+                BackendRegistry.requireProcessIncarnation(backendId),
+                softCapacity,
+                hardCapacity
+        );
+    }
+
+    /** Explicit-token path for control-plane tests and orchestrators that already hold the registration result. */
     public void registerStarting(
             UUID instanceId,
             String zoneId,
