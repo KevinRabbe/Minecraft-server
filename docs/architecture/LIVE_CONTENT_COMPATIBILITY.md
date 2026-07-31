@@ -6,9 +6,9 @@ A content identifier is not retained forever merely because it appears in histor
 
 ## Core rule
 
-Before a Paper backend registers online, every live durable content reference must be representable by the loaded catalogs and Paper adapters.
+Before a Paper backend is allowed to serve gameplay, every live durable content reference must be representable by the loaded catalogs and Paper adapters.
 
-A deployment must fail closed when a required stable identifier is missing or its identity changes incompatibly. The backend must not register online and then discover later that existing player value or recovery work cannot be represented.
+A deployment must fail closed when a required stable identifier is missing or its identity changes incompatibly. Common/catalog gates run before backend registration; adapter-specific initialization must unwind and mark the backend offline before the affected gameplay runtime can operate.
 
 Compatibility does **not** freeze ordinary tuning unless frozen durable state depends on that tuning. Material, display text, quantities, timing, XP curves, ranges, and similar values may change when the owning validator explicitly permits it.
 
@@ -23,7 +23,7 @@ Each content family follows the same lifecycle:
 
 A handoff must be explicit. Two validators may overlap during a transaction boundary, but historical evidence must not retain definitions indefinitely without a recovery reason.
 
-## Current pre-registration gates
+## Current live-content gates
 
 | Durable authority | Required loaded compatibility | Tuning intentionally allowed | Dependency release / handoff |
 |---|---|---|---|
@@ -45,7 +45,7 @@ A handoff must be explicit. Two validators may overlap during a transaction boun
 
 The main Paper bootstrap performs common/catalog checks after migrations and before `BackendRegistry.registerOnline(...)`.
 
-Paper-specific Map representation/route compatibility is also evaluated before a Map runtime is allowed to operate. A startup failure must unwind any partially initialized runtime and keep the backend offline.
+Paper-specific Map representation/route compatibility is evaluated during Map runtime initialization. A failure unwinds partial initialization and marks the backend offline before Map gameplay can operate.
 
 The order is not a substitute for ownership. Each validator owns one durable dependency family and must not silently absorb unrelated tables merely to reduce bootstrap calls.
 
