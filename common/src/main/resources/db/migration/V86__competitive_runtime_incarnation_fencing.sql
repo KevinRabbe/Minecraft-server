@@ -3,7 +3,7 @@
 DROP FUNCTION competitive_runtime_heartbeat(INTEGER);
 DROP FUNCTION competitive_runtime_mark_offline();
 
-CREATE FUNCTION competitive_runtime_register(runtime_incarnation_id UUID, player_count INTEGER)
+CREATE FUNCTION competitive_runtime_register(runtime_incarnation_id UUID, requested_player_count INTEGER)
 RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -16,7 +16,7 @@ BEGIN
         RAISE EXCEPTION 'runtime_incarnation_id must not be null'
             USING ERRCODE = 'not_null_violation';
     END IF;
-    IF player_count < 0 THEN
+    IF requested_player_count < 0 THEN
         RAISE EXCEPTION 'player_count must not be negative'
             USING ERRCODE = 'check_violation';
     END IF;
@@ -30,7 +30,7 @@ BEGIN
         started_at,
         last_heartbeat_at,
         player_count
-    ) VALUES (mapped_backend, runtime_incarnation_id, 'ONLINE', NOW(), NOW(), player_count)
+    ) VALUES (mapped_backend, runtime_incarnation_id, 'ONLINE', NOW(), NOW(), requested_player_count)
     ON CONFLICT (backend_id) DO UPDATE SET
         incarnation_id = EXCLUDED.incarnation_id,
         status = 'ONLINE',
@@ -42,7 +42,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION competitive_runtime_heartbeat(runtime_incarnation_id UUID, player_count INTEGER)
+CREATE FUNCTION competitive_runtime_heartbeat(runtime_incarnation_id UUID, requested_player_count INTEGER)
 RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -55,7 +55,7 @@ BEGIN
         RAISE EXCEPTION 'runtime_incarnation_id must not be null'
             USING ERRCODE = 'not_null_violation';
     END IF;
-    IF player_count < 0 THEN
+    IF requested_player_count < 0 THEN
         RAISE EXCEPTION 'player_count must not be negative'
             USING ERRCODE = 'check_violation';
     END IF;
@@ -65,7 +65,7 @@ BEGIN
     UPDATE backends
     SET status = 'ONLINE',
         last_heartbeat_at = NOW(),
-        player_count = player_count
+        player_count = requested_player_count
     WHERE backend_id = mapped_backend
       AND incarnation_id = runtime_incarnation_id
       AND status IN ('ONLINE', 'DRAINING');
