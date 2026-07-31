@@ -127,7 +127,10 @@ class ZoneRoutingChurnIntegrationTest {
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty()); // late heartbeat cannot revive shutdown.
 
         backends.registerOnline("paper-b", 5);
-        instances.heartbeat(instanceB, ZoneInstanceStatus.ACTIVE, 5);
+        assertThrows(
+                SQLException.class,
+                () -> instances.heartbeat(instanceB, ZoneInstanceStatus.ACTIVE, 5)
+        );
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty()); // old zone belongs to the previous incarnation.
 
         UUID replacementInstanceB = registerStarting("paper-b", 10, 12);
@@ -156,7 +159,10 @@ class ZoneRoutingChurnIntegrationTest {
         assertNotEquals(oldIncarnation, replacementIncarnation);
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
 
-        oldZoneProcess.heartbeat(oldInstanceId, ZoneInstanceStatus.ACTIVE, 3);
+        assertThrows(
+                SQLException.class,
+                () -> oldZoneProcess.heartbeat(oldInstanceId, ZoneInstanceStatus.ACTIVE, 3)
+        );
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
         assertThrows(SQLException.class, () -> oldProcess.heartbeat("paper-reused", 3));
         assertThrows(SQLException.class, () -> oldProcess.markOffline("paper-reused"));
@@ -171,7 +177,10 @@ class ZoneRoutingChurnIntegrationTest {
         replacementProcess.publishOnline("paper-reused", 4);
         assertRoute(replacementInstanceId, "paper-reused");
 
-        oldZoneProcess.heartbeat(oldInstanceId, ZoneInstanceStatus.ACTIVE, 9);
+        assertThrows(
+                SQLException.class,
+                () -> oldZoneProcess.heartbeat(oldInstanceId, ZoneInstanceStatus.ACTIVE, 9)
+        );
         assertThrows(SQLException.class, () -> oldProcess.heartbeat("paper-reused", 3));
         assertThrows(SQLException.class, () -> oldProcess.markOffline("paper-reused"));
         assertRoute(replacementInstanceId, "paper-reused");
