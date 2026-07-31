@@ -8,7 +8,7 @@ A content identifier is not retained forever merely because it appears in histor
 
 Before a Paper backend is allowed to serve gameplay, every live durable content reference must be representable by the loaded catalogs and Paper adapters.
 
-A deployment must fail closed when a required stable identifier is missing or its identity changes incompatibly. Common/catalog gates run before backend registration; adapter-specific initialization must unwind and mark the backend offline before the affected gameplay runtime can operate.
+A deployment must fail closed when a required stable identifier is missing or its identity changes incompatibly. Common/catalog gates run before backend bootstrap publication. The backend is then registered as non-routeable `STARTING` while adapter-specific validation and runtime composition complete; only an explicit final publication may transition it to routeable `ONLINE`.
 
 Compatibility does **not** freeze ordinary tuning unless frozen durable state depends on that tuning. Material, display text, quantities, timing, XP curves, ranges, and similar values may change when the owning validator explicitly permits it.
 
@@ -43,9 +43,13 @@ A handoff must be explicit. Two validators may overlap during a transaction boun
 
 ## Startup composition
 
-The main Paper bootstrap performs common/catalog checks after migrations and before `BackendRegistry.registerOnline(...)`.
+The main Paper bootstrap performs migrations and common/catalog compatibility checks before creating a routeable backend.
 
-Paper-specific Map representation/route compatibility is evaluated during Map runtime initialization. A failure unwinds partial initialization and marks the backend offline before Map gameplay can operate.
+After those checks pass, `BackendRegistry.registerStarting(...)` records the backend identity with status `STARTING` and player count zero. Bootstrap-zone rows may reference that backend, but routing and competitive dispatch continue requiring exact `ONLINE`, so even an ACTIVE zone instance remains hidden during initialization.
+
+Paper then completes adapter-specific Map content/route validation, repository/controller construction, listener and command registration, recovery scheduling, and recurring task installation. `BackendRegistry.publishOnline(...)` is the final enable transition. Ordinary heartbeat refuses to publish a STARTING backend, preventing a timer or partial runtime from accidentally bypassing this boundary.
+
+A failure before final publication never exposes the backend to routing. A publication failure invokes full plugin shutdown, marks the backend offline where possible, and fails enable.
 
 The order is not a substitute for ownership. Each validator owns one durable dependency family and must not silently absorb unrelated tables merely to reduce bootstrap calls.
 
