@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -130,6 +131,34 @@ class ZoneRoutingChurnIntegrationTest {
 
         instances.markStopped(instanceB);
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
+    }
+
+    @Test
+    void replacementIncarnationFencesOlderProcessWrites() throws Exception {
+        BackendRegistry oldProcess = new BackendRegistry(dataSource);
+        UUID oldIncarnation = oldProcess.registerOnline("paper-reused", 3);
+        UUID instanceId = registerStarting("paper-reused", 10, 12);
+        instances.heartbeat(instanceId, ZoneInstanceStatus.ACTIVE, 3);
+        assertRoute(instanceId, "paper-reused");
+
+        BackendRegistry replacementProcess = new BackendRegistry(dataSource);
+        UUID replacementIncarnation = replacementProcess.registerStarting("paper-reused");
+        assertNotEquals(oldIncarnation, replacementIncarnation);
+        assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
+
+        assertThrows(SQLException.class, () -> oldProcess.heartbeat("paper-reused", 3));
+        assertThrows(SQLException.class, () -> oldProcess.markOffline("paper-reused"));
+        assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
+
+        replacementProcess.publishOnline("paper-reused", 4);
+        assertRoute(instanceId, "paper-reused");
+
+        assertThrows(SQLException.class, () -> oldProcess.heartbeat("paper-reused", 3));
+        assertThrows(SQLException.class, () -> oldProcess.markOffline("paper-reused"));
+        assertRoute(instanceId, "paper-reused");
+
+        replacementProcess.heartbeat("paper-reused", 4);
+        assertRoute(instanceId, "paper-reused");
     }
 
     private UUID registerStarting(String backendId, int softCapacity, int hardCapacity) throws SQLException {
