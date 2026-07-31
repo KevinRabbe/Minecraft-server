@@ -28,6 +28,7 @@ import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicy;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarPolicyLoader;
 import io.github.kevinrabbe.minecraftserver.common.economy.BazaarRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
+import io.github.kevinrabbe.minecraftserver.common.economy.CommodityEconomyLiveContentCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.economy.CraftingCommissionQueryRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CraftingCommissionRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.SalvageCatalog;
@@ -192,6 +193,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
             database.migrate();
             ItemLiveContentCompatibilityValidator.validate(database.dataSource(), itemCatalog);
             PaperPlayerStateLiveContentCompatibilityValidator.validate(this, database.dataSource(), itemCatalog);
+            CommodityEconomyLiveContentCompatibilityValidator.validate(database.dataSource(), itemCatalog);
             AttunementLiveProfileCompatibilityValidator.validate(database.dataSource(), attunementProfiles);
             SkillLiveContentCompatibilityValidator.validate(database.dataSource(), skillCatalog);
             ResourceSourceLiveContentCompatibilityValidator.validate(database.dataSource(), resourceSourceCatalog);
