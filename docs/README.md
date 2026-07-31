@@ -27,6 +27,7 @@ System contracts implementation must preserve: authority, state, transactions, g
 Notable cross-cutting policies include:
 
 - [`MINECRAFT_VERSION_COMPATIBILITY.md`](architecture/MINECRAFT_VERSION_COMPATIBILITY.md) — native Paper version and supported client protocol policy;
+- [`LIVE_CONTENT_COMPATIBILITY.md`](architecture/LIVE_CONTENT_COMPATIBILITY.md) — deployment-time retention, handoff, and retirement rules for durable content identifiers;
 - [`ARTIFACTS_AND_ATTUNEMENT.md`](architecture/ARTIFACTS_AND_ATTUNEMENT.md) — hidden artifact collection and one-active-profile exploration stat allocation.
 
 ### `planning/`
