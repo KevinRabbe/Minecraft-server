@@ -19,6 +19,8 @@ final class LegacyRuntimeDatabase {
     private final String jdbcUrl;
     private final String username;
     private final String password;
+    private final UUID backendIncarnationId = UUID.randomUUID();
+    private boolean backendRegistered;
 
     LegacyRuntimeDatabase(String jdbcUrl, String username, String password) {
         this.jdbcUrl = requireText(jdbcUrl, "jdbcUrl");
@@ -31,23 +33,35 @@ final class LegacyRuntimeDatabase {
         Class.forName("org.postgresql.Driver");
     }
 
-    String heartbeatBackend(int playerCount) throws SQLException {
+    synchronized String heartbeatBackend(int playerCount) throws SQLException {
         if (playerCount < 0) {
             throw new IllegalArgumentException("playerCount must be >= 0");
         }
+        String function = backendRegistered
+                ? "competitive_runtime_heartbeat"
+                : "competitive_runtime_register";
         try (Connection connection = connect();
-             PreparedStatement statement = connection.prepareStatement("SELECT competitive_runtime_heartbeat(?)")) {
-            statement.setInt(1, playerCount);
+             PreparedStatement statement = connection.prepareStatement("SELECT " + function + "(?, ?)")) {
+            statement.setObject(1, backendIncarnationId);
+            statement.setInt(2, playerCount);
             try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) throw new SQLException("competitive_runtime_heartbeat returned no row");
-                return row.getString(1);
+                if (!row.next()) throw new SQLException(function + " returned no row");
+                String backendId = row.getString(1);
+                backendRegistered = true;
+                return backendId;
             }
         }
     }
 
-    String markOffline() throws SQLException {
+    synchronized String markOffline() throws SQLException {
+        if (!backendRegistered) {
+            throw new SQLException("competitive runtime backend was never registered");
+        }
         try (Connection connection = connect();
-             PreparedStatement statement = connection.prepareStatement("SELECT competitive_runtime_mark_offline()")) {
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_mark_offline(?)"
+             )) {
+            statement.setObject(1, backendIncarnationId);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) throw new SQLException("competitive_runtime_mark_offline returned no row");
                 return row.getString(1);
