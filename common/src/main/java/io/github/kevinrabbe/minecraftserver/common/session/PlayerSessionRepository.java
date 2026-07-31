@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.session;
 
+import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -27,6 +29,7 @@ public final class PlayerSessionRepository {
     ) throws SQLException {
         Objects.requireNonNull(playerId, "playerId");
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
         long leaseMillis = requirePositiveDurationMillis(leaseDuration, "leaseDuration");
         UUID sessionId = UUID.randomUUID();
 
@@ -42,12 +45,19 @@ public final class PlayerSessionRepository {
                             network_session_id,
                             player_id,
                             owner_backend_id,
+                            owner_backend_incarnation_id,
                             owner_instance_id,
                             state_version,
                             status,
                             lease_expires_at,
                             last_heartbeat_at
-                        ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW() + (? * INTERVAL '1 millisecond'), NOW())
+                        )
+                        SELECT ?, ?, backend.backend_id, ?, ?, ?, 'ACTIVE',
+                               NOW() + (? * INTERVAL '1 millisecond'), NOW()
+                        FROM backends backend
+                        WHERE backend.backend_id = ?
+                          AND backend.incarnation_id = ?
+                          AND backend.status = 'ONLINE'
                         RETURNING lease_expires_at
                         """;
 
@@ -55,12 +65,18 @@ public final class PlayerSessionRepository {
                 try (PreparedStatement statement = connection.prepareStatement(sql)) {
                     statement.setObject(1, sessionId);
                     statement.setObject(2, playerId);
-                    statement.setString(3, normalizedBackendId);
+                    statement.setObject(3, backendIncarnationId);
                     statement.setObject(4, instanceId);
                     statement.setLong(5, stateVersion);
                     statement.setLong(6, leaseMillis);
+                    statement.setString(7, normalizedBackendId);
+                    statement.setObject(8, backendIncarnationId);
                     try (ResultSet results = statement.executeQuery()) {
-                        results.next();
+                        if (!results.next()) {
+                            throw new SessionConflictException(
+                                    "Backend incarnation is not session-registration eligible: " + normalizedBackendId
+                            );
+                        }
                         leaseExpiresAt = results.getTimestamp("lease_expires_at").toInstant();
                     }
                 }
@@ -89,6 +105,7 @@ public final class PlayerSessionRepository {
     ) throws SQLException {
         Objects.requireNonNull(sessionId, "sessionId");
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
         long leaseMillis = requirePositiveDurationMillis(leaseDuration, "leaseDuration");
 
         String sql = """
@@ -97,6 +114,7 @@ public final class PlayerSessionRepository {
                     lease_expires_at = NOW() + (? * INTERVAL '1 millisecond')
                 WHERE network_session_id = ?
                   AND owner_backend_id = ?
+                  AND owner_backend_incarnation_id = ?
                   AND status IN ('ACTIVE', 'TRANSFERRING', 'RECOVERING')
                   AND lease_expires_at > NOW()
                 RETURNING player_id, owner_instance_id, state_version, status, lease_expires_at
@@ -107,10 +125,11 @@ public final class PlayerSessionRepository {
             statement.setLong(1, leaseMillis);
             statement.setObject(2, sessionId);
             statement.setString(3, normalizedBackendId);
+            statement.setObject(4, backendIncarnationId);
 
             try (ResultSet results = statement.executeQuery()) {
                 if (!results.next()) {
-                    throw new SessionConflictException("Session lease is not owned by backend or has expired: " + sessionId);
+                    throw new SessionConflictException("Session lease is not owned by backend incarnation or has expired: " + sessionId);
                 }
                 return readLease(results, sessionId, normalizedBackendId);
             }
@@ -126,6 +145,7 @@ public final class PlayerSessionRepository {
     ) throws SQLException {
         Objects.requireNonNull(sessionId, "sessionId");
         String normalizedSourceBackendId = requireNonBlank(sourceBackendId, "sourceBackendId");
+        UUID sourceBackendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedSourceBackendId);
         String normalizedTargetZoneId = requireNonBlank(targetZoneId, "targetZoneId");
         if (expectedStateVersion < 0) {
             throw new IllegalArgumentException("expectedStateVersion must not be negative");
@@ -137,15 +157,24 @@ public final class PlayerSessionRepository {
             connection.setAutoCommit(false);
             try {
                 SessionRow session = lockSession(connection, sessionId);
-                requireOwnedActiveSession(session, normalizedSourceBackendId, expectedStateVersion);
+                requireOwnedActiveSession(
+                        session,
+                        normalizedSourceBackendId,
+                        sourceBackendIncarnationId,
+                        expectedStateVersion
+                );
 
                 try (PreparedStatement update = connection.prepareStatement("""
                         UPDATE player_sessions
                         SET status = 'TRANSFERRING'
                         WHERE network_session_id = ?
+                          AND owner_backend_incarnation_id = ?
                         """)) {
                     update.setObject(1, sessionId);
-                    update.executeUpdate();
+                    update.setObject(2, sourceBackendIncarnationId);
+                    if (update.executeUpdate() != 1) {
+                        throw new SessionConflictException("Session incarnation changed while beginning transfer");
+                    }
                 }
 
                 Instant expiresAt;
@@ -200,6 +229,7 @@ public final class PlayerSessionRepository {
         Objects.requireNonNull(transferId, "transferId");
         Objects.requireNonNull(targetInstanceId, "targetInstanceId");
         String normalizedTargetBackendId = requireNonBlank(targetBackendId, "targetBackendId");
+        UUID targetBackendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedTargetBackendId);
         long leaseMillis = requirePositiveDurationMillis(leaseDuration, "leaseDuration");
 
         try (Connection connection = dataSource.getConnection()) {
@@ -214,6 +244,7 @@ public final class PlayerSessionRepository {
                         connection,
                         targetInstanceId,
                         normalizedTargetBackendId,
+                        targetBackendIncarnationId,
                         transfer.targetZoneId()
                 );
 
@@ -228,6 +259,7 @@ public final class PlayerSessionRepository {
                 try (PreparedStatement update = connection.prepareStatement("""
                         UPDATE player_sessions
                         SET owner_backend_id = ?,
+                            owner_backend_incarnation_id = ?,
                             owner_instance_id = ?,
                             status = 'ACTIVE',
                             lease_expires_at = NOW() + (? * INTERVAL '1 millisecond'),
@@ -236,9 +268,10 @@ public final class PlayerSessionRepository {
                         RETURNING lease_expires_at
                         """)) {
                     update.setString(1, normalizedTargetBackendId);
-                    update.setObject(2, targetInstanceId);
-                    update.setLong(3, leaseMillis);
-                    update.setObject(4, transfer.sessionId());
+                    update.setObject(2, targetBackendIncarnationId);
+                    update.setObject(3, targetInstanceId);
+                    update.setLong(4, leaseMillis);
+                    update.setObject(5, transfer.sessionId());
                     try (ResultSet results = update.executeQuery()) {
                         results.next();
                         leaseExpiresAt = results.getTimestamp("lease_expires_at").toInstant();
@@ -276,10 +309,12 @@ public final class PlayerSessionRepository {
     public void disconnect(UUID sessionId, String backendId) throws SQLException {
         Objects.requireNonNull(sessionId, "sessionId");
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
 
         String sql = """
                 UPDATE player_sessions
                 SET owner_backend_id = NULL,
+                    owner_backend_incarnation_id = NULL,
                     owner_instance_id = NULL,
                     status = 'DISCONNECTED',
                     lease_expires_at = NULL,
@@ -287,6 +322,7 @@ public final class PlayerSessionRepository {
                     disconnected_at = NOW()
                 WHERE network_session_id = ?
                   AND owner_backend_id = ?
+                  AND owner_backend_incarnation_id = ?
                   AND status IN ('ACTIVE', 'TRANSFERRING', 'RECOVERING')
                 """;
 
@@ -294,8 +330,9 @@ public final class PlayerSessionRepository {
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, sessionId);
             statement.setString(2, normalizedBackendId);
+            statement.setObject(3, backendIncarnationId);
             if (statement.executeUpdate() != 1) {
-                throw new SessionConflictException("Session is not owned by backend: " + sessionId);
+                throw new SessionConflictException("Session is not owned by backend incarnation: " + sessionId);
             }
         }
     }
@@ -344,6 +381,7 @@ public final class PlayerSessionRepository {
             try (PreparedStatement retire = connection.prepareStatement("""
                     UPDATE player_sessions
                     SET owner_backend_id = NULL,
+                        owner_backend_incarnation_id = NULL,
                         owner_instance_id = NULL,
                         status = 'DISCONNECTED',
                         lease_expires_at = NULL,
@@ -377,6 +415,7 @@ public final class PlayerSessionRepository {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT player_id,
                        owner_backend_id,
+                       owner_backend_incarnation_id,
                        owner_instance_id,
                        state_version,
                        status,
@@ -393,6 +432,7 @@ public final class PlayerSessionRepository {
                 return new SessionRow(
                         results.getObject("player_id", UUID.class),
                         results.getString("owner_backend_id"),
+                        results.getObject("owner_backend_incarnation_id", UUID.class),
                         results.getObject("owner_instance_id", UUID.class),
                         results.getLong("state_version"),
                         SessionStatus.valueOf(results.getString("status")),
@@ -437,33 +477,46 @@ public final class PlayerSessionRepository {
             Connection connection,
             UUID instanceId,
             String backendId,
+            UUID backendIncarnationId,
             String targetZoneId
     ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT 1
-                FROM zone_instances
-                WHERE instance_id = ?
-                  AND backend_id = ?
-                  AND zone_id = ?
-                  AND status = 'ACTIVE'
+                FROM zone_instances zone_instance
+                JOIN backends backend
+                  ON backend.backend_id = zone_instance.backend_id
+                 AND backend.incarnation_id = zone_instance.backend_incarnation_id
+                WHERE zone_instance.instance_id = ?
+                  AND zone_instance.backend_id = ?
+                  AND zone_instance.backend_incarnation_id = ?
+                  AND zone_instance.zone_id = ?
+                  AND zone_instance.status = 'ACTIVE'
+                  AND backend.status = 'ONLINE'
                 """)) {
             statement.setObject(1, instanceId);
             statement.setString(2, backendId);
-            statement.setString(3, targetZoneId);
+            statement.setObject(3, backendIncarnationId);
+            statement.setString(4, targetZoneId);
             try (ResultSet results = statement.executeQuery()) {
                 if (!results.next()) {
                     throw new SessionConflictException(
-                            "Transfer target instance does not match the ticket's logical zone/backend"
+                            "Transfer target instance does not match the ticket's logical zone/backend incarnation"
                     );
                 }
             }
         }
     }
 
-    private static void requireOwnedActiveSession(SessionRow session, String backendId, long expectedStateVersion) {
+    private static void requireOwnedActiveSession(
+            SessionRow session,
+            String backendId,
+            UUID backendIncarnationId,
+            long expectedStateVersion
+    ) {
         if (!session.leaseValid()
                 || session.status() != SessionStatus.ACTIVE
                 || !Objects.equals(session.ownerBackendId(), backendId)
+                || !Objects.equals(session.ownerBackendIncarnationId(), backendIncarnationId)
                 || session.stateVersion() != expectedStateVersion) {
             throw new SessionConflictException("Session ownership/version no longer matches transfer request");
         }
@@ -513,6 +566,7 @@ public final class PlayerSessionRepository {
     private record SessionRow(
             UUID playerId,
             String ownerBackendId,
+            UUID ownerBackendIncarnationId,
             UUID ownerInstanceId,
             long stateVersion,
             SessionStatus status,
