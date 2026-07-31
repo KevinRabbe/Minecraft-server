@@ -58,6 +58,7 @@ class CompetitiveRuntimeLoadoutApiIntegrationTest {
     private UniqueItemAuthorityRepository items;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -96,6 +97,7 @@ class CompetitiveRuntimeLoadoutApiIntegrationTest {
 
     @BeforeEach
     void resetDatabase() throws SQLException {
+        runtimeIncarnation = UUID.randomUUID();
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("""
                     TRUNCATE TABLE
@@ -148,6 +150,7 @@ class CompetitiveRuntimeLoadoutApiIntegrationTest {
                     ) VALUES (SESSION_USER::TEXT, 'legacy-runtime-loadout-api', 120, TRUE, 4)
                     """);
         }
+        registerCurrentRuntime();
     }
 
     @AfterAll
@@ -292,14 +295,15 @@ class CompetitiveRuntimeLoadoutApiIntegrationTest {
     ) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_page_loadout(?, ?, ?, ?)"
+                     "SELECT * FROM competitive_runtime_page_loadout(?, ?, ?, ?, ?)"
              )) {
-            statement.setObject(1, executionId);
-            if (afterParticipantIndex == null) statement.setNull(2, java.sql.Types.INTEGER);
-            else statement.setInt(2, afterParticipantIndex);
-            if (afterLoadoutItemIndex == null) statement.setNull(3, java.sql.Types.INTEGER);
-            else statement.setInt(3, afterLoadoutItemIndex);
-            statement.setInt(4, limit);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, executionId);
+            if (afterParticipantIndex == null) statement.setNull(3, java.sql.Types.INTEGER);
+            else statement.setInt(3, afterParticipantIndex);
+            if (afterLoadoutItemIndex == null) statement.setNull(4, java.sql.Types.INTEGER);
+            else statement.setInt(4, afterLoadoutItemIndex);
+            statement.setInt(5, limit);
             try (ResultSet rows = statement.executeQuery()) {
                 ArrayList<RuntimeLoadoutRow> result = new ArrayList<>();
                 while (rows.next()) {
@@ -319,9 +323,10 @@ class CompetitiveRuntimeLoadoutApiIntegrationTest {
     private List<String> runtimeLoadoutColumns(UUID executionId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_page_loadout(?, NULL, NULL, 1)"
+                     "SELECT * FROM competitive_runtime_page_loadout(?, ?, NULL, NULL, 1)"
              )) {
-            statement.setObject(1, executionId);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, executionId);
             try (ResultSet rows = statement.executeQuery()) {
                 ResultSetMetaData metadata = rows.getMetaData();
                 ArrayList<String> result = new ArrayList<>();
@@ -342,6 +347,19 @@ class CompetitiveRuntimeLoadoutApiIntegrationTest {
                      """)) {
             statement.setString(1, backendId);
             assertEquals(1, statement.executeUpdate());
+        }
+        registerCurrentRuntime();
+    }
+
+    private void registerCurrentRuntime() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_register(?, 0)"
+             )) {
+            statement.setObject(1, runtimeIncarnation);
+            try (ResultSet row = statement.executeQuery()) {
+                row.next();
+            }
         }
     }
 
