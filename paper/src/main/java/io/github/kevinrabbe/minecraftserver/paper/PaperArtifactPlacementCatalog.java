@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.github.kevinrabbe.minecraftserver.common.artifact.ArtifactDefinitionSnapshot;
+import io.github.kevinrabbe.minecraftserver.common.artifact.ArtifactLivePlacementCompatibilityValidator;
 import io.github.kevinrabbe.minecraftserver.common.artifact.ArtifactRepository;
 import org.bukkit.Material;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.sql.SQLException;
@@ -17,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -47,39 +50,30 @@ final class PaperArtifactPlacementCatalog {
         this.placements = List.copyOf(placements);
     }
 
+    /** Read-only startup fence; actual Artifact creation/placement bootstrap remains in {@link #loadAndBootstrap}. */
+    static void validateLiveCompatibility(String resourcePath, DataSource dataSource) throws SQLException {
+        Objects.requireNonNull(dataSource, "dataSource");
+        RawCatalog raw = loadRaw(resourcePath);
+        HashSet<UUID> configuredIds = new HashSet<>();
+        for (int index = 0; index < raw.artifacts().size(); index++) {
+            RawArtifact value = raw.artifacts().get(index);
+            if (value == null) {
+                throw new IllegalArgumentException("artifacts[" + index + "] must not be null");
+            }
+            UUID artifactId = parseUuid(value.artifactId(), "artifact_id", index);
+            if (!configuredIds.add(artifactId)) {
+                throw new IllegalArgumentException("duplicate artifact_id at artifacts[" + index + "]: " + artifactId);
+            }
+        }
+        ArtifactLivePlacementCompatibilityValidator.validate(dataSource, Set.copyOf(configuredIds));
+    }
+
     static PaperArtifactPlacementCatalog loadAndBootstrap(
             String resourcePath,
             ArtifactRepository artifacts
     ) throws SQLException {
         Objects.requireNonNull(artifacts, "artifacts");
-        if (resourcePath == null || resourcePath.isBlank()) {
-            throw new IllegalArgumentException("resourcePath must not be blank");
-        }
-        InputStream input = PaperArtifactPlacementCatalog.class.getResourceAsStream(resourcePath);
-        if (input == null) {
-            throw new IllegalArgumentException("Artifact placement catalog does not exist: " + resourcePath);
-        }
-
-        ObjectMapper mapper = JsonMapper.builder()
-                .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
-                .build();
-        final RawCatalog raw;
-        try (input) {
-            raw = mapper.readValue(input, RawCatalog.class);
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("Invalid Artifact placement catalog: " + resourcePath, exception);
-        }
-        if (raw == null || raw.artifacts() == null) {
-            throw new IllegalArgumentException("Artifact placement catalog must contain an artifacts array");
-        }
-        if (raw.schemaVersion() != SCHEMA_VERSION) {
-            throw new IllegalArgumentException(
-                    "Unsupported Artifact placement schema_version " + raw.schemaVersion()
-                            + "; expected " + SCHEMA_VERSION
-            );
-        }
+        RawCatalog raw = loadRaw(resourcePath);
 
         ArrayList<PaperArtifactPlacement> resolved = new ArrayList<>(raw.artifacts().size());
         HashSet<UUID> configuredIds = new HashSet<>();
@@ -114,13 +108,11 @@ final class PaperArtifactPlacementCatalog {
                         value.initialBlockY(),
                         value.initialBlockZ()
                 );
-            } else {
-                if (definition.pointValue() != value.pointValue()
-                        || definition.pointPolicyVersion() != value.pointPolicyVersion()) {
-                    throw new IllegalStateException(
-                            "Artifact point policy differs from version-controlled content for " + artifactId
-                    );
-                }
+            } else if (definition.pointValue() != value.pointValue()
+                    || definition.pointPolicyVersion() != value.pointPolicyVersion()) {
+                throw new IllegalStateException(
+                        "Artifact point policy differs from version-controlled content for " + artifactId
+                );
             }
 
             var location = definition.currentLocation();
@@ -145,6 +137,38 @@ final class PaperArtifactPlacementCatalog {
 
     PaperArtifactPlacement find(String worldName, int x, int y, int z) {
         return byBlock.get(new BlockKey(worldName, x, y, z));
+    }
+
+    private static RawCatalog loadRaw(String resourcePath) {
+        if (resourcePath == null || resourcePath.isBlank()) {
+            throw new IllegalArgumentException("resourcePath must not be blank");
+        }
+        InputStream input = PaperArtifactPlacementCatalog.class.getResourceAsStream(resourcePath);
+        if (input == null) {
+            throw new IllegalArgumentException("Artifact placement catalog does not exist: " + resourcePath);
+        }
+
+        ObjectMapper mapper = JsonMapper.builder()
+                .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                .build();
+        final RawCatalog raw;
+        try (input) {
+            raw = mapper.readValue(input, RawCatalog.class);
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Invalid Artifact placement catalog: " + resourcePath, exception);
+        }
+        if (raw == null || raw.artifacts() == null) {
+            throw new IllegalArgumentException("Artifact placement catalog must contain an artifacts array");
+        }
+        if (raw.schemaVersion() != SCHEMA_VERSION) {
+            throw new IllegalArgumentException(
+                    "Unsupported Artifact placement schema_version " + raw.schemaVersion()
+                            + "; expected " + SCHEMA_VERSION
+            );
+        }
+        return raw;
     }
 
     private static UUID parseUuid(String value, String field, int index) {
