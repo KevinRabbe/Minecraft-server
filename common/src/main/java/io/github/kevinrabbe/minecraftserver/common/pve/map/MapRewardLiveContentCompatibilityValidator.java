@@ -1,6 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.pve.map;
 
 import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalog;
+import io.github.kevinrabbe.minecraftserver.common.item.ItemCatalogException;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 
@@ -47,7 +48,7 @@ public final class MapRewardLiveContentCompatibilityValidator {
                 ItemDefinition definition;
                 try {
                     definition = itemCatalog.require(definitionId);
-                } catch (RuntimeException exception) {
+                } catch (ItemCatalogException exception) {
                     throw new MapAuthorityException(
                             "Loaded item catalog is missing definition_id " + definitionId
                                     + " required by pending " + kind + " Map reward grant " + grantId
