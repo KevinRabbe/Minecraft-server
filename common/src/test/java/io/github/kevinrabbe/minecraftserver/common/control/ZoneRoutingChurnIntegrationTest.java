@@ -120,6 +120,14 @@ class ZoneRoutingChurnIntegrationTest {
         backends.heartbeat("paper-b", 5);
         assertRoute(instanceB, "paper-b"); // a fresh heartbeat explicitly returns the backend ONLINE.
 
+        backends.markOffline("paper-b");
+        assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
+        assertThrows(SQLException.class, () -> backends.heartbeat("paper-b", 5));
+        assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty()); // late heartbeat cannot revive shutdown.
+
+        backends.registerOnline("paper-b", 5);
+        assertRoute(instanceB, "paper-b"); // a new process incarnation must register explicitly.
+
         instances.markStopped(instanceB);
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
     }
