@@ -103,7 +103,7 @@ public final class BackendRegistry {
                 UPDATE backends
                 SET last_heartbeat_at = NOW(), player_count = ?, status = 'ONLINE'
                 WHERE backend_id = ?
-                  AND status <> 'STARTING'
+                  AND status IN ('ONLINE', 'DRAINING')
                 """;
 
         try (Connection connection = dataSource.getConnection();
