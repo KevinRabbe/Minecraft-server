@@ -164,7 +164,7 @@ class CompetitiveEntryRouteRepositoryIntegrationTest {
         backends.markOffline(BACKEND);
         assertTrue(routes.findByMinecraftUuid(playerA.minecraftUuid()).isEmpty());
 
-        backends.heartbeat(BACKEND, 0);
+        backends.registerOnline(BACKEND, 0);
         staleBackendHeartbeat();
         assertTrue(routes.findByMinecraftUuid(playerA.minecraftUuid()).isEmpty());
 

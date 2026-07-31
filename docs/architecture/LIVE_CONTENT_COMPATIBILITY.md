@@ -47,7 +47,7 @@ The main Paper bootstrap performs migrations and common/catalog compatibility ch
 
 After those checks pass, `BackendRegistry.registerStarting(...)` records the backend identity with status `STARTING` and player count zero. Bootstrap-zone rows may reference that backend, but routing and competitive dispatch continue requiring exact `ONLINE`, so even an ACTIVE zone instance remains hidden during initialization.
 
-Paper then completes adapter-specific Map content/route validation, repository/controller construction, listener and command registration, recovery scheduling, and recurring task installation. `BackendRegistry.publishOnline(...)` is the final enable transition. Ordinary heartbeat refuses to publish a STARTING backend, preventing a timer or partial runtime from accidentally bypassing this boundary.
+Paper then completes adapter-specific Map content/route validation, repository/controller construction, listener and command registration, recovery scheduling, and recurring task installation. `BackendRegistry.publishOnline(...)` is the final enable transition. Ordinary heartbeat is accepted only from `ONLINE` or `DRAINING`: it cannot publish `STARTING`, and it cannot revive terminal `OFFLINE` after shutdown. A new process incarnation must explicitly register again.
 
 A failure before final publication never exposes the backend to routing. A publication failure invokes full plugin shutdown, marks the backend offline where possible, and fails enable.
 
