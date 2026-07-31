@@ -176,7 +176,8 @@ public final class BackendRegistry {
         return incarnationId;
     }
 
-    static UUID requireProcessIncarnation(String backendId) throws SQLException {
+    /** Returns the backend incarnation registered by this JVM for downstream session and zone write fencing. */
+    public static UUID requireProcessIncarnation(String backendId) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
         UUID incarnationId = PROCESS_INCARNATIONS.get(normalizedBackendId);
         if (incarnationId == null) {
