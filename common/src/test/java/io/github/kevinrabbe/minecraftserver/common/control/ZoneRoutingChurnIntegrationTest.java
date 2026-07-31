@@ -127,38 +127,58 @@ class ZoneRoutingChurnIntegrationTest {
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty()); // late heartbeat cannot revive shutdown.
 
         backends.registerOnline("paper-b", 5);
-        assertRoute(instanceB, "paper-b"); // a new process incarnation must register explicitly.
+        instances.heartbeat(instanceB, ZoneInstanceStatus.ACTIVE, 5);
+        assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty()); // old zone belongs to the previous incarnation.
 
-        instances.markStopped(instanceB);
+        UUID replacementInstanceB = registerStarting("paper-b", 10, 12);
+        instances.heartbeat(replacementInstanceB, ZoneInstanceStatus.ACTIVE, 5);
+        assertRoute(replacementInstanceB, "paper-b");
+
+        instances.markStopped(replacementInstanceB);
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
     }
 
     @Test
-    void replacementIncarnationFencesOlderProcessWrites() throws Exception {
+    void replacementIncarnationFencesOlderBackendAndZoneProcesses() throws Exception {
         BackendRegistry oldProcess = new BackendRegistry(dataSource);
+        ZoneInstanceRegistry oldZoneProcess = new ZoneInstanceRegistry(dataSource);
         UUID oldIncarnation = oldProcess.registerOnline("paper-reused", 3);
-        UUID instanceId = registerStarting("paper-reused", 10, 12);
-        instances.heartbeat(instanceId, ZoneInstanceStatus.ACTIVE, 3);
-        assertRoute(instanceId, "paper-reused");
+        UUID oldInstanceId = UUID.randomUUID();
+        oldZoneProcess.registerStarting(
+                oldInstanceId, ZONE, "v1", "paper-reused", oldIncarnation, 10, 12
+        );
+        oldZoneProcess.heartbeat(oldInstanceId, ZoneInstanceStatus.ACTIVE, 3);
+        assertRoute(oldInstanceId, "paper-reused");
 
         BackendRegistry replacementProcess = new BackendRegistry(dataSource);
+        ZoneInstanceRegistry replacementZoneProcess = new ZoneInstanceRegistry(dataSource);
         UUID replacementIncarnation = replacementProcess.registerStarting("paper-reused");
         assertNotEquals(oldIncarnation, replacementIncarnation);
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
 
+        oldZoneProcess.heartbeat(oldInstanceId, ZoneInstanceStatus.ACTIVE, 3);
+        assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
         assertThrows(SQLException.class, () -> oldProcess.heartbeat("paper-reused", 3));
         assertThrows(SQLException.class, () -> oldProcess.markOffline("paper-reused"));
+
+        UUID replacementInstanceId = UUID.randomUUID();
+        replacementZoneProcess.registerStarting(
+                replacementInstanceId, ZONE, "v1", "paper-reused", replacementIncarnation, 10, 12
+        );
+        replacementZoneProcess.heartbeat(replacementInstanceId, ZoneInstanceStatus.ACTIVE, 4);
         assertTrue(router.findPreferredActiveInstance(ZONE).isEmpty());
 
         replacementProcess.publishOnline("paper-reused", 4);
-        assertRoute(instanceId, "paper-reused");
+        assertRoute(replacementInstanceId, "paper-reused");
 
+        oldZoneProcess.heartbeat(oldInstanceId, ZoneInstanceStatus.ACTIVE, 9);
         assertThrows(SQLException.class, () -> oldProcess.heartbeat("paper-reused", 3));
         assertThrows(SQLException.class, () -> oldProcess.markOffline("paper-reused"));
-        assertRoute(instanceId, "paper-reused");
+        assertRoute(replacementInstanceId, "paper-reused");
 
         replacementProcess.heartbeat("paper-reused", 4);
-        assertRoute(instanceId, "paper-reused");
+        replacementZoneProcess.heartbeat(replacementInstanceId, ZoneInstanceStatus.ACTIVE, 4);
+        assertRoute(replacementInstanceId, "paper-reused");
     }
 
     private UUID registerStarting(String backendId, int softCapacity, int hardCapacity) throws SQLException {
