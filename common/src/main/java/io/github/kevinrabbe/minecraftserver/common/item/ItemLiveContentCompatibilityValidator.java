@@ -9,11 +9,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
+import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
 import java.util.UUID;
 
-/** Startup compatibility gate for every non-destroyed individualized item authority head. */
+/** Startup compatibility gate for every live individualized item and stored player inventory representation. */
 public final class ItemLiveContentCompatibilityValidator {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final TypeReference<Map<String, Integer>> ROLL_STATE_TYPE = new TypeReference<>() { };
@@ -24,6 +27,11 @@ public final class ItemLiveContentCompatibilityValidator {
         Objects.requireNonNull(dataSource, "dataSource");
         Objects.requireNonNull(catalog, "catalog");
 
+        validateIndividualAuthorityHeads(dataSource, catalog);
+        validateStoredPlayerInventoryWhenSupported(dataSource, catalog);
+    }
+
+    private static void validateIndividualAuthorityHeads(DataSource dataSource, ItemCatalog catalog) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
                      SELECT item_instance_id,
@@ -79,6 +87,36 @@ public final class ItemLiveContentCompatibilityValidator {
                 }
             }
         }
+    }
+
+    private static void validateStoredPlayerInventoryWhenSupported(
+            DataSource dataSource,
+            ItemCatalog catalog
+    ) throws SQLException {
+        final Iterator<StoredPlayerItemClaimReader> readers;
+        try {
+            readers = ServiceLoader.load(
+                    StoredPlayerItemClaimReader.class,
+                    ItemLiveContentCompatibilityValidator.class.getClassLoader()
+            ).iterator();
+        } catch (ServiceConfigurationError error) {
+            throw new ItemCatalogException("Could not discover stored player-item claim reader", error);
+        }
+
+        final StoredPlayerItemClaimReader reader;
+        try {
+            if (!readers.hasNext()) {
+                return;
+            }
+            reader = readers.next();
+            if (readers.hasNext()) {
+                throw new ItemCatalogException("Multiple stored player-item claim readers are installed");
+            }
+        } catch (ServiceConfigurationError error) {
+            throw new ItemCatalogException("Could not initialize stored player-item claim reader", error);
+        }
+
+        StoredPlayerItemLiveContentCompatibilityValidator.validate(dataSource, catalog, reader);
     }
 
     private static Map<String, Integer> parseRollState(String json) throws JsonProcessingException {
