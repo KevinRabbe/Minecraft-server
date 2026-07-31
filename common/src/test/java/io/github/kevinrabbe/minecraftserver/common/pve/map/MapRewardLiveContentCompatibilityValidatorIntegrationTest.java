@@ -146,7 +146,7 @@ class MapRewardLiveContentCompatibilityValidatorIntegrationTest {
 
     @Test
     void pendingGrantsPinIdentityUntilRealFulfillmentTransfersCustody() throws Exception {
-        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "MapRewardCompatibility");
+        UUID playerId = identities.ensurePlayer(UUID.randomUUID(), "MapRewardGate");
         UUID runId = completedRun(playerId);
         MapRewardSettlementRepository settlements = new MapRewardSettlementRepository(
                 dataSource,
