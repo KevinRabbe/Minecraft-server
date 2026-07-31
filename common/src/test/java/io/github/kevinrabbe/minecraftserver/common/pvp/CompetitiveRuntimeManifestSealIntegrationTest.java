@@ -41,6 +41,7 @@ class CompetitiveRuntimeManifestSealIntegrationTest {
     private RankedArenaRepository ranked;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -114,7 +115,7 @@ class CompetitiveRuntimeManifestSealIntegrationTest {
                     ) VALUES (SESSION_USER::TEXT, 'legacy-manifest-seal', 120, TRUE, 4)
                     """);
         }
-        backends.registerOnline(BACKEND, 0);
+        runtimeIncarnation = backends.registerOnline(BACKEND, 0);
     }
 
     @AfterAll
@@ -182,9 +183,10 @@ class CompetitiveRuntimeManifestSealIntegrationTest {
     private int exactAdmissionRows(UUID minecraftUuid) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT COUNT(*) FROM competitive_runtime_find_player_execution(?)"
+                     "SELECT COUNT(*) FROM competitive_runtime_find_player_execution(?, ?)"
              )) {
-            statement.setObject(1, minecraftUuid);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, minecraftUuid);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getInt(1);
@@ -196,10 +198,11 @@ class CompetitiveRuntimeManifestSealIntegrationTest {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement("""
                      SELECT COUNT(*)
-                     FROM competitive_runtime_poll_active(64)
+                     FROM competitive_runtime_poll_active(?, 64)
                      WHERE execution_id = ?
                      """)) {
-            statement.setObject(1, executionId);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, executionId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getInt(1);

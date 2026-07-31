@@ -19,7 +19,7 @@ Use a distinct database login for each backend. Do not reuse the persistent MMO/
 
 ## Database privileges
 
-Migration V78 revokes `PUBLIC` execution from the privileged runtime functions. Migration V86 replaces the original registration-by-heartbeat signatures with incarnation-fenced registration, heartbeat, and shutdown functions. A trusted database owner/operator grants the dedicated runtime login only:
+Migration V78 revokes `PUBLIC` execution from the privileged runtime functions. Migration V86 introduces incarnation-fenced registration, heartbeat, and shutdown. Migration V87 extends that incarnation requirement to the complete externally callable runtime surface. A trusted database owner/operator grants the dedicated runtime login only:
 
 1. `CONNECT` to the target database;
 2. `USAGE` on schema `public`;
@@ -37,29 +37,29 @@ GRANT EXECUTE ON FUNCTION public.competitive_runtime_heartbeat(UUID, INTEGER)
     TO legacy_competitive_01;
 GRANT EXECUTE ON FUNCTION public.competitive_runtime_mark_offline(UUID)
     TO legacy_competitive_01;
-GRANT EXECUTE ON FUNCTION public.competitive_runtime_poll_active(INTEGER)
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_poll_active(UUID, INTEGER)
     TO legacy_competitive_01;
-GRANT EXECUTE ON FUNCTION public.competitive_runtime_heartbeat_execution(UUID, BIGINT, INTEGER)
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_heartbeat_execution(UUID, UUID, BIGINT, INTEGER)
     TO legacy_competitive_01;
-GRANT EXECUTE ON FUNCTION public.competitive_runtime_submit_report(UUID, UUID, TEXT, UUID)
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_submit_report(UUID, UUID, UUID, TEXT, UUID)
     TO legacy_competitive_01;
-GRANT EXECUTE ON FUNCTION public.competitive_runtime_find_player_execution(UUID)
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_find_player_execution(UUID, UUID)
     TO legacy_competitive_01;
-GRANT EXECUTE ON FUNCTION public.competitive_runtime_page_loadout(UUID, INTEGER, INTEGER, INTEGER)
+GRANT EXECUTE ON FUNCTION public.competitive_runtime_page_loadout(UUID, UUID, INTEGER, INTEGER, INTEGER)
     TO legacy_competitive_01;
 ```
 
-`require_competitive_runtime_backend()` is an internal helper executed under the owning `SECURITY DEFINER` functions. Do **not** grant it directly to the runtime login.
+`require_competitive_runtime_backend()` and `require_competitive_runtime_incarnation(UUID)` are internal helpers executed under the owning `SECURITY DEFINER` functions. Do **not** grant either helper directly to the runtime login.
 
-V86 drops the old `competitive_runtime_heartbeat(INTEGER)` and `competitive_runtime_mark_offline()` functions. Existing runtime-role grants on those removed signatures do not transfer to the replacements; apply the UUID-signature grants above after deploying V86.
+V86 drops the old lifecycle signatures. V87 drops the remaining unfenced polling, admission, execution-heartbeat, result-report, and loadout signatures. Existing runtime-role grants on removed signatures do not transfer to the replacements; apply the complete UUID-first grant set above after deploying V87.
 
 Do not grant the runtime role direct `SELECT`, `INSERT`, `UPDATE`, or `DELETE` privileges on persistent tables.
 
 ## Runtime incarnation lifecycle
 
-Each legacy JVM generates one random UUID incarnation token. Its first successful control-plane call uses `competitive_runtime_register(UUID, INTEGER)`, which claims the principal's stable backend ID and rotates `backends.incarnation_id`. Recurring polls use `competitive_runtime_heartbeat(UUID, INTEGER)` with the same token, and shutdown uses `competitive_runtime_mark_offline(UUID)`.
+Each legacy JVM generates one random UUID incarnation token. Its first successful control-plane call uses `competitive_runtime_register(UUID, INTEGER)`, which claims the principal's stable backend ID and rotates `backends.incarnation_id`. Every later narrow-API call carries the same token, including recurring backend heartbeat, manifest polling, exact player admission, execution lease renewal, frozen loadout paging, result submission, and shutdown.
 
-A replacement JVM registers a new token. Any overlapping older JVM still has the same database login, but its heartbeat and shutdown calls update no row and fail closed because it no longer owns the current backend incarnation. Recurring heartbeat must never call the registration function; otherwise a stale process could reclaim authority after replacement.
+A replacement JVM registers a new token. Any overlapping older JVM still has the same database login, but it immediately loses the complete runtime API: it cannot renew backend or execution leases, observe new manifests, admit players, read loadouts, report outcomes, or mark the replacement offline. Recurring heartbeat must never call the registration function; otherwise a stale process could reclaim authority after replacement.
 
 ## Principal registration
 
@@ -125,7 +125,7 @@ The legacy runtime never owns persistent MMO value:
 - Ranked uses disposable standardized state only.
 - Clan-War gear remains in PostgreSQL `WAR_CUSTODY`.
 - Clan-War runtime snapshots contain no persistent item UUID.
-- A legacy process may only heartbeat its assigned execution and submit `WINNER`/`FAILURE` through the narrow API.
+- A legacy process may only operate the sanitized execution surface while its registered incarnation remains current and `ONLINE`.
 - Unsupported or unrepresentable Clan-War state fails closed; it is never flattened into different combat value.
 - Runtime failure or lease expiry converges on trusted common-side settlement/recovery.
 

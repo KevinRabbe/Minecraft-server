@@ -43,6 +43,7 @@ class CompetitiveRuntimeLoadoutSealBoundaryIntegrationTest {
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
     private BackendRegistry backends;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -116,7 +117,7 @@ class CompetitiveRuntimeLoadoutSealBoundaryIntegrationTest {
                     ) VALUES (SESSION_USER::TEXT, 'legacy-runtime-seal', 120, TRUE, 4)
                     """);
         }
-        backends.registerOnline(BACKEND, 0);
+        runtimeIncarnation = backends.registerOnline(BACKEND, 0);
         backends.registerOnline(OTHER_BACKEND, 0);
     }
 
@@ -184,9 +185,10 @@ class CompetitiveRuntimeLoadoutSealBoundaryIntegrationTest {
     private int runtimeLoadoutRowCount(UUID executionId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT COUNT(*) FROM competitive_runtime_page_loadout(?, NULL, NULL, 100)"
+                     "SELECT COUNT(*) FROM competitive_runtime_page_loadout(?, ?, NULL, NULL, 100)"
              )) {
-            statement.setObject(1, executionId);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, executionId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getInt(1);

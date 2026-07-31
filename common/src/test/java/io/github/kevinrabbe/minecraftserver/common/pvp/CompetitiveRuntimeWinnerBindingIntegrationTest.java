@@ -42,6 +42,7 @@ class CompetitiveRuntimeWinnerBindingIntegrationTest {
     private ClanWarLoadoutReadinessRepository readiness;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -114,7 +115,7 @@ class CompetitiveRuntimeWinnerBindingIntegrationTest {
                     ) VALUES (SESSION_USER::TEXT, 'legacy-winner-binding', 120, TRUE, 4)
                     """);
         }
-        backends.registerOnline(BACKEND, 0);
+        runtimeIncarnation = backends.registerOnline(BACKEND, 0);
     }
 
     @AfterAll
@@ -178,13 +179,14 @@ class CompetitiveRuntimeWinnerBindingIntegrationTest {
     private UUID submitReport(UUID executionId, String kind, UUID winnerId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT competitive_runtime_submit_report(?, ?, ?, ?)"
+                     "SELECT competitive_runtime_submit_report(?, ?, ?, ?, ?)"
              )) {
-            statement.setObject(1, UUID.randomUUID());
-            statement.setObject(2, executionId);
-            statement.setString(3, kind);
-            if (winnerId == null) statement.setNull(4, java.sql.Types.OTHER);
-            else statement.setObject(4, winnerId);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, UUID.randomUUID());
+            statement.setObject(3, executionId);
+            statement.setString(4, kind);
+            if (winnerId == null) statement.setNull(5, java.sql.Types.OTHER);
+            else statement.setObject(5, winnerId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return row.getObject(1, UUID.class);

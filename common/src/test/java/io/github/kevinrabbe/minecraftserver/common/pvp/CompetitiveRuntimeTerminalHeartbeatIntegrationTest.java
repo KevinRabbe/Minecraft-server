@@ -36,6 +36,7 @@ class CompetitiveRuntimeTerminalHeartbeatIntegrationTest {
     private RankedArenaRepository ranked;
     private CompetitiveExecutionRepository executions;
     private CompetitiveExecutionService service;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -101,7 +102,7 @@ class CompetitiveRuntimeTerminalHeartbeatIntegrationTest {
                     ) VALUES (SESSION_USER::TEXT, 'legacy-terminal-heartbeat', 120, TRUE, 4)
                     """);
         }
-        backends.registerOnline(BACKEND, 0);
+        runtimeIncarnation = backends.registerOnline(BACKEND, 0);
     }
 
     @AfterAll
@@ -133,11 +134,12 @@ class CompetitiveRuntimeTerminalHeartbeatIntegrationTest {
     private RuntimeLease heartbeat(UUID executionId, long expectedStateVersion, int seconds) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_heartbeat_execution(?, ?, ?)"
+                     "SELECT * FROM competitive_runtime_heartbeat_execution(?, ?, ?, ?)"
              )) {
-            statement.setObject(1, executionId);
-            statement.setLong(2, expectedStateVersion);
-            statement.setInt(3, seconds);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, executionId);
+            statement.setLong(3, expectedStateVersion);
+            statement.setInt(4, seconds);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 return new RuntimeLease(row.getLong("state_version"));
@@ -148,11 +150,12 @@ class CompetitiveRuntimeTerminalHeartbeatIntegrationTest {
     private void submitWinner(UUID executionId, UUID winnerId) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT competitive_runtime_submit_report(?, ?, 'WINNER', ?)"
+                     "SELECT competitive_runtime_submit_report(?, ?, ?, 'WINNER', ?)"
              )) {
-            statement.setObject(1, UUID.randomUUID());
-            statement.setObject(2, executionId);
-            statement.setObject(3, winnerId);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setObject(2, UUID.randomUUID());
+            statement.setObject(3, executionId);
+            statement.setObject(4, winnerId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
             }

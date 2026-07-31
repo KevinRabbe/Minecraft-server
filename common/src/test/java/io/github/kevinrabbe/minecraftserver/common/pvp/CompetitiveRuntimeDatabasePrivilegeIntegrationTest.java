@@ -53,6 +53,7 @@ class CompetitiveRuntimeDatabasePrivilegeIntegrationTest {
                        AND privilege_type = 'EXECUTE'
                        AND routine_name IN (
                            'require_competitive_runtime_backend',
+                           'require_competitive_runtime_incarnation',
                            'competitive_runtime_register',
                            'competitive_runtime_heartbeat',
                            'competitive_runtime_mark_offline',
@@ -84,6 +85,7 @@ class CompetitiveRuntimeDatabasePrivilegeIntegrationTest {
                      WHERE n.nspname = 'public'
                        AND p.proname IN (
                            'require_competitive_runtime_backend',
+                           'require_competitive_runtime_incarnation',
                            'competitive_runtime_register',
                            'competitive_runtime_heartbeat',
                            'competitive_runtime_mark_offline',
@@ -105,7 +107,7 @@ class CompetitiveRuntimeDatabasePrivilegeIntegrationTest {
                             rows.getString("proname") + " must pin search_path"
                     );
                 }
-                assertEquals(9, count, "expected complete competitive runtime privileged function set");
+                assertEquals(10, count, "expected complete competitive runtime privileged function set");
             }
         }
     }
