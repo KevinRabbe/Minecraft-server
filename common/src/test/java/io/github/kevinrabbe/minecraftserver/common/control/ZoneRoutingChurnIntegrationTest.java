@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Exercises the settled routing eligibility rules through capacity, heartbeat, and lifecycle churn. */
@@ -75,7 +76,7 @@ class ZoneRoutingChurnIntegrationTest {
 
     @Test
     void routingAlwaysMovesToAnEligibleTargetAsCapacityAndHealthChurn() throws Exception {
-        backends.registerOnline("paper-a", 8);
+        backends.registerStarting("paper-a");
         backends.registerOnline("paper-b", 4);
 
         UUID instanceA = registerStarting("paper-a", 10, 12);
@@ -86,7 +87,13 @@ class ZoneRoutingChurnIntegrationTest {
 
         instances.heartbeat(instanceA, ZoneInstanceStatus.ACTIVE, 8);
         instances.heartbeat(instanceB, ZoneInstanceStatus.ACTIVE, 4);
-        assertRoute(instanceA, "paper-a"); // pack the denser instance while both are below soft capacity.
+        assertRoute(instanceB, "paper-b"); // an ACTIVE instance remains hidden while its backend is STARTING.
+
+        assertThrows(SQLException.class, () -> backends.heartbeat("paper-a", 8));
+        assertRoute(instanceB, "paper-b"); // ordinary heartbeat cannot accidentally publish startup.
+
+        backends.publishOnline("paper-a", 8);
+        assertRoute(instanceA, "paper-a"); // explicit publication makes the denser eligible instance routable.
 
         instances.heartbeat(instanceA, ZoneInstanceStatus.ACTIVE, 12);
         assertRoute(instanceB, "paper-b"); // hard-cap excludes A entirely.

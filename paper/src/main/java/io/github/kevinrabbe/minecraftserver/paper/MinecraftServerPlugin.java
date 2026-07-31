@@ -213,7 +213,7 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
 
             backendRegistry = new BackendRegistry(database.dataSource());
             onlinePlayers.set(getServer().getOnlinePlayers().size());
-            backendRegistry.registerOnline(backendId, onlinePlayers.get());
+            backendRegistry.registerStarting(backendId);
 
             Optional<BootstrapZoneInstance> configuredZone = BootstrapZoneInstance.fromEnvironment(
                     backendId,
@@ -679,6 +679,13 @@ public final class MinecraftServerPlugin extends JavaPlugin implements Listener 
                 DELIVERY_PUMP_PERIOD_TICKS,
                 DELIVERY_PUMP_PERIOD_TICKS
         );
+
+        try {
+            backendRegistry.publishOnline(backendId, onlinePlayers.get());
+        } catch (SQLException exception) {
+            onDisable();
+            throw new IllegalStateException("Failed to publish fully initialized backend online", exception);
+        }
 
         String zoneDescription = bootstrapZoneInstance == null
                 ? "no bootstrap zone"
