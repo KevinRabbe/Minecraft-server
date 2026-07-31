@@ -12,8 +12,10 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class CompetitiveRuntimePollCapacityIntegrationTest {
     private Database database;
     private DataSource dataSource;
+    private UUID runtimeIncarnation;
 
     @BeforeAll
     void openDatabase() {
@@ -38,8 +41,9 @@ class CompetitiveRuntimePollCapacityIntegrationTest {
 
     @BeforeEach
     void resetPrincipal() throws SQLException {
+        runtimeIncarnation = UUID.randomUUID();
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            statement.execute("TRUNCATE TABLE competitive_runtime_principals");
+            statement.execute("TRUNCATE TABLE competitive_runtime_principals, backends CASCADE");
             statement.execute("""
                     INSERT INTO competitive_runtime_principals(
                         database_role,
@@ -49,6 +53,15 @@ class CompetitiveRuntimePollCapacityIntegrationTest {
                         max_active_executions
                     ) VALUES (SESSION_USER::TEXT, 'legacy-poll-capacity', 120, TRUE, 64)
                     """);
+        }
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT competitive_runtime_register(?, 0)"
+             )) {
+            statement.setObject(1, runtimeIncarnation);
+            try (ResultSet row = statement.executeQuery()) {
+                row.next();
+            }
         }
     }
 
@@ -66,9 +79,10 @@ class CompetitiveRuntimePollCapacityIntegrationTest {
     private void poll(int limit) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT * FROM competitive_runtime_poll_active(?)"
+                     "SELECT * FROM competitive_runtime_poll_active(?, ?)"
              )) {
-            statement.setInt(1, limit);
+            statement.setObject(1, runtimeIncarnation);
+            statement.setInt(2, limit);
             statement.executeQuery().close();
         }
     }
