@@ -60,12 +60,14 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     IF OLD.incarnation_id IS DISTINCT FROM NEW.incarnation_id THEN
+        -- Preserve transfer status/ticket for the target, but expire the displaced source lease so the old JVM cannot
+        -- renew, abort, recover, checkpoint, or disconnect it after replacement.
         UPDATE player_sessions
         SET lease_expires_at = NOW(),
             last_heartbeat_at = NOW()
         WHERE owner_backend_id = NEW.backend_id
           AND owner_backend_incarnation_id = OLD.incarnation_id
-          AND status IN ('ACTIVE', 'RECOVERING')
+          AND status IN ('ACTIVE', 'TRANSFERRING', 'RECOVERING')
           AND lease_expires_at > NOW();
     END IF;
     RETURN NEW;
