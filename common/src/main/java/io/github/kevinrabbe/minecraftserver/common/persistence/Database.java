@@ -2,6 +2,7 @@ package io.github.kevinrabbe.minecraftserver.common.persistence;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
 import org.flywaydb.core.Flyway;
 
 import javax.sql.DataSource;
@@ -12,6 +13,7 @@ public final class Database implements AutoCloseable {
 
     private Database(HikariDataSource dataSource) {
         this.dataSource = dataSource;
+        BackendRegistry.installProcessDataSource(dataSource);
     }
 
     public static Database open(DatabaseConfig config) {
@@ -44,6 +46,7 @@ public final class Database implements AutoCloseable {
 
     @Override
     public void close() {
+        BackendRegistry.clearProcessDataSource(dataSource);
         dataSource.close();
     }
 }

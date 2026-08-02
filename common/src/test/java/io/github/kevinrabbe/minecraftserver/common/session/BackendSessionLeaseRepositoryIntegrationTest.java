@@ -138,9 +138,53 @@ class BackendSessionLeaseRepositoryIntegrationTest {
         assertEquals("ACTIVE", sessionStatus(foreign.sessionId()));
     }
 
+    @Test
+    void backendReplacementExpiresEverySourceLeaseButPreservesTransferHandoff() throws SQLException {
+        SessionLease active = openSession("ReplActive", "paper-a");
+        SessionLease transferring = openSession("ReplTransfer", "paper-a");
+        TransferTicket ticket = sessions.beginTransfer(
+                transferring.sessionId(),
+                "paper-a",
+                "woods",
+                transferring.stateVersion(),
+                Duration.ofSeconds(30)
+        );
+
+        rotateBackendIncarnation("paper-a");
+
+        assertFalse(leaseIsValid(active.sessionId()));
+        assertFalse(leaseIsValid(transferring.sessionId()));
+        assertEquals("ACTIVE", sessionStatus(active.sessionId()));
+        assertEquals("TRANSFERRING", sessionStatus(transferring.sessionId()));
+        assertEquals(0, transferConsumedCount(ticket.transferId()));
+        assertTrue(backendLeases.heartbeatAttachedSessions(
+                "paper-a",
+                Set.of(active.sessionId(), transferring.sessionId()),
+                LEASE
+        ).isEmpty());
+        assertFalse(backendLeases.disconnectAttachedSession(active.sessionId(), "paper-a"));
+    }
+
     private SessionLease openSession(String name, String backendId) throws SQLException {
         UUID playerId = identities.ensurePlayer(UUID.randomUUID(), name);
         return sessions.openSession(playerId, backendId, null, LEASE);
+    }
+
+    private void rotateBackendIncarnation(String backendId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                     UPDATE backends
+                     SET incarnation_id = ?,
+                         status = 'STARTING',
+                         started_at = NOW(),
+                         last_heartbeat_at = NOW(),
+                         player_count = 0
+                     WHERE backend_id = ?
+                     """)) {
+            statement.setObject(1, UUID.randomUUID());
+            statement.setString(2, backendId);
+            assertEquals(1, statement.executeUpdate());
+        }
     }
 
     private void expireSession(UUID sessionId) throws SQLException {
