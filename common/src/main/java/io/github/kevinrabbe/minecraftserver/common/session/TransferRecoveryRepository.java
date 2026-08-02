@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.session;
 
+import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
+
 import javax.sql.DataSource;
 import java.sql.Array;
 import java.sql.Connection;
@@ -26,6 +28,7 @@ public final class TransferRecoveryRepository {
      */
     public void abortAttachedTransfer(String backendId, UUID sessionId, UUID transferId) throws SQLException {
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
         Objects.requireNonNull(sessionId, "sessionId");
         Objects.requireNonNull(transferId, "transferId");
 
@@ -41,6 +44,7 @@ public final class TransferRecoveryRepository {
                           AND tt.network_session_id = ps.network_session_id
                           AND tt.consumed_at IS NULL
                           AND ps.owner_backend_id = ?
+                          AND ps.owner_backend_incarnation_id = ?
                           AND ps.status = 'TRANSFERRING'
                           AND ps.lease_expires_at > NOW()
                           AND ps.state_version = tt.expected_state_version
@@ -49,6 +53,7 @@ public final class TransferRecoveryRepository {
                     closeTicket.setObject(1, transferId);
                     closeTicket.setObject(2, sessionId);
                     closeTicket.setString(3, normalizedBackendId);
+                    closeTicket.setObject(4, backendIncarnationId);
                     if (closeTicket.executeUpdate() != 1) {
                         throw new SessionConflictException(
                                 "Transfer cannot be aborted because it is missing, consumed, or no longer source-owned: "
@@ -63,11 +68,13 @@ public final class TransferRecoveryRepository {
                             last_heartbeat_at = NOW()
                         WHERE network_session_id = ?
                           AND owner_backend_id = ?
+                          AND owner_backend_incarnation_id = ?
                           AND status = 'TRANSFERRING'
                           AND lease_expires_at > NOW()
                         """)) {
                     reactivate.setObject(1, sessionId);
                     reactivate.setString(2, normalizedBackendId);
+                    reactivate.setObject(3, backendIncarnationId);
                     if (reactivate.executeUpdate() != 1) {
                         throw new SessionConflictException(
                                 "Source session changed concurrently while aborting transfer: " + sessionId
@@ -87,6 +94,7 @@ public final class TransferRecoveryRepository {
             Collection<UUID> attachedSessionIds
     ) throws SQLException {
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
         Set<UUID> requested = normalizedSessionIds(attachedSessionIds);
         if (requested.isEmpty()) {
             return Set.of();
@@ -99,6 +107,7 @@ public final class TransferRecoveryRepository {
                 Set<UUID> recoverable = closeExpiredTickets(
                         connection,
                         normalizedBackendId,
+                        backendIncarnationId,
                         requestedArray
                 );
                 if (recoverable.isEmpty()) {
@@ -111,6 +120,7 @@ public final class TransferRecoveryRepository {
                     Set<UUID> recovered = reactivateSessions(
                             connection,
                             normalizedBackendId,
+                            backendIncarnationId,
                             recoverableArray
                     );
                     if (!recovered.equals(recoverable)) {
@@ -133,6 +143,7 @@ public final class TransferRecoveryRepository {
     private static Set<UUID> closeExpiredTickets(
             Connection connection,
             String backendId,
+            UUID backendIncarnationId,
             Array requestedSessionIds
     ) throws SQLException {
         String sql = """
@@ -144,6 +155,7 @@ public final class TransferRecoveryRepository {
                   AND tt.expires_at <= NOW()
                   AND ps.network_session_id = ANY (?)
                   AND ps.owner_backend_id = ?
+                  AND ps.owner_backend_incarnation_id = ?
                   AND ps.status = 'TRANSFERRING'
                   AND ps.lease_expires_at > NOW()
                   AND ps.state_version = tt.expected_state_version
@@ -154,6 +166,7 @@ public final class TransferRecoveryRepository {
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setArray(1, requestedSessionIds);
             statement.setString(2, backendId);
+            statement.setObject(3, backendIncarnationId);
             Set<UUID> recovered = new HashSet<>();
             try (ResultSet results = statement.executeQuery()) {
                 while (results.next()) {
@@ -167,6 +180,7 @@ public final class TransferRecoveryRepository {
     private static Set<UUID> reactivateSessions(
             Connection connection,
             String backendId,
+            UUID backendIncarnationId,
             Array sessionIds
     ) throws SQLException {
         String sql = """
@@ -175,6 +189,7 @@ public final class TransferRecoveryRepository {
                     last_heartbeat_at = NOW()
                 WHERE network_session_id = ANY (?)
                   AND owner_backend_id = ?
+                  AND owner_backend_incarnation_id = ?
                   AND status = 'TRANSFERRING'
                   AND lease_expires_at > NOW()
                 RETURNING network_session_id
@@ -183,6 +198,7 @@ public final class TransferRecoveryRepository {
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setArray(1, sessionIds);
             statement.setString(2, backendId);
+            statement.setObject(3, backendIncarnationId);
             Set<UUID> recovered = new HashSet<>();
             try (ResultSet results = statement.executeQuery()) {
                 while (results.next()) {
