@@ -103,12 +103,12 @@ SELECT
     instance_id,
     backend_id,
     backend_incarnation_id,
-    logical_zone_id,
+    zone_id,
     status,
     last_heartbeat_at,
     player_count
 FROM zone_instances
-ORDER BY backend_id, logical_zone_id, instance_id
+ORDER BY backend_id, zone_id, instance_id
 "@ `
         "Zone authority query"
 
@@ -118,14 +118,14 @@ ORDER BY backend_id, logical_zone_id, instance_id
 SELECT
     network_session_id,
     player_id,
-    backend_id,
+    owner_backend_id,
     owner_backend_incarnation_id,
     status,
     lease_expires_at,
     state_version
 FROM player_sessions
 WHERE status IN ('ACTIVE', 'RECOVERING', 'TRANSFERRING')
-ORDER BY backend_id, player_id, network_session_id
+ORDER BY owner_backend_id, player_id, network_session_id
 "@ `
         "Live session authority query"
 
