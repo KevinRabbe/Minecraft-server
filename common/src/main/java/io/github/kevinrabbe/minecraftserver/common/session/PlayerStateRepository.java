@@ -1,5 +1,7 @@
 package io.github.kevinrabbe.minecraftserver.common.session;
 
+import io.github.kevinrabbe.minecraftserver.common.control.BackendRegistry;
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -71,9 +73,7 @@ public final class PlayerStateRepository {
         }
     }
 
-    /**
-     * Applies the fenced player-state commit inside a caller-owned transaction without extra payload validation.
-     */
+    /** Applies the fenced player-state commit inside a caller-owned transaction without extra payload validation. */
     public long commitWithinTransaction(
             Connection connection,
             UUID sessionId,
@@ -98,12 +98,6 @@ public final class PlayerStateRepository {
     /**
      * Applies a fenced player-state commit and validates a sensitive payload transition while the session and current
      * state are transactionally locked.
-     *
-     * <p>This is intended for operations such as Bazaar sell escrow where correctness depends on proving that the new
-     * serialized Minecraft state removed exactly the value being moved into another authoritative subsystem.</p>
-     *
-     * <p>The validator receives defensive copies. It runs before the state update and may reject by throwing a runtime
-     * exception. The caller owns commit/rollback for the entire transaction.</p>
      */
     public long commitWithinTransaction(
             Connection connection,
@@ -118,6 +112,7 @@ public final class PlayerStateRepository {
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(sessionId, "sessionId");
         String normalizedBackendId = requireNonBlank(backendId, "backendId");
+        UUID backendIncarnationId = BackendRegistry.requireProcessIncarnation(normalizedBackendId);
         if (expectedStateVersion < 0) {
             throw new IllegalArgumentException("expectedStateVersion must not be negative");
         }
@@ -131,11 +126,12 @@ public final class PlayerStateRepository {
         SessionOwner owner = lockSessionOwner(connection, sessionId);
         if (!owner.leaseValid()
                 || !Objects.equals(owner.backendId(), normalizedBackendId)
+                || !Objects.equals(owner.backendIncarnationId(), backendIncarnationId)
                 || owner.stateVersion() != expectedStateVersion
                 || (owner.status() != SessionStatus.ACTIVE
                 && owner.status() != SessionStatus.RECOVERING)) {
             throw new SessionConflictException(
-                    "Stale, frozen, or non-owning player state commit rejected for session " + sessionId
+                    "Stale, replaced, frozen, or non-owning player state commit rejected for session " + sessionId
             );
         }
 
@@ -178,13 +174,15 @@ public final class PlayerStateRepository {
                 UPDATE player_sessions
                 SET state_version = ?
                 WHERE network_session_id = ?
+                  AND owner_backend_incarnation_id = ?
                   AND state_version = ?
                 """)) {
             updateSession.setLong(1, newVersion);
             updateSession.setObject(2, sessionId);
-            updateSession.setLong(3, expectedStateVersion);
+            updateSession.setObject(3, backendIncarnationId);
+            updateSession.setLong(4, expectedStateVersion);
             if (updateSession.executeUpdate() != 1) {
-                throw new SessionConflictException("Session version changed concurrently");
+                throw new SessionConflictException("Session ownership or version changed concurrently");
             }
         }
 
@@ -215,6 +213,7 @@ public final class PlayerStateRepository {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT player_id,
                        owner_backend_id,
+                       owner_backend_incarnation_id,
                        state_version,
                        status,
                        lease_expires_at IS NOT NULL AND lease_expires_at > NOW() AS lease_valid
@@ -230,6 +229,7 @@ public final class PlayerStateRepository {
                 return new SessionOwner(
                         results.getObject("player_id", UUID.class),
                         results.getString("owner_backend_id"),
+                        results.getObject("owner_backend_incarnation_id", UUID.class),
                         results.getLong("state_version"),
                         SessionStatus.valueOf(results.getString("status")),
                         results.getBoolean("lease_valid")
@@ -272,6 +272,7 @@ public final class PlayerStateRepository {
     private record SessionOwner(
             UUID playerId,
             String backendId,
+            UUID backendIncarnationId,
             long stateVersion,
             SessionStatus status,
             boolean leaseValid
