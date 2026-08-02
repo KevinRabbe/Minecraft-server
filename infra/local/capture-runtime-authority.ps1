@@ -129,7 +129,51 @@ ORDER BY owner_backend_id, player_id, network_session_id
 "@ `
         "Live session authority query"
 
-    $files = @("backends.csv", "zones.csv", "live-sessions.csv") | ForEach-Object {
+    $violationsPath = Join-Path $SnapshotPath "authority-violations.csv"
+    Invoke-ReadOnlyCsv `
+        $violationsPath `
+        @"
+SELECT
+    'ZONE_INCARNATION_MISMATCH'::text AS violation_kind,
+    zone_instance.instance_id::text AS authority_id,
+    zone_instance.backend_id,
+    zone_instance.backend_incarnation_id::text AS stored_incarnation,
+    backend.incarnation_id::text AS current_incarnation,
+    ('zone status=' || zone_instance.status || ', zone_id=' || zone_instance.zone_id)::text AS detail
+FROM zone_instances zone_instance
+LEFT JOIN backends backend
+  ON backend.backend_id = zone_instance.backend_id
+WHERE zone_instance.status <> 'STOPPED'
+  AND (
+      backend.backend_id IS NULL
+      OR backend.incarnation_id IS DISTINCT FROM zone_instance.backend_incarnation_id
+  )
+UNION ALL
+SELECT
+    'VALID_SESSION_INCARNATION_MISMATCH'::text AS violation_kind,
+    session.network_session_id::text AS authority_id,
+    session.owner_backend_id AS backend_id,
+    session.owner_backend_incarnation_id::text AS stored_incarnation,
+    backend.incarnation_id::text AS current_incarnation,
+    ('session status=' || session.status || ', player_id=' || session.player_id)::text AS detail
+FROM player_sessions session
+LEFT JOIN backends backend
+  ON backend.backend_id = session.owner_backend_id
+WHERE session.status IN ('ACTIVE', 'RECOVERING', 'TRANSFERRING')
+  AND session.lease_expires_at > NOW()
+  AND (
+      session.owner_backend_id IS NULL
+      OR session.owner_backend_incarnation_id IS NULL
+      OR backend.backend_id IS NULL
+      OR backend.incarnation_id IS DISTINCT FROM session.owner_backend_incarnation_id
+  )
+ORDER BY violation_kind, backend_id, authority_id
+"@ `
+        "Runtime authority invariant query"
+
+    $violations = @(Import-Csv -Path $violationsPath)
+    $fileNames = @("backends.csv", "zones.csv", "live-sessions.csv", "authority-violations.csv")
+    $files = $fileNames | ForEach-Object {
         $path = Join-Path $SnapshotPath $_
         [ordered]@{
             path = $_
@@ -138,21 +182,27 @@ ORDER BY owner_backend_id, player_id, network_session_id
     }
 
     [ordered]@{
-        schema_version = 1
+        schema_version = 2
         label = $Label
         captured_at_utc = (Get-Date).ToUniversalTime().ToString("o")
         repository_commit = $commit
         read_only = $true
+        authority_status = if ($violations.Count -eq 0) { "NO_AUTOMATED_VIOLATIONS" } else { "VIOLATIONS_DETECTED" }
+        violation_count = $violations.Count
         files = @($files)
         interpretation = [ordered]@{
             backend = "Only the current backend incarnation may publish lifecycle writes."
-            zone = "A routeable zone must belong to the current backend incarnation."
-            session = "Every live session and durable state mutation must retain its owner backend incarnation."
+            zone = "Every non-stopped zone must belong to the current backend incarnation."
+            session = "Every unexpired live session lease must belong to the current backend incarnation. Expired transfer handoffs are intentionally not violations."
         }
     } | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 (Join-Path $SnapshotPath "manifest.json")
 
     Write-Host "Runtime authority snapshot captured: $SnapshotPath" -ForegroundColor Green
     Write-Host "Repository commit: $commit"
+    Write-Host "Automated authority violations: $($violations.Count)"
+    if ($violations.Count -gt 0) {
+        Write-Warning "Runtime incarnation authority violations were detected. Inspect authority-violations.csv; the rehearsal cannot pass while they remain unexplained."
+    }
     Write-Warning "This command is read-only and does not prove restore acceptance by itself. Compare snapshots with the observed process timeline."
 }
 catch {
