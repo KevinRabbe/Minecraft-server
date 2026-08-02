@@ -119,6 +119,30 @@ After a successful restore:
 
 The scripts and CI syntax checks do **not** by themselves prove real-machine restore correctness. The actual Windows/Docker rehearsal remains required before release.
 
+## Capture incarnation authority evidence
+
+During the issue #58 restore rehearsal, capture the durable backend/zone/session ownership graph at each important process boundary:
+
+```powershell
+.\infra\local\capture-runtime-authority.ps1 `
+  -EvidencePath .\infra\local\runtime\restore-rehearsal-evidence\<evidence-id> `
+  -Label pre-shutdown
+```
+
+Repeat with distinct labels after restart/replacement and after restore, for example:
+
+```powershell
+.\infra\local\capture-runtime-authority.ps1 `
+  -EvidencePath .\infra\local\runtime\restore-rehearsal-evidence\<evidence-id> `
+  -Label post-restart
+
+.\infra\local\capture-runtime-authority.ps1 `
+  -EvidencePath .\infra\local\runtime\restore-rehearsal-evidence\<evidence-id> `
+  -Label post-restore
+```
+
+The helper is read-only. It records CSV snapshots for backend incarnations, zone ownership, and live player-session ownership, then hashes those files into `manifest.json`. It requires a clean repository and refuses to overwrite an existing label. The snapshots must be interpreted together with the supervisor/process transcripts; they are evidence inputs, not an automatic PASS decision.
+
 ## Local topology
 
 The current `settings.ps1` development topology is:
