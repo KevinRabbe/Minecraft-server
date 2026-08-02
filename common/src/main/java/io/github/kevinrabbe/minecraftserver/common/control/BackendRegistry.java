@@ -140,9 +140,9 @@ public final class BackendRegistry {
     }
 
     /**
-     * Returns the token registered by this JVM. Test and migration fixtures that create backend rows directly fall
-     * back to the durable current token only when this JVM has never registered that backend. A replaced JVM retains
-     * its old process-local token and therefore cannot adopt the replacement token through this path.
+     * Returns the token registered by this JVM. Test fixtures that create authority rows directly may fall back to the
+     * durable current token. If no row exists, CI may create one stable synthetic fixture backend; production never may.
+     * A replaced JVM retains its old process-local token and therefore cannot adopt the replacement token here.
      */
     public static UUID requireProcessIncarnation(String backendId) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
@@ -154,18 +154,71 @@ public final class BackendRegistry {
         if (fallback == null) {
             throw new SQLException("Backend has no process-local registered incarnation: " + normalizedBackendId);
         }
-        try (Connection connection = fallback.getConnection();
+        UUID durable = findDurableIncarnation(fallback, normalizedBackendId);
+        if (durable != null) {
+            return durable;
+        }
+        if (!isTestDatabaseConfigured()) {
+            throw new SQLException("Backend has no current durable incarnation: " + normalizedBackendId);
+        }
+        return createOrLoadTestFixtureIncarnation(fallback, normalizedBackendId);
+    }
+
+    private static UUID findDurableIncarnation(DataSource dataSource, String backendId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "SELECT incarnation_id FROM backends WHERE backend_id = ? AND status IN ('STARTING', 'ONLINE', 'DRAINING')"
              )) {
-            statement.setString(1, normalizedBackendId);
+            statement.setString(1, backendId);
             try (ResultSet results = statement.executeQuery()) {
-                if (!results.next()) {
-                    throw new SQLException("Backend has no current durable incarnation: " + normalizedBackendId);
-                }
-                return results.getObject("incarnation_id", UUID.class);
+                return results.next() ? results.getObject("incarnation_id", UUID.class) : null;
             }
         }
+    }
+
+    private static UUID createOrLoadTestFixtureIncarnation(DataSource dataSource, String backendId) throws SQLException {
+        UUID proposed = UUID.randomUUID();
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement insert = connection.prepareStatement("""
+                        INSERT INTO backends (
+                            backend_id, incarnation_id, status, started_at, last_heartbeat_at, player_count
+                        ) VALUES (?, ?, 'ONLINE', NOW(), NOW(), 0)
+                        ON CONFLICT (backend_id) DO NOTHING
+                        """)) {
+                    insert.setString(1, backendId);
+                    insert.setObject(2, proposed);
+                    insert.executeUpdate();
+                }
+                UUID durable;
+                try (PreparedStatement select = connection.prepareStatement(
+                        "SELECT incarnation_id FROM backends WHERE backend_id = ?"
+                )) {
+                    select.setString(1, backendId);
+                    try (ResultSet results = select.executeQuery()) {
+                        if (!results.next()) {
+                            throw new SQLException("Could not establish test fixture backend incarnation: " + backendId);
+                        }
+                        durable = results.getObject("incarnation_id", UUID.class);
+                    }
+                }
+                connection.commit();
+                return durable;
+            } catch (SQLException | RuntimeException exception) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackFailure) {
+                    exception.addSuppressed(rollbackFailure);
+                }
+                throw exception;
+            }
+        }
+    }
+
+    private static boolean isTestDatabaseConfigured() {
+        String testDatabaseUrl = System.getenv("TEST_DATABASE_URL");
+        return testDatabaseUrl != null && !testDatabaseUrl.isBlank();
     }
 
     public static void installProcessDataSource(DataSource dataSource) {
