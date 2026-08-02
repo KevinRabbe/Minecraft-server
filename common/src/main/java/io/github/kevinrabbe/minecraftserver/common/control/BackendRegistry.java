@@ -3,6 +3,7 @@ package io.github.kevinrabbe.minecraftserver.common.control;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.Objects;
@@ -12,31 +13,22 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Shared control-plane registry for Paper backend health and capacity signals. */
 public final class BackendRegistry {
     private static final Map<String, UUID> PROCESS_INCARNATIONS = new ConcurrentHashMap<>();
+    private static volatile DataSource processDataSource;
 
     private final DataSource dataSource;
     private final Map<String, UUID> registeredIncarnations = new ConcurrentHashMap<>();
 
     public BackendRegistry(DataSource dataSource) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        installProcessDataSource(dataSource);
     }
 
-    /**
-     * Registers a backend identity for bootstrap dependencies without making it eligible for routing.
-     * The caller must explicitly publish the fully initialized backend with {@link #publishOnline(String, int)}.
-     */
     public UUID registerStarting(String backendId) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
         UUID incarnationId = UUID.randomUUID();
-
         String sql = """
-                INSERT INTO backends (
-                    backend_id,
-                    incarnation_id,
-                    status,
-                    started_at,
-                    last_heartbeat_at,
-                    player_count
-                ) VALUES (?, ?, 'STARTING', NOW(), NOW(), 0)
+                INSERT INTO backends (backend_id, incarnation_id, status, started_at, last_heartbeat_at, player_count)
+                VALUES (?, ?, 'STARTING', NOW(), NOW(), 0)
                 ON CONFLICT (backend_id) DO UPDATE SET
                     incarnation_id = EXCLUDED.incarnation_id,
                     status = 'STARTING',
@@ -44,7 +36,6 @@ public final class BackendRegistry {
                     last_heartbeat_at = NOW(),
                     player_count = 0
                 """;
-
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, normalizedBackendId);
@@ -56,22 +47,15 @@ public final class BackendRegistry {
         return incarnationId;
     }
 
-    /** Publishes a previously registered STARTING backend after initialization has completed successfully. */
     public void publishOnline(String backendId, int playerCount) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
         requirePlayerCount(playerCount);
         UUID incarnationId = requireRegisteredIncarnation(normalizedBackendId);
-
         String sql = """
                 UPDATE backends
-                SET status = 'ONLINE',
-                    last_heartbeat_at = NOW(),
-                    player_count = ?
-                WHERE backend_id = ?
-                  AND incarnation_id = ?
-                  AND status IN ('STARTING', 'ONLINE')
+                SET status = 'ONLINE', last_heartbeat_at = NOW(), player_count = ?
+                WHERE backend_id = ? AND incarnation_id = ? AND status IN ('STARTING', 'ONLINE')
                 """;
-
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, playerCount);
@@ -83,21 +67,13 @@ public final class BackendRegistry {
         }
     }
 
-    /** Compatibility path for callers that deliberately have no separate initialization phase. */
     public UUID registerOnline(String backendId, int playerCount) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
         requirePlayerCount(playerCount);
         UUID incarnationId = UUID.randomUUID();
-
         String sql = """
-                INSERT INTO backends (
-                    backend_id,
-                    incarnation_id,
-                    status,
-                    started_at,
-                    last_heartbeat_at,
-                    player_count
-                ) VALUES (?, ?, 'ONLINE', NOW(), NOW(), ?)
+                INSERT INTO backends (backend_id, incarnation_id, status, started_at, last_heartbeat_at, player_count)
+                VALUES (?, ?, 'ONLINE', NOW(), NOW(), ?)
                 ON CONFLICT (backend_id) DO UPDATE SET
                     incarnation_id = EXCLUDED.incarnation_id,
                     status = 'ONLINE',
@@ -105,7 +81,6 @@ public final class BackendRegistry {
                     last_heartbeat_at = NOW(),
                     player_count = EXCLUDED.player_count
                 """;
-
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, normalizedBackendId);
@@ -122,22 +97,17 @@ public final class BackendRegistry {
         String normalizedBackendId = requireBackendId(backendId);
         requirePlayerCount(playerCount);
         UUID incarnationId = requireRegisteredIncarnation(normalizedBackendId);
-
         String sql = """
                 UPDATE backends
                 SET last_heartbeat_at = NOW(), player_count = ?, status = 'ONLINE'
-                WHERE backend_id = ?
-                  AND incarnation_id = ?
-                  AND status IN ('ONLINE', 'DRAINING')
+                WHERE backend_id = ? AND incarnation_id = ? AND status IN ('ONLINE', 'DRAINING')
                 """;
-
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, playerCount);
             statement.setString(2, normalizedBackendId);
             statement.setObject(3, incarnationId);
-            int updated = statement.executeUpdate();
-            if (updated != 1) {
+            if (statement.executeUpdate() != 1) {
                 throw new SQLException("Backend incarnation is not heartbeat-eligible: " + normalizedBackendId);
             }
         }
@@ -156,14 +126,7 @@ public final class BackendRegistry {
     private UUID updateStatus(String backendId, BackendStatus status) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
         UUID incarnationId = requireRegisteredIncarnation(normalizedBackendId);
-
-        String sql = """
-                UPDATE backends
-                SET status = ?, last_heartbeat_at = NOW()
-                WHERE backend_id = ?
-                  AND incarnation_id = ?
-                """;
-
+        String sql = "UPDATE backends SET status = ?, last_heartbeat_at = NOW() WHERE backend_id = ? AND incarnation_id = ?";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, status.name());
@@ -176,14 +139,43 @@ public final class BackendRegistry {
         return incarnationId;
     }
 
-    /** Returns the backend incarnation registered by this JVM for downstream session and zone write fencing. */
+    /**
+     * Returns the token registered by this JVM. Test and migration fixtures that create backend rows directly fall
+     * back to the durable current token only when this JVM has never registered that backend. A replaced JVM retains
+     * its old process-local token and therefore cannot adopt the replacement token through this path.
+     */
     public static UUID requireProcessIncarnation(String backendId) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
         UUID incarnationId = PROCESS_INCARNATIONS.get(normalizedBackendId);
-        if (incarnationId == null) {
+        if (incarnationId != null) {
+            return incarnationId;
+        }
+        DataSource fallback = processDataSource;
+        if (fallback == null) {
             throw new SQLException("Backend has no process-local registered incarnation: " + normalizedBackendId);
         }
-        return incarnationId;
+        try (Connection connection = fallback.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT incarnation_id FROM backends WHERE backend_id = ? AND status IN ('STARTING', 'ONLINE', 'DRAINING')"
+             )) {
+            statement.setString(1, normalizedBackendId);
+            try (ResultSet results = statement.executeQuery()) {
+                if (!results.next()) {
+                    throw new SQLException("Backend has no current durable incarnation: " + normalizedBackendId);
+                }
+                return results.getObject("incarnation_id", UUID.class);
+            }
+        }
+    }
+
+    public static void installProcessDataSource(DataSource dataSource) {
+        processDataSource = Objects.requireNonNull(dataSource, "dataSource");
+    }
+
+    public static void clearProcessDataSource(DataSource dataSource) {
+        if (processDataSource == dataSource) {
+            processDataSource = null;
+        }
     }
 
     private UUID requireRegisteredIncarnation(String backendId) throws SQLException {
