@@ -151,21 +151,21 @@ WHERE zone_instance.status <> 'STOPPED'
 UNION ALL
 SELECT
     'VALID_SESSION_INCARNATION_MISMATCH'::text AS violation_kind,
-    session.network_session_id::text AS authority_id,
-    session.owner_backend_id AS backend_id,
-    session.owner_backend_incarnation_id::text AS stored_incarnation,
+    player_session.network_session_id::text AS authority_id,
+    player_session.owner_backend_id AS backend_id,
+    player_session.owner_backend_incarnation_id::text AS stored_incarnation,
     backend.incarnation_id::text AS current_incarnation,
-    ('session status=' || session.status || ', player_id=' || session.player_id)::text AS detail
-FROM player_sessions session
+    ('session status=' || player_session.status || ', player_id=' || player_session.player_id)::text AS detail
+FROM player_sessions player_session
 LEFT JOIN backends backend
-  ON backend.backend_id = session.owner_backend_id
-WHERE session.status IN ('ACTIVE', 'RECOVERING', 'TRANSFERRING')
-  AND session.lease_expires_at > NOW()
+  ON backend.backend_id = player_session.owner_backend_id
+WHERE player_session.status IN ('ACTIVE', 'RECOVERING', 'TRANSFERRING')
+  AND player_session.lease_expires_at > NOW()
   AND (
-      session.owner_backend_id IS NULL
-      OR session.owner_backend_incarnation_id IS NULL
+      player_session.owner_backend_id IS NULL
+      OR player_session.owner_backend_incarnation_id IS NULL
       OR backend.backend_id IS NULL
-      OR backend.incarnation_id IS DISTINCT FROM session.owner_backend_incarnation_id
+      OR backend.incarnation_id IS DISTINCT FROM player_session.owner_backend_incarnation_id
   )
 ORDER BY violation_kind, backend_id, authority_id
 "@ `
