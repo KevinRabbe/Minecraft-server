@@ -7,13 +7,20 @@ UPDATE player_sessions session
 SET owner_backend_incarnation_id = backend.incarnation_id
 FROM backends backend
 WHERE backend.backend_id = session.owner_backend_id
-  AND session.owner_backend_id IS NOT NULL;
+  AND session.owner_backend_id IS NOT NULL
+  AND session.status <> 'DISCONNECTED';
 
 CREATE FUNCTION fill_player_session_backend_incarnation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Disconnected rows are historical/integrity evidence rather than live write authority. Preserve deliberately
+    -- malformed disconnected custody so the integrity verifier can detect and report it instead of hiding it here.
+    IF NEW.status = 'DISCONNECTED' THEN
+        RETURN NEW;
+    END IF;
+
     IF NEW.owner_backend_id IS NULL THEN
         NEW.owner_backend_incarnation_id := NULL;
         RETURN NEW;
@@ -36,13 +43,16 @@ END;
 $$;
 
 CREATE TRIGGER player_sessions_fill_backend_incarnation
-BEFORE INSERT OR UPDATE OF owner_backend_id, owner_backend_incarnation_id ON player_sessions
+BEFORE INSERT OR UPDATE OF owner_backend_id, owner_backend_incarnation_id, status ON player_sessions
 FOR EACH ROW
 EXECUTE FUNCTION fill_player_session_backend_incarnation();
 
 ALTER TABLE player_sessions
     ADD CONSTRAINT player_sessions_backend_incarnation_shape_check
-    CHECK ((owner_backend_id IS NULL) = (owner_backend_incarnation_id IS NULL));
+    CHECK (
+        status = 'DISCONNECTED'
+        OR ((owner_backend_id IS NULL) = (owner_backend_incarnation_id IS NULL))
+    );
 
 CREATE FUNCTION expire_previous_backend_player_sessions()
 RETURNS TRIGGER
