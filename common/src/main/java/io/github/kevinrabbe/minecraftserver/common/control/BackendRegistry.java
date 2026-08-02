@@ -142,24 +142,36 @@ public final class BackendRegistry {
     /**
      * Returns the token registered by this JVM. Test fixtures that create authority rows directly may fall back to the
      * durable current token. If no row exists, CI may create one stable synthetic fixture backend; production never may.
-     * A replaced JVM retains its old process-local token and therefore cannot adopt the replacement token here.
+     * A replaced production JVM retains its old process-local token and therefore cannot adopt the replacement token.
      */
     public static UUID requireProcessIncarnation(String backendId) throws SQLException {
         String normalizedBackendId = requireBackendId(backendId);
-        UUID incarnationId = PROCESS_INCARNATIONS.get(normalizedBackendId);
-        if (incarnationId != null) {
-            return incarnationId;
-        }
         DataSource fallback = processDataSource;
-        if (fallback == null) {
-            throw new SQLException("Backend has no process-local registered incarnation: " + normalizedBackendId);
+        UUID processIncarnation = PROCESS_INCARNATIONS.get(normalizedBackendId);
+
+        if (!isTestDatabaseConfigured()) {
+            if (processIncarnation == null) {
+                throw new SQLException("Backend has no process-local registered incarnation: " + normalizedBackendId);
+            }
+            return processIncarnation;
         }
+
+        if (fallback == null) {
+            throw new SQLException("Backend has no process database for test incarnation resolution: " + normalizedBackendId);
+        }
+
         UUID durable = findDurableIncarnation(fallback, normalizedBackendId);
+        if (processIncarnation != null && Objects.equals(processIncarnation, durable)) {
+            return processIncarnation;
+        }
+
+        // Integration tests truncate shared tables between cases while static JVM state survives. Discard only that
+        // test-mode stale cache entry; production never executes this branch and therefore never adopts a replacement.
+        if (processIncarnation != null) {
+            PROCESS_INCARNATIONS.remove(normalizedBackendId, processIncarnation);
+        }
         if (durable != null) {
             return durable;
-        }
-        if (!isTestDatabaseConfigured()) {
-            throw new SQLException("Backend has no current durable incarnation: " + normalizedBackendId);
         }
         return createOrLoadTestFixtureIncarnation(fallback, normalizedBackendId);
     }
