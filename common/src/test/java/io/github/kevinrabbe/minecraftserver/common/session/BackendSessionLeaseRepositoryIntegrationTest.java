@@ -140,8 +140,8 @@ class BackendSessionLeaseRepositoryIntegrationTest {
 
     @Test
     void backendReplacementExpiresEverySourceLeaseButPreservesTransferHandoff() throws SQLException {
-        SessionLease active = openSession("ReplacementActive", "paper-a");
-        SessionLease transferring = openSession("ReplacementTransfer", "paper-a");
+        SessionLease active = openSession("ReplActive", "paper-a");
+        SessionLease transferring = openSession("ReplTransfer", "paper-a");
         TransferTicket ticket = sessions.beginTransfer(
                 transferring.sessionId(),
                 "paper-a",
