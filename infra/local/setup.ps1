@@ -70,8 +70,8 @@ function Get-GradleExecutable {
 
     $version = "9.1.0"
     $zip = Join-Path $Downloads "gradle-$version-bin.zip"
-    $home = Join-Path $Tools "gradle-$version"
-    $exe = Join-Path $home "bin\gradle.bat"
+    $gradleHome = Join-Path $Tools "gradle-$version"
+    $exe = Join-Path $gradleHome "bin\gradle.bat"
 
     if (-not (Test-Path $exe)) {
         New-Item -ItemType Directory -Force -Path $Downloads, $Tools | Out-Null
