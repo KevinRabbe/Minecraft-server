@@ -28,7 +28,30 @@ function Require-Command([string]$Name, [string]$Help) {
 
 function Assert-Java25 {
     Require-Command "java" "Install Java 25 and make java available on PATH."
-    $versionText = (& java -version 2>&1 | Out-String)
+
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = "java"
+    $startInfo.Arguments = "-version"
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    try {
+        [void]$process.Start()
+        $standardOutput = $process.StandardOutput.ReadToEnd()
+        $standardError = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        $versionText = ($standardOutput + $standardError).Trim()
+        if ($process.ExitCode -ne 0) {
+            throw "java -version failed with exit code $($process.ExitCode):`n$versionText"
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+
     if ($versionText -notmatch 'version "25(?:\.|\")') {
         throw "Java 25 is required. Current java reports:`n$versionText"
     }
