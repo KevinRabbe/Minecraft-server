@@ -68,7 +68,7 @@ function Get-GradleExecutable {
         return $installed.Source
     }
 
-    $version = "9.1.0"
+    $version = "9.6.1"
     $zip = Join-Path $Downloads "gradle-$version-bin.zip"
     $gradleHome = Join-Path $Tools "gradle-$version"
     $exe = Join-Path $gradleHome "bin\gradle.bat"
