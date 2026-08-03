@@ -190,6 +190,11 @@ try {
         })
     }
 
+    $powerShellEdition = "Desktop"
+    if ($PSVersionTable.ContainsKey("PSEdition")) {
+        $powerShellEdition = [string]$PSVersionTable.PSEdition
+    }
+
     [ordered]@{
         schema_version = 1
         evidence_id = $EvidenceId
@@ -206,7 +211,7 @@ try {
         }
         powershell = [ordered]@{
             version = [string]$PSVersionTable.PSVersion
-            edition = if ($PSVersionTable.ContainsKey("PSEdition")) { [string]$PSVersionTable.PSEdition } else { "Desktop" }
+            edition = $powerShellEdition
         }
         docker = [ordered]@{
             version_output = "environment/docker-version.txt"
