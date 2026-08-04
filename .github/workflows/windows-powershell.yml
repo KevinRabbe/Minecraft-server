@@ -1,0 +1,56 @@
+name: Windows PowerShell Compatibility
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows-powershell:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate operations scripts with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem -Path infra/local -Filter *.ps1 -File | Sort-Object Name | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $failed = $true
+              Write-Host "Windows PowerShell parse errors in $($_.FullName):"
+              $parseErrors | ForEach-Object {
+                Write-Host "  line $($_.Extent.StartLineNumber), column $($_.Extent.StartColumnNumber): $($_.Message)"
+              }
+            }
+          }
+          if ($failed) {
+            exit 1
+          }
+
+          $initializer = Get-Content -Raw infra/local/begin-restore-rehearsal.ps1
+          if ($initializer.Contains('System.Collections.Generic.List[object]')) {
+            throw 'Restore rehearsal evidence must use native PowerShell arrays.'
+          }
+
+          $ports = @(
+            [ordered]@{ process = 'velocity'; port = 25565; reachable = $false }
+          )
+          $ports += [ordered]@{ process = 'city-01'; port = 25566; reachable = $false }
+
+          $environment = [ordered]@{
+            schema_version = 1
+            runtime = [ordered]@{ observed_ports = $ports }
+          }
+          $roundTrip = $environment | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+          if (@($roundTrip.runtime.observed_ports).Count -ne 2) {
+            throw 'Windows PowerShell 5.1 evidence serialization lost port entries.'
+          }
