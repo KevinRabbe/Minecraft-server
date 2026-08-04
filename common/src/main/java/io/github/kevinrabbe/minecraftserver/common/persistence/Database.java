@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 
 /** Owns the process-local PostgreSQL connection pool and schema migration lifecycle. */
 public final class Database implements AutoCloseable {
+    private static final String POSTGRESQL_DRIVER = "org.postgresql.Driver";
+
     private final HikariDataSource dataSource;
 
     private Database(HikariDataSource dataSource) {
@@ -18,6 +20,7 @@ public final class Database implements AutoCloseable {
 
     public static Database open(DatabaseConfig config) {
         HikariConfig hikari = new HikariConfig();
+        hikari.setDriverClassName(POSTGRESQL_DRIVER);
         hikari.setJdbcUrl(config.jdbcUrl());
         hikari.setUsername(config.username());
         hikari.setPassword(config.password());
