@@ -44,7 +44,7 @@ jobs:
           $ports = @(
             [ordered]@{ process = 'velocity'; port = 25565; reachable = $false }
           )
-          $ports += [ordered]@{ process = 'city-01'; port = 25566; reachable = $false }
+          $ports += [ordered]@{ process = 'paper-01'; port = 25566; reachable = $false }
 
           $environment = [ordered]@{
             schema_version = 1
@@ -53,4 +53,28 @@ jobs:
           $roundTrip = $environment | ConvertTo-Json -Depth 8 | ConvertFrom-Json
           if (@($roundTrip.runtime.observed_ports).Count -ne 2) {
             throw 'Windows PowerShell 5.1 evidence serialization lost port entries.'
+          }
+
+          $setup = Get-Content -Raw infra/local/setup.ps1
+          if (-not $setup.Contains('System.Text.UTF8Encoding($false)')) {
+            throw 'Local setup must explicitly write Velocity text as UTF-8 without BOM.'
+          }
+          if (-not $setup.Contains('try = ["$initialBackendId"]')) {
+            throw 'Velocity config must use the configured initial backend.'
+          }
+          if ($setup.Contains('try = ["city-01"]')) {
+            throw 'Velocity config still contains the obsolete city-01 literal.'
+          }
+
+          $start = Get-Content -Raw infra/local/start.ps1
+          if ($start.Contains('velocityText') -or $start.Contains('Set-Content -Encoding UTF8 $velocityConfig')) {
+            throw 'start.ps1 must not mutate velocity.toml.'
+          }
+
+          $utf8Path = Join-Path $env:RUNNER_TEMP 'velocity-no-bom.toml'
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText($utf8Path, '# generated', $utf8)
+          $bytes = [System.IO.File]::ReadAllBytes($utf8Path)
+          if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+            throw 'UTF-8 no-BOM writer emitted a BOM.'
           }
