@@ -25,9 +25,13 @@ $managed = New-Object System.Collections.ArrayList
 # contained here until the local harness itself is replaced by the real instance manager.
 $velocityConfig = Join-Path $VelocityRoot "velocity.toml"
 $initialBackendId = [string]$LocalNetwork.Servers[0].Id
-$velocityText = Get-Content -Raw $velocityConfig
+$velocityText = (Get-Content -Raw $velocityConfig).TrimStart([char]0xFEFF)
 $velocityText = $velocityText -replace 'try = \["city-01"\]', "try = [`"$initialBackendId`"]"
-Set-Content -Encoding UTF8 $velocityConfig $velocityText
+[System.IO.File]::WriteAllText(
+    $velocityConfig,
+    $velocityText,
+    (New-Object System.Text.UTF8Encoding($false))
+)
 
 function Start-JavaProcess(
     [string]$Name,
