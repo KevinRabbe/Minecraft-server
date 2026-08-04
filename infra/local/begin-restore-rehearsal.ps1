@@ -176,18 +176,19 @@ try {
         }
     })
 
-    $ports = New-Object System.Collections.Generic.List[object]
-    $ports.Add([ordered]@{
-        process = "velocity"
-        port = [int]$LocalNetwork.ProxyPort
-        reachable = Test-TcpPort ([int]$LocalNetwork.ProxyPort)
-    })
+    $ports = @(
+        [ordered]@{
+            process = "velocity"
+            port = [int]$LocalNetwork.ProxyPort
+            reachable = Test-TcpPort ([int]$LocalNetwork.ProxyPort)
+        }
+    )
     foreach ($server in $LocalNetwork.Servers) {
-        $ports.Add([ordered]@{
+        $ports += [ordered]@{
             process = [string]$server.Id
             port = [int]$server.Port
             reachable = Test-TcpPort ([int]$server.Port)
-        })
+        }
     }
 
     $powerShellEdition = "Desktop"
@@ -225,7 +226,7 @@ try {
         runtime = [ordered]@{
             paper_version = [string]$LocalNetwork.PaperVersion
             velocity_version = [string]$LocalNetwork.VelocityVersion
-            observed_ports = @($ports)
+            observed_ports = $ports
         }
         qualified_sources = $sourceHashes
     } | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 (Join-Path $EvidencePath "environment.json")
