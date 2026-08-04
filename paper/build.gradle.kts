@@ -15,6 +15,36 @@ dependencies {
 
 tasks.shadowJar {
     archiveClassifier.set("")
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    mergeServiceFiles()
+}
+
+val verifyShadowRuntimeServices by tasks.registering {
+    dependsOn(tasks.shadowJar)
+
+    doLast {
+        val shadowJar = tasks.shadowJar.get().archiveFile.get().asFile
+        val entries = zipTree(shadowJar)
+        val driverClass = entries.matching {
+            include("org/postgresql/Driver.class")
+        }.files
+        check(driverClass.isNotEmpty()) {
+            "Paper shadow JAR is missing org/postgresql/Driver.class"
+        }
+
+        val serviceFiles = entries.matching {
+            include("META-INF/services/java.sql.Driver")
+        }.files
+        check(serviceFiles.size == 1) {
+            "Paper shadow JAR must contain exactly one META-INF/services/java.sql.Driver"
+        }
+        val providers = serviceFiles.single().readLines()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+        check("org.postgresql.Driver" in providers) {
+            "Paper shadow JAR JDBC service file does not register org.postgresql.Driver"
+        }
+    }
 }
 
 tasks.jar {
@@ -23,4 +53,5 @@ tasks.jar {
 
 tasks.build {
     dependsOn(tasks.shadowJar)
+    dependsOn(verifyShadowRuntimeServices)
 }
