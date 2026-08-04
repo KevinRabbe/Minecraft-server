@@ -21,18 +21,6 @@ $VelocityRoot = Join-Path $RuntimeRoot "velocity"
 $ServersRoot = Join-Path $RuntimeRoot "servers"
 $managed = New-Object System.Collections.ArrayList
 
-# setup.ps1 still carries the original M0 initial-server literal. Keep that legacy bootstrap detail
-# contained here until the local harness itself is replaced by the real instance manager.
-$velocityConfig = Join-Path $VelocityRoot "velocity.toml"
-$initialBackendId = [string]$LocalNetwork.Servers[0].Id
-$velocityText = (Get-Content -Raw $velocityConfig).TrimStart([char]0xFEFF)
-$velocityText = $velocityText -replace 'try = \["city-01"\]', "try = [`"$initialBackendId`"]"
-[System.IO.File]::WriteAllText(
-    $velocityConfig,
-    $velocityText,
-    (New-Object System.Text.UTF8Encoding($false))
-)
-
 function Start-JavaProcess(
     [string]$Name,
     [string]$Directory,
