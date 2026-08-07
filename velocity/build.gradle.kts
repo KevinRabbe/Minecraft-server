@@ -44,6 +44,20 @@ val verifyShadowRuntimeServices by tasks.registering {
         check("org.postgresql.Driver" in providers) {
             "Velocity shadow JAR JDBC service file does not register org.postgresql.Driver"
         }
+
+        val requiredMigrations = listOf(
+            "V6__unique_item_authority.sql",
+            "V64__reserve_competitive_players_across_categories.sql",
+            "V87__fence_complete_competitive_runtime_api.sql"
+        )
+        requiredMigrations.forEach { migration ->
+            val matches = entries.matching {
+                include("db/migration/$migration")
+            }.files
+            check(matches.isNotEmpty()) {
+                "Velocity shadow JAR is missing db/migration/$migration"
+            }
+        }
     }
 }
 

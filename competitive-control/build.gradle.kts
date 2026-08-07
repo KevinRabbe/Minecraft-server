@@ -22,6 +22,29 @@ tasks.shadowJar {
     mergeServiceFiles()
 }
 
+val verifyShadowRuntimePayload by tasks.registering {
+    dependsOn(tasks.shadowJar)
+
+    doLast {
+        val shadowJar = tasks.shadowJar.get().archiveFile.get().asFile
+        val entries = zipTree(shadowJar)
+
+        val requiredMigrations = listOf(
+            "V6__unique_item_authority.sql",
+            "V64__reserve_competitive_players_across_categories.sql",
+            "V87__fence_complete_competitive_runtime_api.sql"
+        )
+        requiredMigrations.forEach { migration ->
+            val matches = entries.matching {
+                include("db/migration/$migration")
+            }.files
+            check(matches.isNotEmpty()) {
+                "Competitive control shadow JAR is missing db/migration/$migration"
+            }
+        }
+    }
+}
+
 // Both projects exercise the same disposable PostgreSQL CI database and use TRUNCATE-based integration fixtures.
 // Prevent cross-project fixture races while preserving parallelism for non-database work.
 tasks.test {
@@ -30,4 +53,5 @@ tasks.test {
 
 tasks.build {
     dependsOn(tasks.shadowJar)
+    dependsOn(verifyShadowRuntimePayload)
 }
