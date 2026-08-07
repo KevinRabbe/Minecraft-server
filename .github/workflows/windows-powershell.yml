@@ -121,6 +121,12 @@ jobs:
           if (-not $setup.Contains('validate-content-topology.ps1')) {
             throw 'Local setup must validate content topology before preparing runtime files.'
           }
+          if (-not $setup.Contains('max-players=$($Server.ZoneHardCapacity)')) {
+            throw 'Paper server.properties max-players must follow the configured zone hard capacity.'
+          }
+          if ($setup.Contains('max-players=20')) {
+            throw 'Local setup still contains the obsolete fixed Paper max-players value.'
+          }
 
           $start = Get-Content -Raw infra/local/start.ps1
           if ($start.Contains('velocityText') -or $start.Contains('Set-Content -Encoding UTF8 $velocityConfig')) {
