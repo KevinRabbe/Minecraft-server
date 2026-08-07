@@ -33,6 +33,7 @@ $LocalNetwork = @{
             Zone = "starter_pve"
             ZoneTemplate = "v1"
             RequireResourceContent = $true
+            RequireBountyBossContent = $true
             ZoneSoftCapacity = 20
             ZoneHardCapacity = 25
             Port = 25568
