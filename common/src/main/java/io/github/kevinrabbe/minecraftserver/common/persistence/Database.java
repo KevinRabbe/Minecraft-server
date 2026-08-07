@@ -35,7 +35,7 @@ public final class Database implements AutoCloseable {
     }
 
     public void migrate() {
-        Flyway.configure()
+        Flyway.configure(Database.class.getClassLoader())
                 .dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .validateMigrationNaming(true)
