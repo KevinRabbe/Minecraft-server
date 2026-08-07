@@ -134,6 +134,8 @@ function Write-ServerProperties([string]$Path, [hashtable]$Server) {
 server-ip=127.0.0.1
 server-port=$($Server.Port)
 online-mode=false
+gamemode=creative
+force-gamemode=true
 motd=Local $($Server.Role) backend
 max-players=20
 spawn-protection=0
