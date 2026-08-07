@@ -15,7 +15,7 @@
     {
       "source_key": "oak_tree_001",
       "definition_id": "starter_woods.oak_tree",
-      "zone_id": "starter_woods",
+      "zone_id": "starter-woods",
       "template_version": "v1",
       "world_name": "world",
       "block_x": 12,

@@ -13,7 +13,7 @@
     },
     {
       "definition_id": "starter_woods.oak_tree",
-      "zone_id": "starter_woods",
+      "zone_id": "starter-woods",
       "template_version": "v1",
       "commodity_definition_id": "material.oak_log",
       "commodity_quantity": 1,

@@ -34,6 +34,7 @@ final class PaperArtifactDiscoveryListener implements Listener {
     private final PaperPlayerIdentityResolver playerIdentities;
     private final ArtifactRepository artifacts;
     private final PaperArtifactPlacementCatalog placements;
+    private final String logicalZoneId;
 
     PaperArtifactDiscoveryListener(
             JavaPlugin plugin,
@@ -45,11 +46,14 @@ final class PaperArtifactDiscoveryListener implements Listener {
         this.playerIdentities = Objects.requireNonNull(playerIdentities, "playerIdentities");
         this.artifacts = Objects.requireNonNull(artifacts, "artifacts");
         this.placements = Objects.requireNonNull(placements, "placements");
+        this.logicalZoneId = normalizeLogicalZoneId(System.getenv("BOOTSTRAP_ZONE_ID"));
         reconcileAllOnMainThread();
     }
 
     int registeredArtifactCount() {
-        return placements.all().size();
+        return (int) placements.all().stream()
+                .filter(placement -> belongsToLogicalZone(placement, logicalZoneId))
+                .count();
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -158,6 +162,9 @@ final class PaperArtifactDiscoveryListener implements Listener {
 
     private void reconcileAllOnMainThread() {
         for (PaperArtifactPlacementCatalog.PaperArtifactPlacement placement : placements.all()) {
+            if (!belongsToLogicalZone(placement, logicalZoneId)) {
+                continue;
+            }
             World world = plugin.getServer().getWorld(placement.worldName());
             if (world == null) {
                 throw new IllegalStateException("Configured Artifact world is not loaded: " + placement.worldName());
@@ -185,11 +192,32 @@ final class PaperArtifactDiscoveryListener implements Listener {
     }
 
     private PaperArtifactPlacementCatalog.PaperArtifactPlacement find(Block block) {
-        return placements.find(block.getWorld().getName(), block.getX(), block.getY(), block.getZ());
+        PaperArtifactPlacementCatalog.PaperArtifactPlacement placement = placements.find(
+                block.getWorld().getName(),
+                block.getX(),
+                block.getY(),
+                block.getZ()
+        );
+        return placement != null && belongsToLogicalZone(placement, logicalZoneId) ? placement : null;
     }
 
     private void protectExplosionList(List<Block> blocks) {
         blocks.removeIf(block -> find(block) != null);
+    }
+
+    static boolean belongsToLogicalZone(
+            PaperArtifactPlacementCatalog.PaperArtifactPlacement placement,
+            String logicalZoneId
+    ) {
+        Objects.requireNonNull(placement, "placement");
+        return Objects.equals(
+                normalizeLogicalZoneId(placement.logicalZoneId()),
+                normalizeLogicalZoneId(logicalZoneId)
+        );
+    }
+
+    private static String normalizeLogicalZoneId(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private void sendIfOnline(UUID minecraftUuid, String message) {

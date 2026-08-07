@@ -36,6 +36,24 @@ jobs:
             exit 1
           }
 
+          . (Resolve-Path infra/local/settings.ps1)
+          $starterWoodsServers = @($LocalNetwork.Servers | Where-Object { $_.Zone -eq 'starter-woods' })
+          if ($starterWoodsServers.Count -ne 1) {
+            throw 'Local topology must contain exactly one starter-woods rehearsal backend.'
+          }
+          $resourceCatalog = Get-Content -Raw common/src/main/resources/content/resource-sources.json | ConvertFrom-Json
+          $starterWoodsTemplates = @(
+            $resourceCatalog.sources |
+              Where-Object { $_.zone_id -eq 'starter-woods' } |
+              Select-Object -ExpandProperty template_version -Unique
+          )
+          if ($starterWoodsTemplates.Count -ne 1) {
+            throw 'Authored starter-woods resources must resolve to exactly one template version.'
+          }
+          if ([string]$starterWoodsServers[0].ZoneTemplate -ne [string]$starterWoodsTemplates[0]) {
+            throw "Local starter-woods template '$($starterWoodsServers[0].ZoneTemplate)' does not match authored resource template '$($starterWoodsTemplates[0])'."
+          }
+
           $initializer = Get-Content -Raw infra/local/begin-restore-rehearsal.ps1
           if ($initializer.Contains('System.Collections.Generic.List[object]')) {
             throw 'Restore rehearsal evidence must use native PowerShell arrays.'
