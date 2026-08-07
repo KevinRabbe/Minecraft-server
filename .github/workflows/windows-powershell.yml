@@ -36,22 +36,31 @@ jobs:
             exit 1
           }
 
-          . (Resolve-Path infra/local/settings.ps1)
-          $starterWoodsServers = @($LocalNetwork.Servers | Where-Object { $_.Zone -eq 'starter-woods' })
-          if ($starterWoodsServers.Count -ne 1) {
-            throw 'Local topology must contain exactly one starter-woods rehearsal backend.'
+          & .\infra\local\validate-content-topology.ps1
+
+          $tempSettings = Join-Path $env:RUNNER_TEMP 'settings-resource-drift.ps1'
+          $settingsText = Get-Content -Raw infra/local/settings.ps1
+          $driftedSettings = $settingsText -replace 'ZoneTemplate = "v1"', 'ZoneTemplate = "missing-resource-template"'
+          if ($driftedSettings -eq $settingsText) {
+            throw 'Could not construct the negative resource-topology fixture.'
           }
-          $resourceCatalog = Get-Content -Raw common/src/main/resources/content/resource-sources.json | ConvertFrom-Json
-          $starterWoodsTemplates = @(
-            $resourceCatalog.sources |
-              Where-Object { $_.zone_id -eq 'starter-woods' } |
-              Select-Object -ExpandProperty template_version -Unique
+          [System.IO.File]::WriteAllText(
+            $tempSettings,
+            $driftedSettings,
+            (New-Object System.Text.UTF8Encoding($false))
           )
-          if ($starterWoodsTemplates.Count -ne 1) {
-            throw 'Authored starter-woods resources must resolve to exactly one template version.'
+          $rejectedDrift = $false
+          try {
+            & .\infra\local\validate-content-topology.ps1 -SettingsPath $tempSettings | Out-Null
           }
-          if ([string]$starterWoodsServers[0].ZoneTemplate -ne [string]$starterWoodsTemplates[0]) {
-            throw "Local starter-woods template '$($starterWoodsServers[0].ZoneTemplate)' does not match authored resource template '$($starterWoodsTemplates[0])'."
+          catch {
+            if ($_.Exception.Message -notmatch 'no matching source definition exists') {
+              throw
+            }
+            $rejectedDrift = $true
+          }
+          if (-not $rejectedDrift) {
+            throw 'Local content topology validation accepted a required resource backend with a missing template.'
           }
 
           $initializer = Get-Content -Raw infra/local/begin-restore-rehearsal.ps1
@@ -82,6 +91,9 @@ jobs:
           }
           if ($setup.Contains('try = ["city-01"]')) {
             throw 'Velocity config still contains the obsolete city-01 literal.'
+          }
+          if (-not $setup.Contains('validate-content-topology.ps1')) {
+            throw 'Local setup must validate content topology before preparing runtime files.'
           }
 
           $start = Get-Content -Raw infra/local/start.ps1
