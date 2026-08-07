@@ -308,6 +308,7 @@ function Build-And-DeployPlugins {
     Copy-Item -Force $velocityPlugin.FullName (Join-Path $velocityPlugins "MinecraftServerVelocity.jar")
 }
 
+& (Join-Path $PSScriptRoot "validate-content-topology.ps1")
 Assert-Java25
 Require-Command "docker" "Install Docker Desktop; local PostgreSQL is started through Docker Compose."
 
