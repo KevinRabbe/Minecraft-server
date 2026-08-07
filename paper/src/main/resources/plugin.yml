@@ -63,8 +63,8 @@ commands:
     usage: /craft <recipe>
 permissions:
   minecraftserver.dev.route:
-    description: Allows the development logical-zone transfer command
-    default: op
+    description: Allows the development logical-zone transfer command when development tools are enabled
+    default: true
   minecraftserver.admin.integrity:
     description: Allows running bounded persistent integrity diagnostics
     default: op
