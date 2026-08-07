@@ -26,6 +26,17 @@ $LocalNetwork = @{
             ZoneHardCapacity = 25
             Port = 25567
             Memory = "768M"
+        },
+        @{
+            Id = "paper-03"
+            Role = "BOOTSTRAP"
+            Zone = "starter_pve"
+            ZoneTemplate = "v1"
+            RequireResourceContent = $true
+            ZoneSoftCapacity = 20
+            ZoneHardCapacity = 25
+            Port = 25568
+            Memory = "768M"
         }
     )
 }

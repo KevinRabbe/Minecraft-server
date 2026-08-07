@@ -151,9 +151,12 @@ The current `settings.ps1` development topology is:
 ```text
 Velocity  127.0.0.1:25565
 ├─ paper-01 / city           127.0.0.1:25566
-└─ paper-02 / starter-woods  127.0.0.1:25567
+├─ paper-02 / starter-woods  127.0.0.1:25567
+└─ paper-03 / starter_pve    127.0.0.1:25568
 PostgreSQL runs from infra/compose.
 ```
+
+`starter_pve` is present so the local network can exercise the authoritative managed-Zombie Combat-XP path and the Bounty boss runtime instead of relying on natural vanilla mobs, which intentionally carry no MMO reward authority.
 
 A backend with `RequireResourceContent = $true` opts into a fail-fast setup contract: its configured logical zone and template must select authored renewable-resource definitions, and those definitions must have matching physical block/entity placements. Backends without that flag may intentionally be resource-free. The same validator runs in Windows PowerShell CI, including a negative template-drift proof.
 
