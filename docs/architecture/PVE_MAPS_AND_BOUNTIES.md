@@ -5,7 +5,7 @@
 V1 PvE is built primarily from two reusable systems:
 
 1. **Portal/Map runs** — scalable, tradable, combinatorial PvE whose numeric difficulty measures encounter power;
-2. **Bounties** — mob-family progression that turns ordinary category kills into boss access, family materials, specialization, and Coin sinks.
+2. **Bounties** — enemy-family progression that turns eligible family hunts into boss access, family materials, specialization, and Coin sinks.
 
 Dungeons are intentionally deferred until these systems are mature.
 
@@ -270,23 +270,29 @@ Leaderboard rewards are prestige/history/cosmetic, not mandatory combat power.
 
 ## Bounty family
 
-A Bounty Family is a stable mob-category progression/economy identity, e.g.:
+A Bounty Family is a stable **enemy-ecosystem progression/economy identity**, not a one-to-one vanilla Minecraft mob category.
 
-- Spider
-- Zombie
-- Golem
+The initial V1 families are:
 
-The exact launch family list is content data; the architecture supports additional families without new transaction semantics.
+- **Rootborn**;
+- **Ashbound**;
+- **Veilborn**.
+
+Each family may contain multiple creature roles and variants, for example normal/common creatures, mobility/ambush roles, heavy/frontline roles, support/control roles, elites, and one or more bosses. Families should be mechanically distinguishable enough that learning one ecosystem does not make the others feel like simple reskins.
+
+Vanilla Minecraft entities may be modified/reused as technical bases for movement, hitbox, pathfinding, animation, or other implementation convenience. That underlying entity type is not the player-facing bounty identity. Custom models/presentation may replace the representation later without changing persistent Bounty authority.
+
+The existing Zombie T1 implementation remains development/vertical-slice fixture content that proves the generic contract, kill-progress, summon, boss, reward, and pouch authorities. It is not canonical launch content.
 
 A family groups:
 
-- eligible normal mobs/categories
-- tiers
-- contract definitions
-- boss encounter definition(s)
-- family material ladder
-- pouch eligibility
-- family-specialized equipment/recipe references
+- eligible authored creatures/variants and family tags;
+- tiers;
+- contract definitions;
+- boss encounter definition(s);
+- family material ladder;
+- pouch eligibility;
+- family-specialized equipment/recipe references.
 
 ## Bounty tier
 
@@ -294,12 +300,15 @@ A tier is one configured step within a family.
 
 A tier may define:
 
-- progression requirement/access
-- Coin contract fee
-- eligible-kill target/requirements
-- summon/boss definition
-- reward/material profile
-- encounter/boss numeric/mechanic version
+- progression requirement/access;
+- Coin contract fee;
+- eligible-hunt target/requirements;
+- eligible creature roles/variants;
+- summon/boss definition;
+- reward/material profile;
+- encounter/boss numeric/mechanic version.
+
+Higher tiers should be allowed to introduce stronger variants, new roles, new combinations, and additional mechanics rather than being constrained to HP/damage scaling alone.
 
 Exact kill counts and tier numbers are balance/content data.
 
@@ -319,19 +328,20 @@ The fee buys/activates the **contract/quest**, not a direct boss spawn.
 
 The fee operation must be idempotent. A lost response/retry cannot charge twice or create two active contracts unless the game explicitly supports multiple concurrent contracts.
 
-## Eligible category kills
+## Eligible family kills
 
-Only server-observed eligible mob kills advance a contract.
+Only server-observed kills of creatures explicitly tagged/authorized for that family/tier advance a contract.
 
 Each qualifying progression event must be uniquely attributable enough to prevent retry/double-event duplication.
 
 The architecture must support:
 
-- normal world/category mobs;
-- eligible Map mobs if configured;
-- stronger variants at higher tiers if configured.
+- authored ordinary-world family creatures;
+- eligible Map creatures if configured;
+- stronger/specialist variants at higher tiers if configured;
+- future custom-modeled creatures whose underlying Minecraft entity type is only a runtime implementation detail.
 
-Player-spawned/farmed entities must not accidentally count if the bounty definition excludes them.
+Natural vanilla entities, player-spawned/farmed entities, or unrelated mobs must not accidentally count merely because they share the same underlying Minecraft entity type with an authored family creature.
 
 ## Summon authorization
 
@@ -349,13 +359,13 @@ Boss completion is server-authoritative and settles at most once.
 
 Failure policy (e.g. authorization consumed on failed attempt) is content design; the architecture must support the chosen terminal state without duplication/refund ambiguity.
 
+Bosses belong to the family ecosystem and should express its mechanics rather than simply being a larger-stat version of one vanilla base mob.
+
 ## Tiered family materials
 
 Family materials are fungible commodities.
 
-A family may expose a ladder such as:
-
-`base material -> higher-grade material -> enchanted/advanced material -> rare high-tier component`
+A family may expose a compact ladder of physically/thematically meaningful materials from that ecosystem rather than generic numbered tokens.
 
 Exact names/tiers are content data.
 
@@ -367,23 +377,23 @@ Bounty materials intentionally connect to other systems.
 
 A specialized item may require combinations of:
 
-- normal gathered/processed resources
-- district resources
-- Map materials
-- one or more bounty-family materials
+- normal gathered/processed resources;
+- district resources;
+- Map materials;
+- one or more bounty-family materials.
 
 This encourages specialization/trade rather than forcing every player to complete every branch personally.
 
-## Category-specialized equipment
+## Family-specialized equipment
 
 Equipment may provide family-specific advantages such as:
 
-- resistance to family mechanics/debuffs
-- mobility/control suited to the family
-- category damage/armor interaction
-- specialized utility
+- resistance to family mechanics/debuffs;
+- mobility/control suited to the family;
+- family damage/armor interaction;
+- specialized utility.
 
-Avoid making one universal set strictly replace all category builds.
+Avoid making one universal set strictly replace all family builds.
 
 Higher bounty tiers can become significantly easier/possible through specialized gear, but gear remains tradeable economic output.
 
@@ -391,9 +401,9 @@ Higher bounty tiers can become significantly easier/possible through specialized
 
 Family progression may gate:
 
-- higher-tier contract access
-- family pouch capacity/QoL
-- family-specific recipe/use unlocks
+- higher-tier contract access;
+- family pouch capacity/QoL;
+- family-specific recipe/use unlocks.
 
 It should not be the sole source of raw power; equipment/build choices remain important.
 
@@ -417,7 +427,7 @@ For every terminal/interrupted state, define whether the contract remains active
 Regardless of policy:
 
 - no duplicate fee refund/charge;
-- no duplicated kill progress;
+- no duplicated hunt progress;
 - no double summon from one authorization;
 - no double boss reward;
 - recovery uses persistent state rather than trusting surviving entities.
@@ -437,6 +447,7 @@ Validate at startup where applicable:
 - modifier combinations/compatibility are valid;
 - Map difficulty/ranges are bounded;
 - bounty fees/kill counts/reward quantities are non-negative/valid;
+- eligible family creature/variant references resolve to registered authored behavior/content;
 - material definitions exist and are Bazaar-compatible where required;
 - pouch family allowlists reference valid commodities;
 - boss/run reward definitions reference known items/materials;
@@ -473,6 +484,6 @@ Architecture should support integrity checks such as:
 
 ## Expansion rule
 
-Add new environments, modifiers, objectives, enemy families, bounty families, tiers, bosses, and material definitions through the established extension/data mechanisms.
+Add new environments, modifiers, objectives, enemy families, bounty families, tiers, bosses, creature variants, and material definitions through the established extension/data mechanisms.
 
 Do not introduce a new transaction/ownership/progression architecture merely because new PvE content is added.
