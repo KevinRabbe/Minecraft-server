@@ -22,15 +22,16 @@ From the repository root:
 
 The script:
 
-1. validates every backend that declares `RequireResourceContent = $true` against the exact authored resource zone/template plus block/entity placements;
+1. validates each backend's declared authored-content requirements, including exact resource and Bounty-boss zone/template placement contracts where enabled;
 2. verifies Java 25 and Docker;
 3. downloads stable Paper `26.1.2` and stable Velocity `4.0.0` through PaperMC's downloads service;
 4. generates a random local Velocity forwarding secret;
 5. creates the currently configured loopback-only Paper backends from `settings.ps1`;
-6. boots each backend once so Paper generates its own current configuration;
-7. enables Velocity modern forwarding;
-8. builds and deploys the shared Paper/Velocity plugins;
-9. starts local PostgreSQL through Docker Compose.
+6. writes each Paper `max-players` from that backend's configured authoritative hard capacity;
+7. boots each backend once so Paper generates its own current configuration;
+8. enables Velocity modern forwarding;
+9. builds and deploys the shared Paper/Velocity plugins;
+10. starts local PostgreSQL through Docker Compose.
 
 Generated worlds, secrets, downloaded server JARs, backups and runtime data live under `infra/local/runtime/` and are intentionally ignored by Git.
 
@@ -160,7 +161,7 @@ PostgreSQL runs from infra/compose.
 
 `starter_pve` is present so the local network can exercise the authoritative managed-Zombie Combat-XP path and the Bounty boss runtime instead of relying on natural vanilla mobs, which intentionally carry no MMO reward authority.
 
-A backend with `RequireResourceContent = $true` opts into a fail-fast setup contract: its configured logical zone and template must select authored renewable-resource definitions, and those definitions must have matching physical block/entity placements. Backends without that flag may intentionally be resource-free. The same validator runs in Windows PowerShell CI, including a negative template-drift proof.
+A backend with `RequireResourceContent = $true` opts into a fail-fast setup contract: its configured logical zone and template must select authored renewable-resource definitions, and those definitions must have matching physical block/entity placements. `RequireBountyBossContent = $true` similarly requires an exact authored Bounty-boss placement whose stable boss definition is present in the loaded Bounty catalog. Backends without those flags may intentionally omit those content lanes. The same validator runs in Windows PowerShell CI, including negative resource-template and Bounty-boss-placement drift proofs.
 
 All backend ports are bound to loopback. Only Velocity is a player entry point, and for local-only testing Velocity itself is also bound to loopback.
 
