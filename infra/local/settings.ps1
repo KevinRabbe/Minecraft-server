@@ -21,6 +21,7 @@ $LocalNetwork = @{
             Role = "BOOTSTRAP"
             Zone = "starter-woods"
             ZoneTemplate = "v1"
+            RequireResourceContent = $true
             ZoneSoftCapacity = 20
             ZoneHardCapacity = 25
             Port = 25567

@@ -22,14 +22,15 @@ From the repository root:
 
 The script:
 
-1. verifies Java 25 and Docker;
-2. downloads stable Paper `26.1.2` and stable Velocity `4.0.0` through PaperMC's downloads service;
-3. generates a random local Velocity forwarding secret;
-4. creates the currently configured loopback-only Paper backends from `settings.ps1`;
-5. boots each backend once so Paper generates its own current configuration;
-6. enables Velocity modern forwarding;
-7. builds and deploys the shared Paper/Velocity plugins;
-8. starts local PostgreSQL through Docker Compose.
+1. validates every backend that declares `RequireResourceContent = $true` against the exact authored resource zone/template plus block/entity placements;
+2. verifies Java 25 and Docker;
+3. downloads stable Paper `26.1.2` and stable Velocity `4.0.0` through PaperMC's downloads service;
+4. generates a random local Velocity forwarding secret;
+5. creates the currently configured loopback-only Paper backends from `settings.ps1`;
+6. boots each backend once so Paper generates its own current configuration;
+7. enables Velocity modern forwarding;
+8. builds and deploys the shared Paper/Velocity plugins;
+9. starts local PostgreSQL through Docker Compose.
 
 Generated worlds, secrets, downloaded server JARs, backups and runtime data live under `infra/local/runtime/` and are intentionally ignored by Git.
 
@@ -153,6 +154,8 @@ Velocity  127.0.0.1:25565
 └─ paper-02 / starter-woods  127.0.0.1:25567
 PostgreSQL runs from infra/compose.
 ```
+
+A backend with `RequireResourceContent = $true` opts into a fail-fast setup contract: its configured logical zone and template must select authored renewable-resource definitions, and those definitions must have matching physical block/entity placements. Backends without that flag may intentionally be resource-free. The same validator runs in Windows PowerShell CI, including a negative template-drift proof.
 
 All backend ports are bound to loopback. Only Velocity is a player entry point, and for local-only testing Velocity itself is also bound to loopback.
 
