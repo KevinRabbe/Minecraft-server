@@ -97,20 +97,22 @@ Server-authoritative solo/group clear records store difficulty, time, Map config
 **Proof:** leaderboard state is derivable from authoritative clear records; historical pre-power-jump records remain queryable.
 
 ### M — Bounty framework
-Generic mob-category bounty families such as Spider, Zombie, and Golem. A player pays to unlock a bounty contract, completes category kill requirements, earns summon access, fights the boss, and receives category materials.
+Bounty families are original enemy ecosystems rather than one-to-one vanilla Minecraft mob categories. V1 begins with **Rootborn**, **Ashbound**, and **Veilborn**. Each family may contain multiple normal creatures, specialist/support variants, elites, and bosses while reusing modified vanilla entities or custom presentation underneath. A player pays to unlock a bounty contract, completes eligible family-hunt requirements, earns summon access, fights a family boss, and receives family materials.
 
-**Proof:** contract payment, kill progress, summon consumption, boss completion, and rewards are idempotent and crash-safe.
+The existing Zombie T1 path remains development fixture content that proves the generic authority; it is not canonical launch content.
+
+**Proof:** contract payment, hunt progress, summon consumption, boss completion, and rewards are idempotent and crash-safe.
 
 ### N — Tiered bounty materials
-Each family exposes material tiers, e.g. Web -> higher-grade Web -> Enchanted Web -> rare high-tier components. Higher bounty tiers supply higher-grade inputs.
+Each family exposes a compact material ladder whose identities fit that ecosystem rather than generic numbered tokens. Higher bounty tiers supply higher-grade inputs.
 
 All bounty materials are Bazaar-tradable. Personal completion is not required merely to own/buy/craft with a material unless a separate use requirement explicitly exists.
 
 ### O — Bounty pouches
-One dedicated pouch per bounty family stores that family's fungible materials. Capacity/QoL may improve with category progression. Pouch custody does not change market fungibility.
+One dedicated pouch per bounty family stores that family's fungible materials. Capacity/QoL may improve with family progression. Pouch custody does not change market fungibility.
 
 ### P — Specialized gear
-Equipment can specialize against bounty categories while general Map gear remains viable. Recipes cross-connect normal resources, district inputs, Map materials, and bounty materials.
+Equipment can specialize against bounty-family mechanics while general Map gear remains viable. Recipes cross-connect normal resources, district inputs, Map materials, and bounty materials.
 
 Rolled low-to-high relevant value is generally bounded around **10–30% depending on the item**. Near-perfect/perfect rolls are luxury optimization and may command extreme AH prices without being required for viability.
 
@@ -144,7 +146,7 @@ Generic project/contribution infrastructure may support explicitly defined excep
 Record actual world events: launch, major votes, feature unlocks, significant first clears, competitive records, project events where explicitly used, and other authoritative achievements. History describes what players actually did rather than authored lore pretending they did it.
 
 ### V — V1 content pass
-Populate proven systems with a deliberately narrow launch set: roughly 25–30 meaningful equipment/items, a few bounty families, compact Map content, starting skills/resources, initial expansion choices, recipes, consumables, and the minimal ranked/clan-war content already in scope.
+Populate proven systems with a deliberately narrow launch set: roughly 25–30 meaningful equipment/items, the Rootborn/Ashbound/Veilborn bounty ecosystems, compact Map content, starting skills/resources, initial expansion choices, recipes, consumables, and the minimal ranked/clan-war content already in scope.
 
 ### W — Economy simulation
 Simulate large populations, crafting volume, Bazaar/AH trading, faucets/sinks, bank interest/death loss, wealth concentration, specialization, and resource demand. Fix structural failures; tune values only enough to keep the loop plausible.
