@@ -100,6 +100,20 @@ jobs:
           if ($start.Contains('velocityText') -or $start.Contains('Set-Content -Encoding UTF8 $velocityConfig')) {
             throw 'start.ps1 must not mutate velocity.toml.'
           }
+          if (-not $start.Contains('Wait-ForBackendAuthority')) {
+            throw 'start.ps1 must wait for authoritative Paper publication before opening Velocity.'
+          }
+          if (-not $start.Contains('zi.backend_incarnation_id = b.incarnation_id')) {
+            throw 'Local readiness must bind the active zone to the current backend incarnation.'
+          }
+          if (-not $start.Contains('LEFT JOIN resource_sources')) {
+            throw 'Local readiness must observe registered resource authority for opted-in resource backends.'
+          }
+          $authorityWait = $start.IndexOf('Wait-ForBackendAuthority')
+          $velocityStart = $start.LastIndexOf('Start-JavaProcess "velocity"')
+          if ($authorityWait -lt 0 -or $velocityStart -lt 0 -or $authorityWait -gt $velocityStart) {
+            throw 'Velocity must not start before authoritative Paper readiness is checked.'
+          }
 
           $utf8Path = Join-Path $env:RUNNER_TEMP 'velocity-no-bom.toml'
           $utf8 = New-Object System.Text.UTF8Encoding($false)

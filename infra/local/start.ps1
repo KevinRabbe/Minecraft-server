@@ -7,6 +7,8 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot "settings.ps1")
 
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$ComposeRoot = Join-Path $RepoRoot "infra\compose"
 $RuntimeRoot = $LocalNetwork.RuntimeRoot
 $RestoreMarker = Join-Path $RuntimeRoot "restore.in-progress"
 $LogoutDrainSeconds = 10
@@ -84,6 +86,127 @@ function Wait-ForBackends {
     }
 }
 
+function ConvertTo-SqlLiteral([string]$Value) {
+    if ($null -eq $Value) {
+        return "NULL"
+    }
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Read-BackendAuthority([hashtable]$Server) {
+    $backendId = ConvertTo-SqlLiteral ([string]$Server.Id)
+    $zoneId = ConvertTo-SqlLiteral ([string]$Server.Zone)
+    $templateVersion = ConvertTo-SqlLiteral ([string]$Server.ZoneTemplate)
+    $query = @"
+SELECT
+    b.status || '|' ||
+    zi.status || '|' ||
+    COUNT(rs.source_id)::text
+FROM backends b
+JOIN zone_instances zi
+  ON zi.backend_id = b.backend_id
+ AND zi.backend_incarnation_id = b.incarnation_id
+LEFT JOIN resource_sources rs
+  ON rs.instance_id = zi.instance_id
+WHERE b.backend_id = $backendId
+  AND zi.zone_id = $zoneId
+  AND zi.template_version = $templateVersion
+  AND zi.status IN ('STARTING', 'ACTIVE', 'DRAINING')
+GROUP BY b.status, zi.status
+ORDER BY zi.status
+"@
+
+    Push-Location $ComposeRoot
+    try {
+        $output = (& docker compose exec -T postgres `
+            psql -X -v ON_ERROR_STOP=1 -U minecraft -d minecraft `
+            -At -c $query 2>&1 | Out-String)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ($exitCode -ne 0) {
+        throw "Backend authority query failed with exit code $exitCode. Output: $($output.Trim())"
+    }
+
+    $lines = @($output -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($lines.Count -eq 0) {
+        return $null
+    }
+    if ($lines.Count -ne 1) {
+        throw "Backend $($Server.Id) has multiple current zone authority rows for $($Server.Zone)/$($Server.ZoneTemplate): $($lines -join '; ')"
+    }
+
+    $fields = @($lines[0].Split('|'))
+    if ($fields.Count -ne 3) {
+        throw "Backend authority query returned malformed output for $($Server.Id): $($lines[0])"
+    }
+
+    $resourceCount = 0
+    if (-not [int]::TryParse($fields[2], [ref]$resourceCount)) {
+        throw "Backend authority query returned an invalid resource count for $($Server.Id): $($fields[2])"
+    }
+
+    return [ordered]@{
+        BackendStatus = [string]$fields[0]
+        ZoneStatus = [string]$fields[1]
+        ResourceSourceCount = $resourceCount
+    }
+}
+
+function Wait-ForBackendAuthority {
+    $deadline = (Get-Date).AddMinutes(2)
+    $lastObservation = "No authoritative backend publication observed yet."
+
+    while ((Get-Date) -lt $deadline) {
+        $pending = New-Object System.Collections.Generic.List[string]
+        foreach ($server in $LocalNetwork.Servers) {
+            $entry = $managed | Where-Object { $_.Name -eq $server.Id } | Select-Object -First 1
+            if ($entry -and $entry.Process.HasExited) {
+                throw "$($server.Id) exited before publishing authoritative readiness (code $($entry.Process.ExitCode))."
+            }
+
+            try {
+                $authority = Read-BackendAuthority $server
+                if ($null -eq $authority) {
+                    $pending.Add("$($server.Id): no current $($server.Zone)/$($server.ZoneTemplate) zone row")
+                    continue
+                }
+
+                if ($authority.BackendStatus -ne "ONLINE" -or $authority.ZoneStatus -ne "ACTIVE") {
+                    $pending.Add(
+                        "$($server.Id): backend=$($authority.BackendStatus), zone=$($authority.ZoneStatus)"
+                    )
+                    continue
+                }
+
+                $requireResourceContent = $false
+                if ($server.ContainsKey("RequireResourceContent")) {
+                    $requireResourceContent = [bool]$server.RequireResourceContent
+                }
+                if ($requireResourceContent -and $authority.ResourceSourceCount -lt 1) {
+                    $pending.Add("$($server.Id): required resource authority has 0 registered source rows")
+                }
+            }
+            catch {
+                $pending.Add("$($server.Id): $($_.Exception.Message)")
+            }
+        }
+
+        if ($pending.Count -eq 0) {
+            Write-Host "All Paper backends published authoritative ONLINE/ACTIVE readiness." -ForegroundColor Green
+            return
+        }
+
+        $lastObservation = $pending -join "; "
+        Start-Sleep -Milliseconds 500
+    }
+
+    throw "Timed out waiting for authoritative Paper readiness before opening Velocity. Last observation: $lastObservation"
+}
+
 function Graceful-Shutdown {
     Write-Host ""
     Write-Host "Stopping local network..."
@@ -150,8 +273,10 @@ try {
         } | Out-Null
     }
 
-    Write-Host "Waiting for Paper backends..."
+    Write-Host "Waiting for Paper backend ports..."
     Wait-ForBackends
+    Write-Host "Waiting for Paper authoritative publication..."
+    Wait-ForBackendAuthority
 
     Start-JavaProcess "velocity" $VelocityRoot "-Xms256M -Xmx512M -jar velocity.jar" @{
         PERSISTENT_HUB_ZONE_ID = $LocalNetwork.HubZone
