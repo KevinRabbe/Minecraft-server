@@ -63,6 +63,32 @@ jobs:
             throw 'Local content topology validation accepted a required resource backend with a missing template.'
           }
 
+          $tempBossPlacements = Join-Path $env:RUNNER_TEMP 'bounty-boss-placement-drift.json'
+          $bossPlacementText = Get-Content -Raw paper/src/main/resources/content/bounty-boss-placements.json
+          $driftedBossPlacements = $bossPlacementText -replace '"zone_id": "starter_pve"', '"zone_id": "missing_boss_zone"'
+          if ($driftedBossPlacements -eq $bossPlacementText) {
+            throw 'Could not construct the negative Bounty-boss topology fixture.'
+          }
+          [System.IO.File]::WriteAllText(
+            $tempBossPlacements,
+            $driftedBossPlacements,
+            (New-Object System.Text.UTF8Encoding($false))
+          )
+          $rejectedBossDrift = $false
+          try {
+            & .\infra\local\validate-content-topology.ps1 `
+              -BountyBossPlacementsPath $tempBossPlacements | Out-Null
+          }
+          catch {
+            if ($_.Exception.Message -notmatch 'no matching boss placement exists') {
+              throw
+            }
+            $rejectedBossDrift = $true
+          }
+          if (-not $rejectedBossDrift) {
+            throw 'Local content topology validation accepted a required Bounty-boss backend with no matching placement.'
+          }
+
           $initializer = Get-Content -Raw infra/local/begin-restore-rehearsal.ps1
           if ($initializer.Contains('System.Collections.Generic.List[object]')) {
             throw 'Restore rehearsal evidence must use native PowerShell arrays.'
@@ -109,7 +135,7 @@ jobs:
           if (-not $start.Contains('LEFT JOIN resource_sources')) {
             throw 'Local readiness must observe registered resource authority for opted-in resource backends.'
           }
-          $authorityWait = $start.IndexOf('Wait-ForBackendAuthority')
+          $authorityWait = $start.LastIndexOf('Wait-ForBackendAuthority')
           $velocityStart = $start.LastIndexOf('Start-JavaProcess "velocity"')
           if ($authorityWait -lt 0 -or $velocityStart -lt 0 -or $authorityWait -gt $velocityStart) {
             throw 'Velocity must not start before authoritative Paper readiness is checked.'
