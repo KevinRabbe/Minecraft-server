@@ -48,6 +48,8 @@ During development this rebuilds/deploys the plugins before startup. To start wi
 .\infra\local\start.ps1 -SkipBuild
 ```
 
+The supervisor does not open Velocity merely because the Paper TCP ports are reachable. Before starting the proxy it waits until PostgreSQL shows every configured backend as `ONLINE`, its exact configured zone/template as `ACTIVE` under the backend's current incarnation, and at least one registered `resource_sources` row for every backend that declares `RequireResourceContent = $true`. A Paper process whose plugin failed or whose required resource authority did not materialize therefore fails closed before players can enter through Velocity.
+
 Connect Minecraft to:
 
 ```text
