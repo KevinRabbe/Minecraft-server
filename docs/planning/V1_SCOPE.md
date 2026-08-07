@@ -38,7 +38,7 @@ Launch/early progression may include:
 - Refining;
 - Crafting;
 - Enchanting;
-- bounty-family progression such as Spider, Zombie, and Golem.
+- bounty-family progression for Rootborn, Ashbound, and Veilborn.
 
 Fishing is not required on Day 0 and may enter through a player-selected Fishing expansion/district.
 
@@ -173,25 +173,33 @@ Leaderboard prestige must not grant mandatory combat power.
 
 ## Bounties
 
-Bounties are the second major V1 PvE pillar and are organized by **mob category/family**, such as Spider, Zombie, and Golem.
+Bounties are the second major V1 PvE pillar and are organized by **original enemy ecosystems**, not one-to-one vanilla Minecraft mob categories.
+
+The initial V1 families are:
+
+- **Rootborn**;
+- **Ashbound**;
+- **Veilborn**.
+
+Each family can contain multiple normal creatures, specialist/support variants, elites, and boss encounters. Vanilla Minecraft entities may be heavily modified and reused as technical bases where useful, and custom models may replace their presentation later, but the player-facing identity is the original family and its creatures rather than the underlying vanilla entity type.
+
+The current Zombie T1 implementation is a development/vertical-slice fixture that proves the generic Bounty authority. It is not canonical launch content.
 
 Basic loop:
 
-`pay bounty-contract fee -> kill required mobs from that family -> earn summon access -> fight bounty boss -> receive family materials`
+`pay bounty-contract fee -> hunt eligible creatures from that family -> earn summon access -> fight a family boss -> receive family materials`
 
-The payment unlocks the bounty contract/quest; it does not directly buy a boss spawn. Exact kill requirements, fees, tiers, and boss numbers are balance/content data.
+The payment unlocks the bounty contract/quest; it does not directly buy a boss spawn. Exact kill requirements, fees, tiers, creature rosters, bosses, and numerical tuning are balance/content data.
 
 ### Tiered family materials
 
-Higher bounty tiers introduce higher-grade materials from the same family, for example:
-
-`Spider Web -> higher-grade Web -> Enchanted Web -> rare high-tier Spider component`
+Higher bounty tiers introduce higher-grade physical/material outputs from the same family. The material ladder should reflect the creature/ecosystem identity rather than generic numbered tokens.
 
 Names and exact tiers are content data. Materials remain Bazaar commodities.
 
-### Category specialization
+### Family specialization
 
-Equipment may specialize against particular bounty families. This makes dedicated Spider/Zombie/Golem loadouts valuable without forcing every player to personally farm every family.
+Equipment may specialize against particular bounty families. Rootborn, Ashbound, and Veilborn should support meaningfully different combat mechanics and therefore different useful resistances, mobility, control, damage interactions, or utility rather than three reskins of the same encounter.
 
 ### Bounty pouches
 
