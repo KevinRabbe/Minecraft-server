@@ -143,7 +143,7 @@ class StarterMapIssuanceRepositoryIntegrationTest {
                     RESTART IDENTITY CASCADE
                     """);
         }
-        insertEra("founding", 0, NOW.minusSeconds(3600));
+        insertEra("founding", 0, Instant.parse("2020-01-01T00:00:00Z"));
     }
 
     @AfterAll
@@ -161,6 +161,7 @@ class StarterMapIssuanceRepositoryIntegrationTest {
         assertEquals(1, unissued.size());
         assertEquals(kill.operationId(), unissued.getFirst().resourceKillOperationId());
         assertEquals(player.playerId(), unissued.getFirst().playerId());
+        assertEquals("founding", unissued.getFirst().worldEraId());
 
         UUID issueOperation = issueOperation(kill.operationId());
         MapRunDefinition definition = starterDefinition(kill.operationId());
