@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
 import io.github.kevinrabbe.minecraftserver.common.economy.CommodityDeliveryAuthority;
 import io.github.kevinrabbe.minecraftserver.common.economy.PveDeathLossConfig;
 import io.github.kevinrabbe.minecraftserver.common.economy.PveDeathLossConfigLoader;
@@ -33,6 +34,7 @@ import java.util.logging.Level;
 final class PaperMapRuntime {
     private static final String ROUTE_RESOURCE = "/content/map-encounter-routes.json";
     private static final String ENCOUNTER_CONTENT_RESOURCE = "/content/map-encounters.json";
+    private static final String COIN_REWARD_RESOURCE = "/content/map-coin-rewards.json";
     private static final String PVE_DEATH_LOSS_RESOURCE = "/content/pve-death-loss.json";
     private static final Duration ROUTE_HEARTBEAT_FRESHNESS = Duration.ofSeconds(15);
     private static final Duration NO_HANDOFF_GRACE = Duration.ofSeconds(30);
@@ -75,6 +77,7 @@ final class PaperMapRuntime {
                 ENCOUNTER_CONTENT_RESOURCE,
                 itemCatalog
         );
+        PaperMapCoinRewardPolicy coinRewards = PaperMapCoinRewardPolicy.loadResource(COIN_REWARD_RESOURCE);
         MapAuthorityRepository maps = new MapAuthorityRepository(dataSource, itemCatalog);
         PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, content, routes);
         MapEncounterReservationRepository reservations = new MapEncounterReservationRepository(
@@ -120,6 +123,8 @@ final class PaperMapRuntime {
                 maps,
                 settlements,
                 fulfillment,
+                new CoinWalletRepository(dataSource),
+                coinRewards,
                 releases,
                 new MapCompletedEncounterRecoveryRepository(dataSource)
         );
