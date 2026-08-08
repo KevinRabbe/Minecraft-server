@@ -17,9 +17,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Strict versioned JSON loader for renewable resource-source definitions. */
+/** Strict versioned JSON loader for renewable gathering/combat source definitions. */
 public final class ResourceSourceCatalogLoader {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     private final ObjectMapper objectMapper = JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
