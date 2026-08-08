@@ -1,6 +1,6 @@
 # V1 Scope
 
-Status: **Canonical V1 product scope.** Architecture contracts explain how these systems stay correct; `MASTER_ROADMAP.md` defines implementation order. Exact tuning belongs in configuration/playtests unless explicitly locked here.
+Status: **Canonical V1 product scope.** Architecture contracts explain how these systems stay correct; `MASTER_ROADMAP.md` defines implementation order. Detailed launch combat/Map/equipment/death mechanics are locked in [`V1_CONTENT_DETAILS.md`](V1_CONTENT_DETAILS.md). Exact tuning belongs in configuration/playtests unless explicitly locked here.
 
 ## Objective
 
@@ -72,14 +72,18 @@ Coins use integer/fixed-point authoritative accounting.
 ### Pocket/spendable money
 
 - money outside the protected bank is immediately spendable;
-- ordinary PvE death may destroy a configurable portion of pocket money;
-- exact death-loss numbers are balance/config, not architecture.
+- ordinary persistent combat death in the Rootborn, Ashbound, and Veilborn regions destroys **5%** of current pocket Coin, rounded down to the minor unit;
+- the Hub/starter Combat area, gathering-only areas, capital-M Maps, Ranked Arena, and Clan War do not use this ordinary death-loss rule;
+- lost Coin is burned through authoritative ledger evidence rather than dropped into the world;
+- managed carried items and protected Bank balance remain safe from this mechanic.
+
+The initial percentage is policy-versioned configuration, but the V1 mechanic/eligibility boundary above is locked.
 
 ### Initial Coin faucet
 
 A fresh economy starts from zero through **successful Map clears**:
 
-- the starter Combat area contains a renewable authored elite encounter that awards a low-difficulty first Map without requiring Coins, Bounty completion, a vendor purchase, or crafting;
+- the starter Combat area contains the renewable **Ruinbound Champion** elite, which awards the canonical difficulty-1 `Forgotten Bastion + Relic Guard + Extermination + no modifier` Map without requiring Coins, Bounty completion, a vendor purchase, or crafting;
 - successful Map clears award each eligible participant a bounded Coin payout in addition to normal Map rewards/successor-Map progression;
 - failed Maps do not pay the success reward;
 - exact payout and difficulty curve are balance data;
@@ -126,7 +130,7 @@ Listings use authoritative item custody/escrow. Finished equipment is not soulbo
 
 ### Direct trade / salvage
 
-Secure direct trade remains supported. NPC salvage may provide a deliberately poor guaranteed exit and, later, a controlled sink for unwanted individualized equipment.
+Secure direct trade remains supported. V1 salvage is a deliberately poor guaranteed material exit for unwanted individualized equipment: it destroys the exact item, refunds no Coin/boss components/upgrade investment, ignores roll quality/upgrade level for yield, and returns only configured ordinary/common/mid-tier recipe material families substantially below reconstruction cost.
 
 ## Crafting and individualized gear
 
@@ -140,7 +144,7 @@ Launch categories are:
 - four consumables;
 - eight gathering/logistics/QoL pieces.
 
-The exact allowlist and recipe-source graph are locked in issue #104. Recipes intentionally cross-connect ordinary resources, Map materials, and Bounty materials. Exact ingredient quantities, Crafting-XP values, and roll tuning remain balance data.
+The exact allowlist and recipe-source graph are locked in issue #104. Recipes intentionally cross-connect ordinary resources, Map materials, and Bounty materials. Exact ingredient quantities and Crafting-XP values remain balance data.
 
 Three scarce Bounty boss components are reserved for signature launch recipes rather than becoming generic ingredients:
 
@@ -150,11 +154,18 @@ Three scarce Bounty boss components are reserved for signature launch recipes ra
 
 ### Rolled items
 
-Individualized gear has persistent bounded roll quality. Depending on the item, low-to-high relevant value should generally span roughly **10–30%**. Exact distributions/ranges are per-item balance data.
+V1 keeps the intrinsic roll surface intentionally small:
 
-Most rolls should be usable. Very high and perfect rolls are luxury optimization and may command extreme Auction House prices without being required for basic viability.
+- weapons roll exactly one `damage` property in the initial `10000..12000` multiplier range;
+- wearables roll exactly one `defense` property in the initial `10000..11500` range;
+- Forester Axe, Deepvein Pick, and Harvest Sickle roll exactly one `gathering_speed` property in the initial `10000..12000` range;
+- active equipment, consumables, Prospector Lantern, Packframe, and family pouches have no intrinsic roll in V1.
 
-Intrinsic roll quality and later upgrade investment are separate concepts. Balance changes must not reroll historical item quality.
+Normalized quality remains the persistent historical state and creation uses the existing uniform `0..10000` quality distribution. Most rolls remain usable; perfect rolls are luxury optimization rather than progression requirements.
+
+Rolled V1 items use a deterministic **+0..+5** upgrade track. Each level adds 2% at the rolled-stat upgrade stage, for +10% at +5. Upgrades never reroll/destroy/downgrade the item, and fixed utility mechanics do not scale with upgrade level. Upgrade costs consume Coin plus recipe-related non-boss materials; Heartwood Core/Kilnheart/Gate Fragment are not repeat upgrade costs. Exact costs remain balance data.
+
+Intrinsic roll quality and later upgrade investment remain separate concepts. Balance changes must not reroll historical item quality.
 
 ## Portal / Map PvE
 
@@ -190,13 +201,15 @@ The canonical launch pool is deliberately compact:
 
 The Map enemy packages are not Rootborn/Ashbound/Veilborn Bounty families. The existing Forest + Spider + Extermination content remains development/proof fixture content rather than canonical launch identity.
 
+V1 Map terrain uses compact **authored templates with deterministic encounter/spawn anchors**, not procedural terrain generation. The exact environment flows, Map-package roles/technical bases, objective semantics, modifier/elite capabilities, and implementation order are locked in `V1_CONTENT_DETAILS.md`.
+
 V1 does not need separate `T1/T2/T3` copies of Map materials. Difficulty/reward policy can vary their quantity/scarcity instead.
 
 The current Paper runtime may implement the locked pool incrementally; unsupported objective/modifier mechanics are implementation work, not a reason to reopen the content identity.
 
 ### First Map acquisition and continuation
 
-A renewable authored elite encounter in the Hub's walkable starter Combat area awards a low-difficulty launch Map. The source remains available so a failed/consumed Map cannot permanently lock a player out of the system.
+The renewable **Ruinbound Champion** lives in a side watchyard near the far end of the Hub's walkable starter Combat path, before but not blocking the first Rootborn portal. A qualifying authoritative player kill issues one individualized difficulty-1 Forgotten Bastion/Relic Guard/Extermination Map with no modifier. The source remains renewable so failed/consumed Maps cannot permanently lock a player out of the system.
 
 Successful Map completion can then generate successor Maps around the cleared difficulty and produce Map materials/Coins, enabling push/farm/trade loops without requiring Dungeons at launch.
 
@@ -225,6 +238,8 @@ The initial V1 families are:
 - **Veilborn**.
 
 Each family contains multiple normal creatures, specialist/support variants, elites, and a boss identity. Vanilla Minecraft entities may be heavily modified and reused as technical bases where useful, and custom models may replace their presentation later, but the player-facing identity is the original family and its creatures rather than the underlying vanilla entity type.
+
+The exact launch technical bases and canonical combat-language/role mechanics for all three families and their bosses are locked in `V1_CONTENT_DETAILS.md`. Vanilla behavior that conflicts with those readable authored mechanics may be suppressed.
 
 The current Zombie T1 implementation is a development/vertical-slice fixture that proves the generic Bounty authority. It is not canonical launch content.
 
@@ -256,7 +271,7 @@ The initial specialized gear pairs are:
 - Ashbound: Blackglass Guard + Kilnbreaker;
 - Veilborn: Gatefinder Lens + Phase Anchor.
 
-These counter characteristic family mechanics rather than applying simple flat family-damage multipliers and remain useful outside their source family.
+These counter characteristic family mechanics rather than applying simple flat family-damage multipliers and remain useful outside their source family. The fixed launch mechanics for all 28 items are specified in `V1_CONTENT_DETAILS.md`.
 
 ### Bounty pouches
 
