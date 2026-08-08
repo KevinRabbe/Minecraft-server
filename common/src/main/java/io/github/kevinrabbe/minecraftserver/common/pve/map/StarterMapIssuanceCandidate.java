@@ -9,6 +9,7 @@ public record StarterMapIssuanceCandidate(
         UUID resourceKillOperationId,
         UUID playerId,
         String sourceDefinitionId,
+        String worldEraId,
         Instant killedAt
 ) {
     public StarterMapIssuanceCandidate {
@@ -18,6 +19,10 @@ public record StarterMapIssuanceCandidate(
             throw new IllegalArgumentException("sourceDefinitionId must not be blank");
         }
         sourceDefinitionId = sourceDefinitionId.trim();
+        if (worldEraId == null || worldEraId.isBlank()) {
+            throw new IllegalArgumentException("worldEraId must not be blank");
+        }
+        worldEraId = worldEraId.trim();
         killedAt = Objects.requireNonNull(killedAt, "killedAt");
     }
 }
