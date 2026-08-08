@@ -6,7 +6,9 @@ import io.github.kevinrabbe.minecraftserver.common.item.ItemDefinition;
 import io.github.kevinrabbe.minecraftserver.common.item.ItemIdentityKind;
 import io.github.kevinrabbe.minecraftserver.common.persistence.Database;
 import io.github.kevinrabbe.minecraftserver.common.persistence.DatabaseConfig;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillId;
 import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionCatalog;
+import io.github.kevinrabbe.minecraftserver.common.progression.SkillProgressionDefinition;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerIdentityRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.PlayerSessionRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.SessionLease;
@@ -37,6 +39,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -82,7 +85,7 @@ class StarterMapIssuanceRepositoryIntegrationTest {
                 new ItemDefinition(DROP, "FLINT", "Test Scrap", 64, ItemCategory.MATERIALS, ItemIdentityKind.COMMODITY),
                 new ItemDefinition(MAP, "MAP", "Challenge Map", 1, ItemCategory.PROGRESSION, ItemIdentityKind.INDIVIDUAL)
         ));
-        SkillProgressionCatalog skills = new SkillProgressionCatalog(List.of());
+        SkillProgressionCatalog skills = new SkillProgressionCatalog(List.of(curve(new SkillId("combat"))));
         ResourceSourceCatalog sourceCatalog = new ResourceSourceCatalog(
                 List.of(new ResourceSourceDefinition(
                         SOURCE_DEFINITION,
@@ -380,6 +383,12 @@ class StarterMapIssuanceRepositoryIntegrationTest {
             statement.setTimestamp(3, Timestamp.from(startedAt));
             statement.executeUpdate();
         }
+    }
+
+    private static SkillProgressionDefinition curve(SkillId skillId) {
+        ArrayList<Long> thresholds = new ArrayList<>();
+        for (int level = 0; level <= 100; level++) thresholds.add(level * 100L);
+        return new SkillProgressionDefinition(skillId, thresholds);
     }
 
     private static String requireEnvironment(String name) {
