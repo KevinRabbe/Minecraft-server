@@ -156,16 +156,29 @@ public final class ResourceSourceIntegrityVerifier {
                 LEFT JOIN pending_commodity_deliveries c ON c.delivery_id = f.commodity_delivery_id
                 LEFT JOIN processed_operations cop ON cop.operation_id = c.source_operation_id
                 LEFT JOIN skill_xp_awards x ON x.operation_id = f.xp_operation_id
-                WHERE c.delivery_id IS NULL
-                   OR c.player_id IS DISTINCT FROM h.player_id
-                   OR c.commodity_definition_id IS DISTINCT FROM h.commodity_definition_id
-                   OR c.quantity IS DISTINCT FROM h.commodity_quantity
-                   OR cop.operation_id IS NULL
-                   OR cop.operation_type IS DISTINCT FROM 'RESOURCE_HARVEST_COMMODITY_FULFILL'
-                   OR cop.result ->> 'delivery_id' IS DISTINCT FROM f.commodity_delivery_id::text
-                   OR cop.result ->> 'player_id' IS DISTINCT FROM h.player_id::text
-                   OR cop.result ->> 'commodity_definition_id' IS DISTINCT FROM h.commodity_definition_id
-                   OR cop.result ->> 'quantity' IS DISTINCT FROM h.commodity_quantity::text
+                WHERE (
+                        h.commodity_definition_id IS NULL
+                        AND (
+                            h.commodity_quantity IS DISTINCT FROM 0
+                            OR f.commodity_delivery_id IS NOT NULL
+                        )
+                    )
+                   OR (
+                        h.commodity_definition_id IS NOT NULL
+                        AND (
+                            f.commodity_delivery_id IS NULL
+                            OR c.delivery_id IS NULL
+                            OR c.player_id IS DISTINCT FROM h.player_id
+                            OR c.commodity_definition_id IS DISTINCT FROM h.commodity_definition_id
+                            OR c.quantity IS DISTINCT FROM h.commodity_quantity
+                            OR cop.operation_id IS NULL
+                            OR cop.operation_type IS DISTINCT FROM 'RESOURCE_HARVEST_COMMODITY_FULFILL'
+                            OR cop.result ->> 'delivery_id' IS DISTINCT FROM f.commodity_delivery_id::text
+                            OR cop.result ->> 'player_id' IS DISTINCT FROM h.player_id::text
+                            OR cop.result ->> 'commodity_definition_id' IS DISTINCT FROM h.commodity_definition_id
+                            OR cop.result ->> 'quantity' IS DISTINCT FROM h.commodity_quantity::text
+                        )
+                    )
                    OR (h.skill_id IS NULL AND f.xp_operation_id IS NOT NULL)
                    OR (h.skill_id IS NOT NULL AND (
                         f.xp_operation_id IS NULL
@@ -186,7 +199,7 @@ public final class ResourceSourceIntegrityVerifier {
                             IntegritySeverity.CRITICAL,
                             "RESOURCE_HARVEST_FULFILLMENT_EVIDENCE_MISMATCH",
                             harvestId.toString(),
-                            "Fulfilled resource harvest does not match its commodity-delivery and optional XP evidence"
+                            "Fulfilled resource harvest does not match its optional commodity-delivery and XP evidence"
                     ));
                 }
             }

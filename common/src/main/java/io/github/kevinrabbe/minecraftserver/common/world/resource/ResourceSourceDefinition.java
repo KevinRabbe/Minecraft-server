@@ -6,7 +6,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-/** Immutable content definition for one authorized renewable gathering source type. */
+/** Immutable content definition for one authorized renewable gathering/combat source type. */
 public record ResourceSourceDefinition(
         String definitionId,
         String zoneId,
@@ -27,10 +27,19 @@ public record ResourceSourceDefinition(
             throw new IllegalArgumentException("templateVersion must not be blank");
         }
         templateVersion = templateVersion.trim();
-        commodityDefinitionId = requireId(commodityDefinitionId, "commodityDefinitionId");
-        if (commodityQuantity <= 0) {
-            throw new IllegalArgumentException("commodityQuantity must be > 0");
+
+        if (commodityDefinitionId == null || commodityDefinitionId.isBlank()) {
+            commodityDefinitionId = null;
+            if (commodityQuantity != 0) {
+                throw new IllegalArgumentException("commodityQuantity must be 0 when commodityDefinitionId is absent");
+            }
+        } else {
+            commodityDefinitionId = requireId(commodityDefinitionId, "commodityDefinitionId");
+            if (commodityQuantity <= 0) {
+                throw new IllegalArgumentException("commodityQuantity must be > 0 when commodityDefinitionId is present");
+            }
         }
+
         if (skillId == null) {
             if (requestedExperience != 0) {
                 throw new IllegalArgumentException("requestedExperience must be 0 when skillId is null");
@@ -42,6 +51,10 @@ public record ResourceSourceDefinition(
         if (respawnDelay.isNegative() || respawnDelay.isZero() || respawnDelay.compareTo(MAX_RESPAWN) > 0) {
             throw new IllegalArgumentException("respawnDelay must be > 0 and <= 30 days");
         }
+    }
+
+    public boolean hasCommodityReward() {
+        return commodityDefinitionId != null;
     }
 
     private static String requireId(String value, String field) {

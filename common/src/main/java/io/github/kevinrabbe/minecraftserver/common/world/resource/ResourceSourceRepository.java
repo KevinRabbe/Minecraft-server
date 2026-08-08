@@ -22,7 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-/** PostgreSQL authority for registered renewable sources and one-cycle harvest entitlements. */
+/** PostgreSQL authority for registered renewable sources and one-cycle harvest/classification entitlements. */
 public final class ResourceSourceRepository {
     private static final String HARVEST_OPERATION = "RESOURCE_SOURCE_HARVEST";
     private static final Pattern SOURCE_KEY = Pattern.compile("[a-z0-9][a-z0-9._-]{0,95}");
@@ -90,7 +90,7 @@ public final class ResourceSourceRepository {
         }
     }
 
-    /** Consumes exactly one currently available source cycle into an immutable reward entitlement. */
+    /** Consumes exactly one currently available source cycle into an immutable entitlement. */
     public ResourceHarvestEntitlement harvest(
             UUID operationId,
             UUID sessionId,
@@ -379,7 +379,11 @@ public final class ResourceSourceRepository {
             statement.setObject(3, sourceId);
             statement.setLong(4, sourceCycleNo);
             statement.setObject(5, playerId);
-            statement.setString(6, definition.commodityDefinitionId());
+            if (definition.hasCommodityReward()) {
+                statement.setString(6, definition.commodityDefinitionId());
+            } else {
+                statement.setNull(6, java.sql.Types.VARCHAR);
+            }
             statement.setLong(7, definition.commodityQuantity());
             if (definition.skillId() == null) {
                 statement.setNull(8, java.sql.Types.VARCHAR);
@@ -455,6 +459,7 @@ public final class ResourceSourceRepository {
 
     private static ResourceHarvestEntitlement entitlementFrom(Object raw) {
         Map<String, Object> value = objectMap(raw, "entitlement");
+        String commodityDefinitionId = nullableString(value, "commodity_definition_id");
         String skillId = nullableString(value, "skill_id");
         return new ResourceHarvestEntitlement(
                 uuidValue(value, "harvest_id"),
@@ -462,7 +467,7 @@ public final class ResourceSourceRepository {
                 uuidValue(value, "source_id"),
                 longValue(value, "source_cycle_no"),
                 uuidValue(value, "player_id"),
-                stringValue(value, "commodity_definition_id"),
+                commodityDefinitionId,
                 longValue(value, "commodity_quantity"),
                 skillId == null ? null : new io.github.kevinrabbe.minecraftserver.common.progression.SkillId(skillId),
                 longValue(value, "requested_experience"),
