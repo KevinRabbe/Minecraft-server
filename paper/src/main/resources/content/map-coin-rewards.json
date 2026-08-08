@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "base_coin_minor": 100,
+  "coin_minor_per_difficulty": 5,
+  "max_coin_minor": 1000
+}
