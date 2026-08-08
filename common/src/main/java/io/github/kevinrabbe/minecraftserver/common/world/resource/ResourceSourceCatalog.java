@@ -25,11 +25,13 @@ public final class ResourceSourceCatalog {
         LinkedHashMap<String, ResourceSourceDefinition> indexed = new LinkedHashMap<>();
         for (ResourceSourceDefinition definition : definitions) {
             ResourceSourceDefinition nonNull = Objects.requireNonNull(definition, "definitions must not contain null");
-            ItemDefinition commodity = itemCatalog.require(nonNull.commodityDefinitionId());
-            if (commodity.identityKind() != ItemIdentityKind.COMMODITY) {
-                throw new IllegalArgumentException(
-                        "resource source output must be COMMODITY: " + commodity.definitionId()
-                );
+            if (nonNull.hasCommodityReward()) {
+                ItemDefinition commodity = itemCatalog.require(nonNull.commodityDefinitionId());
+                if (commodity.identityKind() != ItemIdentityKind.COMMODITY) {
+                    throw new IllegalArgumentException(
+                            "resource source output must be COMMODITY: " + commodity.definitionId()
+                    );
+                }
             }
             if (nonNull.skillId() != null) {
                 skillCatalog.require(nonNull.skillId());
