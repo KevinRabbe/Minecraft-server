@@ -23,7 +23,6 @@ import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRewardFulfillmentR
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRewardSettlementRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.StarterMapIssuanceRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRecoveryRepository;
-import io.github.kevinrabbe.minecraftserver.common.world.WorldProgressionQueryRepository;
 import org.bukkit.scheduler.BukkitTask;
 
 import javax.sql.DataSource;
@@ -111,8 +110,7 @@ final class PaperMapRuntime {
                     plugin,
                     starterMapPolicy,
                     new StarterMapIssuanceRepository(dataSource),
-                    pendingMapDeliveries,
-                    new WorldProgressionQueryRepository(dataSource)
+                    pendingMapDeliveries
             );
             starterMapIssuance.start();
         }
