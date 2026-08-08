@@ -2,10 +2,10 @@
 
 ## Purpose
 
-V1 PvE is built primarily from two reusable systems:
+V1 PvE is built primarily from two reusable but spatially distinct systems:
 
-1. **Portal/Map runs** — scalable, tradable, combinatorial PvE whose numeric difficulty measures encounter power;
-2. **Bounties** — enemy-family progression that turns eligible family hunts into boss access, family materials, specialization, and Coin sinks.
+1. **capital-M Map runs** — scalable, tradable, combinatorial instanced PvE whose numeric difficulty measures encounter power;
+2. **Bounties** — enemy-family progression layered over authored creatures living in normal persistent world regions, producing family materials, specialization, boss encounters, and Coin sinks.
 
 Dungeons are intentionally deferred until these systems are mature.
 
@@ -21,7 +21,7 @@ Dungeons are intentionally deferred until these systems are mature.
 
 ---
 
-# Part I — Portal / Map architecture
+# Part I — Map architecture
 
 ## Map item identity
 
@@ -96,7 +96,7 @@ Include where relevant:
 
 - difficulty
 - environment
-- enemy family
+- enemy package/family
 - objective
 - modifiers
 - generation seed/profile
@@ -125,57 +125,76 @@ Conceptual contract:
 - never directly mint persistent rewards;
 - emit one authoritative run-completion/failure decision.
 
-Initial objective families:
+Locked V1 objective families:
 
-- Extermination
-- Elite Hunt
-- Defense
-- Assault
+- **Extermination**;
+- **Elite Hunt**.
 
-## Environment and enemy families
+Defense and Assault are later extensions rather than launch requirements.
 
-Environments and enemy families are stable content IDs referenced by Maps/runs.
+## V1 environments and Map enemy packages
+
+Environments and Map enemy packages are stable content IDs referenced by Maps/runs.
+
+Locked V1 environments:
+
+- **Forgotten Bastion**;
+- **Flooded Depths**;
+- **Windscar Ruins**.
+
+Locked V1 Map-only enemy packages:
+
+- **Relic Guard**;
+- **Deep Brood**;
+- **Ruin Raiders**.
+
+These Map enemy identities are separate from the Rootborn/Ashbound/Veilborn Bounty families. Capital-M Maps must not silently turn those normal-world Bounty ecosystems into the default Map enemy pool.
+
+The existing Forest + Spider + Extermination implementation remains useful fixture/proof content and is not canonical launch identity.
 
 Environment definitions may supply:
 
-- template/generation profile
-- spawn geometry rules
-- objective compatibility
-- hazard rules
-- presentation references
+- template/generation profile;
+- spawn geometry rules;
+- objective compatibility;
+- hazard rules;
+- presentation references.
 
-Enemy-family definitions may supply:
+Map enemy-package definitions may supply:
 
-- spawn pool
-- elite compatibility
-- category tags (including bounty-family relevance)
-- reward/drop profile
-- behavior capability references
+- spawn pool;
+- elite compatibility;
+- category tags;
+- reward/drop profile;
+- behavior capability references.
 
-Do not tie core Map logic to hardcoded `if SPIDER` / `if FOREST` branches where data/registered behavior can express the distinction.
+Do not tie core Map logic to hardcoded entity-type branches where data/registered behavior can express the distinction.
 
 ## Modifiers
 
 Modifiers compose through explicit extension points.
 
-Examples of modifier effects:
+Locked V1 modifier pool:
 
-- enemy move/attack speed
-- health/armor/regeneration
-- healing effectiveness
-- elite weighting
-- spawn density within bounded performance limits
-- environmental pressure
+- **Fortified**;
+- **Relentless**;
+- **Swarming**.
 
 Modifier definitions include compatibility/incompatibility metadata where combinations can be invalid.
 
 Avoid arbitrary modifier code that mutates unrelated persistent state.
 
+The current Paper runtime may implement this pool incrementally; unsupported modifier-bearing runs must continue to fail closed until their runtime semantics exist.
+
 ## Elites
 
 Elite traits are reusable behavior/stat packages applied to eligible enemies.
 
-Initial traits may include examples such as Juggernaut, Assassin, Warden, Summoner, Leech, Exploder.
+Locked V1 elite-trait pool:
+
+- **Bulwark**;
+- **Hunter**;
+- **Volatile**.
 
 Higher content may combine traits if validation/performance allows. Elite composition is part of the run context when needed for reproduction/history.
 
@@ -195,12 +214,16 @@ Scaling arithmetic must be bounded/checked across the supported system range.
 
 Entity count should remain bounded enough that server performance does not become the accidental primary difficulty mechanic.
 
-## Map progression/drop generation
+## First Map acquisition and progression
 
-A successful run may create future Map items around the cleared difficulty using a configured bounded distribution.
+The renewable first-Map source is an **authored elite encounter in the Hub's directly walkable starter Combat area**.
 
 Rules:
 
+- successful completion awards a low-difficulty launch Map;
+- it requires no Bounty completion, Coin payment, vendor purchase, or crafting prerequisite;
+- the source remains available so a failed/consumed Map cannot permanently lock a player out of the system;
+- once inside the Map loop, successful runs may create future Map items around the cleared difficulty using a configured bounded distribution;
 - generated difficulty is validated within supported range;
 - progression jumps are bounded/configured;
 - each generated Map gets normal unique-item identity/provenance;
@@ -209,11 +232,19 @@ Rules:
 
 ## Map materials and rewards
 
-Map rewards may create fungible Map materials and/or individualized items/Maps.
+Locked V1 Map materials are fungible commodities:
 
-V1 should keep Map-material families compact. Exact names/tier thresholds are content decisions.
+- `material.relic_alloy` — **Relic Alloy**;
+- `material.resonant_crystal` — **Resonant Crystal**;
+- `material.waystone_shard` — **Waystone Shard**.
 
-Reward settlement uses the ordinary economic/value kernel. The Map system never edits wallet/commodity/item tables ad hoc.
+V1 does not create a separate numbered rarity/tier ladder for these materials. Difficulty/reward policy changes quantity/scarcity instead.
+
+Successful Map completion may create Map materials, individualized items/Maps, and a bounded Coin payout for eligible participants.
+
+Coin is **not** modeled as a fake Map reward item. Coin payout uses the central `CoinWalletRepository.creditFromSystem` authority with deterministic/idempotent operation identity tied to the completed run/player. Completion recovery must cover the payout so retry/restart cannot mint twice or silently omit an already-committed payout.
+
+Map item/material reward settlement continues through the ordinary economic/value kernel. The Map system never edits wallet/commodity/item tables ad hoc.
 
 ## PvE death interaction
 
@@ -256,9 +287,9 @@ Leaderboards are derived read models from clear records.
 
 Core views:
 
-- highest solo clear
-- highest group clear
-- fastest clear at selected/meaningful difficulty points
+- highest solo clear;
+- highest group clear;
+- fastest clear at selected/meaningful difficulty points.
 
 Historical era records remain queryable after stronger gear becomes available.
 
@@ -267,6 +298,20 @@ Leaderboard rewards are prestige/history/cosmetic, not mandatory combat power.
 ---
 
 # Part II — Bounty architecture
+
+## Normal-world spatial rule
+
+Bounties are **not** Bounty dungeons and are not capital-M Map instances.
+
+Rootborn, Ashbound, and Veilborn inhabit authored normal-world regional activity areas, analogous to Mining/Woodcutting/Farming regions. Players travel through the combat portal chain and encounter family creatures as part of ordinary regional traversal.
+
+Locked initial chain:
+
+`Hub / starter Combat -> Rootborn Region -> Ashbound Region -> Veilborn Region`
+
+The portal chain is player-facing geography, not a central destination selector. Players normally move through each compact region to reach its onward portal.
+
+Backend/process boundaries may align with those regional transitions, but backend identity remains infrastructure rather than gameplay identity.
 
 ## Bounty family
 
@@ -278,15 +323,15 @@ The initial V1 families are:
 - **Ashbound**;
 - **Veilborn**.
 
-Each family may contain multiple creature roles and variants, for example normal/common creatures, mobility/ambush roles, heavy/frontline roles, support/control roles, elites, and one or more bosses. Families should be mechanically distinguishable enough that learning one ecosystem does not make the others feel like simple reskins.
+Each family may contain multiple creature roles and variants, including normal/common creatures, mobility/ambush roles, heavy/frontline roles, support/control roles, elites, and a boss identity. Families should be mechanically distinguishable enough that learning one ecosystem does not make the others feel like simple reskins.
 
-Vanilla Minecraft entities may be modified/reused as technical bases for movement, hitbox, pathfinding, animation, or other implementation convenience. That underlying entity type is not the player-facing bounty identity. Custom models/presentation may replace the representation later without changing persistent Bounty authority.
+Vanilla Minecraft entities may be modified/reused as technical bases for movement, hitbox, pathfinding, animation, or other implementation convenience. That underlying entity type is not the player-facing Bounty identity. Custom models/presentation may replace the representation later without changing persistent Bounty authority.
 
-The existing Zombie T1 implementation remains development/vertical-slice fixture content that proves the generic contract, kill-progress, summon, boss, reward, and pouch authorities. It is not canonical launch content.
+The existing Zombie T1 implementation remains development/vertical-slice fixture content that proves the generic contract, kill-progress, boss authorization, reward, and pouch authorities. It is not canonical launch content.
 
 A family groups:
 
-- eligible authored creatures/variants and family tags;
+- eligible authored normal-world creatures/variants and family tags;
 - tiers;
 - contract definitions;
 - boss encounter definition(s);
@@ -298,33 +343,33 @@ A family groups:
 
 A tier is one configured step within a family.
 
+V1 uses **two tiers per family**, with four normal creature roles plus one boss identity per family across the launch envelope.
+
 A tier may define:
 
 - progression requirement/access;
 - Coin contract fee;
 - eligible-hunt target/requirements;
 - eligible creature roles/variants;
-- summon/boss definition;
+- boss authorization/encounter definition;
 - reward/material profile;
 - encounter/boss numeric/mechanic version.
 
-Higher tiers should be allowed to introduce stronger variants, new roles, new combinations, and additional mechanics rather than being constrained to HP/damage scaling alone.
+Higher tiers should introduce stronger variants, new roles, new combinations, and additional mechanics rather than being constrained to HP/damage scaling alone.
 
-Exact kill counts and tier numbers are balance/content data.
+Exact kill counts and numerical values are balance/content data.
 
 ## Contract lifecycle
 
-Conceptual lifecycle:
+Conceptually, a contract moves from available -> active hunt -> boss-ready/authorized -> boss attempt -> completed/failed/ended.
 
-`AVAILABLE -> ACTIVE_HUNT -> SUMMON_READY -> SUMMONED/CONSUMED -> COMPLETED | FAILED/ENDED`
-
-Exact state names may vary, but transitions are authoritative and versioned/idempotent where retries are possible.
+Exact state names and the player-facing boss trigger/summon presentation may vary. The persistence rule is what matters: retries must not charge twice, duplicate hunt progress, create two valid boss attempts from one authorization, or settle rewards twice.
 
 ## Contract fee
 
-Starting a bounty contract performs an explicit Coin sink transaction.
+Starting a Bounty contract performs an explicit Coin sink transaction.
 
-The fee buys/activates the **contract/quest**, not a direct boss spawn.
+The fee buys/activates the **contract/quest**, not a direct boss purchase.
 
 The fee operation must be idempotent. A lost response/retry cannot charge twice or create two active contracts unless the game explicitly supports multiple concurrent contracts.
 
@@ -337,65 +382,68 @@ Each qualifying progression event must be uniquely attributable enough to preven
 The architecture must support:
 
 - authored ordinary-world family creatures;
-- eligible Map creatures if configured;
-- stronger/specialist variants at higher tiers if configured;
+- stronger/specialist variants at higher tiers;
 - future custom-modeled creatures whose underlying Minecraft entity type is only a runtime implementation detail.
 
-Natural vanilla entities, player-spawned/farmed entities, or unrelated mobs must not accidentally count merely because they share the same underlying Minecraft entity type with an authored family creature.
+Natural vanilla entities, player-spawned/farmed entities, unrelated mobs, and capital-M Map enemy packages must not accidentally count merely because they share an underlying Minecraft entity type with an authored Bounty creature.
 
-## Summon authorization
+## Boss authorization and encounter
 
-When the configured hunt requirement is satisfied, the contract gains one or more explicit summon authorization units according to the definition.
+When the configured hunt requirement is satisfied, the contract may gain an explicit boss-encounter authorization according to the definition.
 
-V1 default should be simple: one completed contract -> one summon attempt.
+The existing implementation may represent this as summon authorization; that internal mechanism does **not** require the final player-facing content to look like a dungeon key or literal summon altar.
 
-Summon authorization is persistent value/state and must be consumed atomically with boss encounter creation so concurrent requests cannot create two valid bosses from one authorization.
+Authorization is persistent value/state and must be consumed atomically with valid boss encounter creation so concurrent requests cannot create two valid bosses from one authorization.
 
-## Boss encounter
-
-The boss live runtime may be disposable, but persistent contract/summon/result state is not.
+The boss live runtime may be disposable, but persistent contract/authorization/result state is not.
 
 Boss completion is server-authoritative and settles at most once.
 
-Failure policy (e.g. authorization consumed on failed attempt) is content design; the architecture must support the chosen terminal state without duplication/refund ambiguity.
+Failure policy is content design; the architecture must support the chosen terminal state without duplication/refund ambiguity.
 
 Bosses belong to the family ecosystem and should express its mechanics rather than simply being a larger-stat version of one vanilla base mob.
 
 ## Tiered family materials
 
-Family materials are fungible commodities.
+Locked V1 material ladders:
 
-A family may expose a compact ladder of physically/thematically meaningful materials from that ecosystem rather than generic numbered tokens.
+- **Rootborn:** Root Fiber -> Ancient Resin -> Heartwood Core;
+- **Ashbound:** Cinder Shard -> Blackglass -> Kilnheart;
+- **Veilborn:** Veil Thread -> Phaseglass -> Gate Fragment.
 
-Exact names/tiers are content data.
+The first material is broadly supplied by ordinary family encounters, the second is higher-grade Tier-2 material, and the third is a scarce boss component.
 
-All normal bounty-family materials are Bazaar-tradable unless a future explicit exception is approved. Do not soulbind them by default.
+All normal Bounty-family materials are Bazaar-tradable crafting commodities, not generic progression tokens.
 
 ## Cross-system recipes
 
 Bounty materials intentionally connect to other systems.
 
-A specialized item may require combinations of:
+The locked V1 recipe graph mixes:
 
-- normal gathered/processed resources;
-- district resources;
+- ordinary resources;
 - Map materials;
-- one or more bounty-family materials.
+- Bounty-family materials.
+
+Common family materials retain repeat demand through consumables, pouches, and selected general recipes. Boss components are deliberately limited to three signature launch recipes:
+
+- Heartwood Core -> Thornhook;
+- Kilnheart -> Kilnbreaker;
+- Gate Fragment -> Phase Anchor.
 
 This encourages specialization/trade rather than forcing every player to complete every branch personally.
 
 ## Family-specialized equipment
 
-Equipment may provide family-specific advantages such as:
+Locked specialized launch pairs:
 
-- resistance to family mechanics/debuffs;
-- mobility/control suited to the family;
-- family damage/armor interaction;
-- specialized utility.
+- **Rootborn:** Heartwood Mantle + Thornhook;
+- **Ashbound:** Blackglass Guard + Kilnbreaker;
+- **Veilborn:** Gatefinder Lens + Phase Anchor.
+
+These pieces counter characteristic family mechanics rather than applying flat family-damage multipliers and remain useful outside their source family.
 
 Avoid making one universal set strictly replace all family builds.
-
-Higher bounty tiers can become significantly easier/possible through specialized gear, but gear remains tradeable economic output.
 
 ## Bounty-family progression
 
@@ -422,13 +470,13 @@ Rules:
 
 ## Bounty failure/restart
 
-For every terminal/interrupted state, define whether the contract remains active, summon authorization remains/was consumed, or boss attempt is failed.
+For every terminal/interrupted state, define whether the contract remains active, boss authorization remains/was consumed, or boss attempt is failed.
 
 Regardless of policy:
 
 - no duplicate fee refund/charge;
 - no duplicated hunt progress;
-- no double summon from one authorization;
+- no double boss attempt from one authorization;
 - no double boss reward;
 - recovery uses persistent state rather than trusting surviving entities.
 
@@ -442,12 +490,13 @@ Map/Bounty content is version-controlled configuration with stable IDs.
 
 Validate at startup where applicable:
 
-- all environment/enemy/objective/modifier/bounty family/tier IDs are unique;
+- all environment/Map-enemy/objective/modifier/Bounty-family/tier IDs are unique;
 - all references exist;
 - modifier combinations/compatibility are valid;
 - Map difficulty/ranges are bounded;
-- bounty fees/kill counts/reward quantities are non-negative/valid;
+- Bounty fees/kill counts/reward quantities are non-negative/valid;
 - eligible family creature/variant references resolve to registered authored behavior/content;
+- Map enemy packages do not silently become Bounty progress sources;
 - material definitions exist and are Bazaar-compatible where required;
 - pouch family allowlists reference valid commodities;
 - boss/run reward definitions reference known items/materials;
@@ -458,15 +507,16 @@ Validate at startup where applicable:
 Record enough domain events/metrics to answer:
 
 - Map opens/completions/failures by difficulty/configuration;
+- Map Coin payout volume by difficulty/world era;
 - clear-time and practical-ceiling distribution;
 - Map-item generation/supply;
 - Map material creation/consumption;
-- bounty contracts started/completed/failed;
-- Coin destroyed by bounty fees;
+- Bounty contracts started/completed/failed;
+- Coin destroyed by Bounty fees;
 - family/tier material supply and Bazaar liquidity;
 - boss failure/success rates;
 - suspicious duplicate/replay patterns;
-- player specialization across bounty families.
+- player specialization across Bounty families.
 
 Analytics events do not replace correctness ledgers/state.
 
@@ -476,14 +526,15 @@ Architecture should support integrity checks such as:
 
 - no Map item opened into more than one valid run;
 - no terminal run settled twice;
+- no successful Map participant receives the same Coin payout twice;
 - no clear record references an invalid/non-completed run;
-- no bounty authorization produces more summons than configured;
+- no Bounty authorization produces more boss attempts than configured;
 - no completed boss reward settles twice;
 - pouch quantities reconcile with central commodity ownership;
-- generated Map/bounty material supply reconciles with authoritative source operations.
+- generated Map/Bounty material supply reconciles with authoritative source operations.
 
 ## Expansion rule
 
-Add new environments, modifiers, objectives, enemy families, bounty families, tiers, bosses, creature variants, and material definitions through the established extension/data mechanisms.
+Add new regions, Map environments, Map enemy packages, modifiers, objectives, Bounty families, tiers, bosses, creature variants, and material definitions through the established extension/data mechanisms.
 
 Do not introduce a new transaction/ownership/progression architecture merely because new PvE content is added.
