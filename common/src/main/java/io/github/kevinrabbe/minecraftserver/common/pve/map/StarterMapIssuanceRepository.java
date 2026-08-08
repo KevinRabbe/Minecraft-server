@@ -43,6 +43,13 @@ public final class StarterMapIssuanceRepository {
                      SELECT h.operation_id,
                             h.player_id,
                             s.definition_id,
+                            (
+                                SELECT e.era_id
+                                FROM world_eras e
+                                WHERE e.started_at <= h.created_at
+                                ORDER BY e.sequence_no DESC
+                                LIMIT 1
+                            ) AS world_era_id,
                             h.created_at
                      FROM resource_harvests h
                      JOIN resource_entity_kill_claims k
@@ -61,10 +68,18 @@ public final class StarterMapIssuanceRepository {
             try (ResultSet rows = statement.executeQuery()) {
                 ArrayList<StarterMapIssuanceCandidate> result = new ArrayList<>();
                 while (rows.next()) {
+                    String worldEraId = rows.getString("world_era_id");
+                    if (worldEraId == null || worldEraId.isBlank()) {
+                        throw new MapAuthorityException(
+                                "starter Map managed kill predates every known world era: "
+                                        + rows.getObject("operation_id", UUID.class)
+                        );
+                    }
                     result.add(new StarterMapIssuanceCandidate(
                             rows.getObject("operation_id", UUID.class),
                             rows.getObject("player_id", UUID.class),
                             rows.getString("definition_id"),
+                            worldEraId,
                             rows.getTimestamp("created_at").toInstant()
                     ));
                 }
@@ -103,12 +118,17 @@ public final class StarterMapIssuanceRepository {
                     return;
                 }
 
-                requireAuthoritativeKill(
+                KillEvidence kill = requireAuthoritativeKill(
                         connection,
                         resourceKillOperationId,
                         playerId,
                         sourceDefinition
                 );
+                if (!kill.worldEraId().equals(pending.mapProfile().runDefinition().worldEraId())) {
+                    throw new MapAuthorityException(
+                            "starter Map world era does not match authoritative kill-time era"
+                    );
+                }
                 requirePendingMap(
                         connection,
                         pending.deliveryId(),
@@ -168,7 +188,7 @@ public final class StarterMapIssuanceRepository {
         }
     }
 
-    private static void requireAuthoritativeKill(
+    private static KillEvidence requireAuthoritativeKill(
             Connection connection,
             UUID resourceKillOperationId,
             UUID expectedPlayerId,
@@ -176,7 +196,14 @@ public final class StarterMapIssuanceRepository {
     ) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT h.player_id,
-                       s.definition_id
+                       s.definition_id,
+                       (
+                           SELECT e.era_id
+                           FROM world_eras e
+                           WHERE e.started_at <= h.created_at
+                           ORDER BY e.sequence_no DESC
+                           LIMIT 1
+                       ) AS world_era_id
                 FROM resource_harvests h
                 JOIN resource_entity_kill_claims k
                   ON k.operation_id = h.operation_id
@@ -194,13 +221,18 @@ public final class StarterMapIssuanceRepository {
                 }
                 UUID playerId = row.getObject("player_id", UUID.class);
                 String sourceDefinitionId = row.getString("definition_id");
+                String worldEraId = row.getString("world_era_id");
                 if (!expectedPlayerId.equals(playerId)
                         || !expectedSourceDefinitionId.equals(sourceDefinitionId)) {
                     throw new MapAuthorityException("starter Map issuance kill identity does not match request");
                 }
+                if (worldEraId == null || worldEraId.isBlank()) {
+                    throw new MapAuthorityException("starter Map kill predates every known world era");
+                }
                 if (row.next()) {
                     throw new MapAuthorityException("starter Map kill operation resolved to multiple harvests");
                 }
+                return new KillEvidence(worldEraId);
             }
         }
     }
@@ -260,6 +292,8 @@ public final class StarterMapIssuanceRepository {
             original.addSuppressed(rollbackFailure);
         }
     }
+
+    private record KillEvidence(String worldEraId) { }
 
     private record IssuanceRow(
             UUID issueOperationId,
