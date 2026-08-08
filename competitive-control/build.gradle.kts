@@ -33,7 +33,8 @@ val verifyShadowRuntimePayload by tasks.registering {
             "V6__unique_item_authority.sql",
             "V64__reserve_competitive_players_across_categories.sql",
             "V87__fence_complete_competitive_runtime_api.sql",
-            "V88__starter_map_issuance_evidence.sql"
+            "V88__starter_map_issuance_evidence.sql",
+            "V89__allow_rewardless_resource_harvests.sql"
         )
         requiredMigrations.forEach { migration ->
             val matches = entries.matching {
