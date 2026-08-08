@@ -18,7 +18,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Recoverable deterministic fulfillment for immutable resource-harvest entitlements. */
+/** Recoverable deterministic fulfillment for immutable resource-harvest/classification entitlements. */
 public final class ResourceHarvestFulfillmentRepository {
     private static final String COMMODITY_OPERATION = "RESOURCE_HARVEST_COMMODITY_FULFILL";
     private static final String FULFILL_REASON = "resource.harvest";
@@ -38,19 +38,23 @@ public final class ResourceHarvestFulfillmentRepository {
         );
     }
 
-    /** Fulfills commodity and XP using deterministic child operation IDs. Safe after any partial crash. */
+    /** Fulfills configured commodity and XP child rewards. Rewardless authoritative cycles still receive completion evidence. */
     public ResourceHarvestFulfillmentResult fulfill(UUID harvestId) throws SQLException {
         Objects.requireNonNull(harvestId, "harvestId");
         ResourceHarvestEntitlement entitlement = loadEntitlement(harvestId);
-        UUID commodityOperationId = deterministicUuid(harvestId, "commodity-operation");
-        UUID commodityDeliveryId = deterministicUuid(harvestId, "commodity-delivery");
-        issueCommodity(
-                commodityOperationId,
-                commodityDeliveryId,
-                entitlement.playerId(),
-                entitlement.commodityDefinitionId(),
-                entitlement.commodityQuantity()
-        );
+
+        UUID commodityDeliveryId = null;
+        if (entitlement.hasCommodityReward()) {
+            UUID commodityOperationId = deterministicUuid(harvestId, "commodity-operation");
+            commodityDeliveryId = deterministicUuid(harvestId, "commodity-delivery");
+            issueCommodity(
+                    commodityOperationId,
+                    commodityDeliveryId,
+                    entitlement.playerId(),
+                    entitlement.commodityDefinitionId(),
+                    entitlement.commodityQuantity()
+            );
+        }
 
         UUID xpOperationId = null;
         SkillXpAwardResult experienceAward = null;
@@ -78,7 +82,7 @@ public final class ResourceHarvestFulfillmentRepository {
         );
     }
 
-    /** Bounded recovery scan. Rows remain here until both child authorities were fulfilled and evidence was committed. */
+    /** Bounded recovery scan. Rows remain here until configured child authorities and completion evidence settle. */
     public List<ResourceHarvestEntitlement> listUnfulfilled(int limit) throws SQLException {
         if (limit <= 0 || limit > MAX_SCAN) {
             throw new IllegalArgumentException("limit must be between 1 and " + MAX_SCAN);
@@ -284,7 +288,11 @@ public final class ResourceHarvestFulfillmentRepository {
                         RETURNING completed_at
                         """)) {
                     statement.setObject(1, entitlement.harvestId());
-                    statement.setObject(2, commodityDeliveryId);
+                    if (commodityDeliveryId == null) {
+                        statement.setNull(2, java.sql.Types.OTHER);
+                    } else {
+                        statement.setObject(2, commodityDeliveryId);
+                    }
                     if (xpOperationId == null) {
                         statement.setNull(3, java.sql.Types.OTHER);
                     } else {
@@ -398,7 +406,7 @@ public final class ResourceHarvestFulfillmentRepository {
             Instant completedAt
     ) {
         private void requireSame(UUID expectedDeliveryId, UUID expectedXpOperationId, UUID harvestId) {
-            if (!commodityDeliveryId.equals(expectedDeliveryId)
+            if (!Objects.equals(commodityDeliveryId, expectedDeliveryId)
                     || !Objects.equals(xpOperationId, expectedXpOperationId)) {
                 throw new ResourceSourceException(
                         "resource harvest fulfillment evidence changed identity: " + harvestId
