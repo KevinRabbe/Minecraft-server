@@ -13,6 +13,7 @@ import org.bukkit.entity.EntityType;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -21,7 +22,7 @@ import java.util.Objects;
 
 /** Strict Paper materialization catalog for the small set of launch Map encounter combinations. */
 final class PaperMapEncounterContentCatalog {
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
     private static final int SUPPORTED_GENERATION_VERSION = 1;
     private static final String SUPPORTED_OBJECTIVE_ID = "extermination";
 
@@ -64,7 +65,24 @@ final class PaperMapEncounterContentCatalog {
                 if (value == null) {
                     throw new IllegalStateException("encounters[" + index + "] must not be null");
                 }
-                EntityType entityType = requireEntityType(value.entityType());
+                if (value.roles() == null || value.roles().isEmpty()) {
+                    throw new IllegalStateException("encounters[" + index + "].roles must not be empty");
+                }
+                ArrayList<PaperMapEncounterRole> roles = new ArrayList<>();
+                for (int roleIndex = 0; roleIndex < value.roles().size(); roleIndex++) {
+                    RawRole rawRole = value.roles().get(roleIndex);
+                    if (rawRole == null) {
+                        throw new IllegalStateException(
+                                "encounters[" + index + "].roles[" + roleIndex + "] must not be null"
+                        );
+                    }
+                    roles.add(new PaperMapEncounterRole(
+                            rawRole.roleId(),
+                            rawRole.displayName(),
+                            requireEntityType(rawRole.entityType()),
+                            rawRole.weight()
+                    ));
+                }
                 ItemDefinition rewardMap = itemCatalog.require(value.rewardMapDefinitionId());
                 if (rewardMap.identityKind() != ItemIdentityKind.INDIVIDUAL) {
                     throw new IllegalStateException(
@@ -78,7 +96,7 @@ final class PaperMapEncounterContentCatalog {
                         value.objectiveId(),
                         value.generationVersion(),
                         value.balanceVersion(),
-                        entityType,
+                        roles,
                         value.baseKills(),
                         value.difficultyPerExtraKill(),
                         value.maxKills(),
@@ -200,6 +218,13 @@ final class PaperMapEncounterContentCatalog {
             @JsonProperty("encounters") List<RawEncounter> encounters
     ) { }
 
+    private record RawRole(
+            @JsonProperty("role_id") String roleId,
+            @JsonProperty("display_name") String displayName,
+            @JsonProperty("entity_type") String entityType,
+            @JsonProperty("weight") int weight
+    ) { }
+
     private record RawEncounter(
             @JsonProperty("encounter_id") String encounterId,
             @JsonProperty("environment_id") String environmentId,
@@ -207,7 +232,7 @@ final class PaperMapEncounterContentCatalog {
             @JsonProperty("objective_id") String objectiveId,
             @JsonProperty("generation_version") int generationVersion,
             @JsonProperty("balance_version") int balanceVersion,
-            @JsonProperty("entity_type") String entityType,
+            @JsonProperty("roles") List<RawRole> roles,
             @JsonProperty("base_kills") int baseKills,
             @JsonProperty("difficulty_per_extra_kill") int difficultyPerExtraKill,
             @JsonProperty("max_kills") int maxKills,
