@@ -9,6 +9,8 @@ V1 PvE is built primarily from two reusable but spatially distinct systems:
 
 Dungeons are intentionally deferred until these systems are mature.
 
+The exact launch encounter language, technical entity bases, authored Map-template flows, first-Map elite, modifier/elite semantics, and implementation order are locked in [`../planning/V1_CONTENT_DETAILS.md`](../planning/V1_CONTENT_DETAILS.md). This architecture document defines the durable/system boundaries those mechanics must respect.
+
 ## Shared rules
 
 - persistent valuable state lives in PostgreSQL-authoritative records;
@@ -132,6 +134,8 @@ Locked V1 objective families:
 
 Defense and Assault are later extensions rather than launch requirements.
 
+For V1, Extermination uses sequential authored objective packs and exact remaining-target progress may be shown. Elite Hunt uses bounded guard packs/gates followed by a marked elite target; completion is the authoritative elite kill. Exact mechanics are specified in `V1_CONTENT_DETAILS.md`.
+
 ## V1 environments and Map enemy packages
 
 Environments and Map enemy packages are stable content IDs referenced by Maps/runs.
@@ -151,6 +155,8 @@ Locked V1 Map-only enemy packages:
 These Map enemy identities are separate from the Rootborn/Ashbound/Veilborn Bounty families. Capital-M Maps must not silently turn those normal-world Bounty ecosystems into the default Map enemy pool.
 
 The existing Forest + Spider + Extermination implementation remains useful fixture/proof content and is not canonical launch identity.
+
+V1 terrain is **authored compact templates with deterministic encounter/spawn anchors**, not procedural terrain generation. The Map seed reproduces bounded encounter choices such as anchors, package composition, elite assignment, and supported modifier variation.
 
 Environment definitions may supply:
 
@@ -180,6 +186,12 @@ Locked V1 modifier pool:
 - **Relentless**;
 - **Swarming**.
 
+V1 semantics are fixed at the capability level:
+
+- Fortified increases visible armor/guard/knockback-resistance pressure rather than becoming a giant hidden HP multiplier;
+- Relentless reduces configured recovery/cadence and may modestly increase movement pressure, with readability floors and no bundled raw-damage multiplier;
+- Swarming increases normal-target composition/density under strict live/per-wave caps and never duplicates the objective elite merely because the modifier exists.
+
 Modifier definitions include compatibility/incompatibility metadata where combinations can be invalid.
 
 Avoid arbitrary modifier code that mutates unrelated persistent state.
@@ -192,9 +204,9 @@ Elite traits are reusable behavior/stat packages applied to eligible enemies.
 
 Locked V1 elite-trait pool:
 
-- **Bulwark**;
-- **Hunter**;
-- **Volatile**.
+- **Bulwark** — visible temporary guard with a flank/guard-break exposure window;
+- **Hunter** — marked committed pursuit/lunge whose failed commitment creates recovery;
+- **Volatile** — clearly telegraphed delayed post-death burst/hazard, never zero-delay surprise damage.
 
 Higher content may combine traits if validation/performance allows. Elite composition is part of the run context when needed for reproduction/history.
 
@@ -216,13 +228,18 @@ Entity count should remain bounded enough that server performance does not becom
 
 ## First Map acquisition and progression
 
-The renewable first-Map source is an **authored elite encounter in the Hub's directly walkable starter Combat area**.
+The renewable first-Map source is the **Ruinbound Champion** in the Hub's directly walkable starter Combat area.
 
 Rules:
 
-- successful completion awards a low-difficulty launch Map;
+- the Champion is an authored managed elite using a Husk as its initial technical base, with readable committed-cleave and linebreaker-rush mechanics;
+- its watchyard sits near the far end of the starter Combat path before, but does not block, the first Rootborn portal;
+- one qualifying authoritative player kill issues exactly one individualized bootstrap Map;
+- bootstrap profile is difficulty **1**, **Forgotten Bastion**, **Relic Guard**, **Extermination**, **no modifiers**;
+- issuance is recoverable from the authoritative managed-kill operation and retry cannot duplicate the Map;
+- the Map remains tradable after issuance;
 - it requires no Bounty completion, Coin payment, vendor purchase, or crafting prerequisite;
-- the source remains available so a failed/consumed Map cannot permanently lock a player out of the system;
+- the source remains renewable so a failed/consumed Map cannot permanently lock a player out of the system;
 - once inside the Map loop, successful runs may create future Map items around the cleared difficulty using a configured bounded distribution;
 - generated difficulty is validated within supported range;
 - progression jumps are bounded/configured;
@@ -248,11 +265,9 @@ Map item/material reward settlement continues through the ordinary economic/valu
 
 ## PvE death interaction
 
-A PvE death inside a Map may trigger the configured pocket-Coin loss mechanism through the central death/economy boundary.
+V1 Map death **does not also apply the ordinary persistent-world pocket-Coin death-loss rule**. Failing/consuming the Map run is already the Map-specific consequence, so the player is not charged a second ordinary-world death tax.
 
-The Map run does not implement a second copy of wallet logic.
-
-Protected bank Coins are unaffected by ordinary PvE pocket-loss semantics.
+The 5% pocket-Coin death-loss policy belongs only to explicitly configured deeper persistent combat regions (initially Rootborn, Ashbound, and Veilborn). Protected Bank Coin and managed carried items remain outside that loss mechanism.
 
 ## Run failure/restart
 
@@ -323,9 +338,9 @@ The initial V1 families are:
 - **Ashbound**;
 - **Veilborn**.
 
-Each family may contain multiple creature roles and variants, including normal/common creatures, mobility/ambush roles, heavy/frontline roles, support/control roles, elites, and a boss identity. Families should be mechanically distinguishable enough that learning one ecosystem does not make the others feel like simple reskins.
+Each family contains multiple creature roles and variants, including normal/common creatures, mobility/ambush roles, heavy/frontline roles, support/control roles, elites, and a boss identity. Families should be mechanically distinguishable enough that learning one ecosystem does not make the others feel like simple reskins.
 
-Vanilla Minecraft entities may be modified/reused as technical bases for movement, hitbox, pathfinding, animation, or other implementation convenience. That underlying entity type is not the player-facing Bounty identity. Custom models/presentation may replace the representation later without changing persistent Bounty authority.
+The exact V1 creature identities, technical bases, and combat-language mechanics are locked in `V1_CONTENT_DETAILS.md`. Vanilla Minecraft entities may be modified/reused as technical bases for movement, hitbox, pathfinding, animation, or other implementation convenience. Underlying entity type is not the player-facing Bounty identity, and conflicting vanilla teleport/spell/AI behavior may be suppressed to preserve readable authored mechanics. Custom models/presentation may replace representation later without changing persistent Bounty authority.
 
 The existing Zombie T1 implementation remains development/vertical-slice fixture content that proves the generic contract, kill-progress, boss authorization, reward, and pouch authorities. It is not canonical launch content.
 
@@ -399,9 +414,9 @@ The boss live runtime may be disposable, but persistent contract/authorization/r
 
 Boss completion is server-authoritative and settles at most once.
 
-Failure policy is content design; the architecture must support the chosen terminal state without duplication/refund ambiguity.
+Failure policy must be explicit at implementation/content time and remain free of duplication/refund ambiguity.
 
-Bosses belong to the family ecosystem and should express its mechanics rather than simply being a larger-stat version of one vanilla base mob.
+Bosses belong to the family ecosystem and express the locked family mechanics rather than simply being a larger-stat version of one vanilla base mob.
 
 ## Tiered family materials
 
@@ -441,7 +456,7 @@ Locked specialized launch pairs:
 - **Ashbound:** Blackglass Guard + Kilnbreaker;
 - **Veilborn:** Gatefinder Lens + Phase Anchor.
 
-These pieces counter characteristic family mechanics rather than applying flat family-damage multipliers and remain useful outside their source family.
+These pieces counter characteristic family mechanics rather than applying flat family-damage multipliers and remain useful outside their source family. Exact launch item mechanics are locked in `V1_CONTENT_DETAILS.md`.
 
 Avoid making one universal set strictly replace all family builds.
 
