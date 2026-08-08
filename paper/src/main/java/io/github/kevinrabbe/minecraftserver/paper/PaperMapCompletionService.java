@@ -1,5 +1,6 @@
 package io.github.kevinrabbe.minecraftserver.paper;
 
+import io.github.kevinrabbe.minecraftserver.common.economy.CoinWalletRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityException;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapAuthorityRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapCompletedEncounterCandidate;
@@ -14,20 +15,24 @@ import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRunStatus;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.logging.Level;
 
-/** Completes Maps and closes the durable completion -> reward -> fulfillment -> slot-release chain idempotently. */
+/** Completes Maps and closes the durable completion -> reward -> fulfillment -> Coin -> slot-release chain idempotently. */
 final class PaperMapCompletionService {
     private static final String COMPLETE_REASON = "map.extermination_complete";
+    private static final String COIN_REWARD_REASON = "map.clear_reward";
     private static final int RECOVERY_LIMIT = 50;
 
     private final MinecraftServerPlugin plugin;
     private final MapAuthorityRepository maps;
     private final MapRewardSettlementRepository settlements;
     private final MapRewardFulfillmentRepository fulfillment;
+    private final CoinWalletRepository wallets;
+    private final PaperMapCoinRewardPolicy coinRewards;
     private final MapEncounterReservationReleaseRepository releases;
     private final MapCompletedEncounterRecoveryRepository recovery;
 
@@ -36,6 +41,8 @@ final class PaperMapCompletionService {
             MapAuthorityRepository maps,
             MapRewardSettlementRepository settlements,
             MapRewardFulfillmentRepository fulfillment,
+            CoinWalletRepository wallets,
+            PaperMapCoinRewardPolicy coinRewards,
             MapEncounterReservationReleaseRepository releases,
             MapCompletedEncounterRecoveryRepository recovery
     ) {
@@ -43,6 +50,8 @@ final class PaperMapCompletionService {
         this.maps = Objects.requireNonNull(maps, "maps");
         this.settlements = Objects.requireNonNull(settlements, "settlements");
         this.fulfillment = Objects.requireNonNull(fulfillment, "fulfillment");
+        this.wallets = Objects.requireNonNull(wallets, "wallets");
+        this.coinRewards = Objects.requireNonNull(coinRewards, "coinRewards");
         this.releases = Objects.requireNonNull(releases, "releases");
         this.recovery = Objects.requireNonNull(recovery, "recovery");
     }
@@ -96,12 +105,40 @@ final class PaperMapCompletionService {
         for (MapRewardGrantSnapshot grant : settlement.grants()) {
             fulfillment.fulfill(grant.grantId());
         }
+        creditCoinRewards(runId, settlement);
         releases.releaseTerminalRun(reservationId, runId);
+    }
+
+    private void creditCoinRewards(UUID runId, MapRewardSettlementResult settlement) throws SQLException {
+        MapRunSnapshot completedRun = maps.loadRun(runId);
+        if (completedRun.status() != MapRunStatus.COMPLETED) {
+            throw new MapAuthorityException("Map Coin reward requires a completed run: " + runId);
+        }
+        long amountMinor = coinRewards.amountMinor(completedRun.definition().difficulty().value());
+        LinkedHashSet<UUID> rewardedPlayers = new LinkedHashSet<>();
+        for (MapRewardGrantSnapshot grant : settlement.grants()) {
+            if (!rewardedPlayers.add(grant.playerId())) {
+                continue;
+            }
+            wallets.creditFromSystem(
+                    deterministicOperation("coin", runId, grant.playerId()),
+                    grant.playerId(),
+                    amountMinor,
+                    COIN_REWARD_REASON
+            );
+        }
     }
 
     static UUID deterministicOperation(String action, UUID runId) {
         return UUID.nameUUIDFromBytes(
                 ("minecraft-server:map:" + action + ":" + runId).getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    static UUID deterministicOperation(String action, UUID runId, UUID playerId) {
+        return UUID.nameUUIDFromBytes(
+                ("minecraft-server:map:" + action + ":" + runId + ":" + playerId)
+                        .getBytes(StandardCharsets.UTF_8)
         );
     }
 }
