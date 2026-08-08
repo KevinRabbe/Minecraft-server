@@ -2,7 +2,11 @@ package io.github.kevinrabbe.minecraftserver.paper;
 
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapDifficulty;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRunDefinition;
-import org.bukkit.entity.EntityType;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.SplittableRandom;
 
 /** One version-controlled Paper materialization/reward policy for a compatible Map run definition. */
 record PaperMapEncounterDefinition(
@@ -12,7 +16,7 @@ record PaperMapEncounterDefinition(
         String objectiveId,
         int generationVersion,
         int balanceVersion,
-        EntityType entityType,
+        List<PaperMapEncounterRole> roles,
         int baseKills,
         int difficultyPerExtraKill,
         int maxKills,
@@ -36,8 +40,21 @@ record PaperMapEncounterDefinition(
         if (balanceVersion < 1) {
             throw new IllegalArgumentException("balanceVersion must be >= 1");
         }
-        if (entityType == null || !entityType.isAlive()) {
-            throw new IllegalArgumentException("entityType must be a living entity type");
+        roles = List.copyOf(Objects.requireNonNull(roles, "roles"));
+        if (roles.isEmpty() || roles.size() > 16) {
+            throw new IllegalArgumentException("roles must contain between 1 and 16 entries");
+        }
+        HashSet<String> roleIds = new HashSet<>();
+        int totalWeight = 0;
+        for (PaperMapEncounterRole role : roles) {
+            Objects.requireNonNull(role, "role");
+            if (!roleIds.add(role.roleId())) {
+                throw new IllegalArgumentException("duplicate Map encounter role_id: " + role.roleId());
+            }
+            totalWeight = Math.addExact(totalWeight, role.weight());
+        }
+        if (totalWeight > 10_000) {
+            throw new IllegalArgumentException("Map encounter role weight total must be <= 10000");
         }
         if (baseKills < 1 || maxKills < baseKills || maxKills > 64) {
             throw new IllegalArgumentException("kill bounds must satisfy 1 <= baseKills <= maxKills <= 64");
@@ -68,6 +85,22 @@ record PaperMapEncounterDefinition(
                 && objectiveId.equals(definition.objectiveId())
                 && generationVersion == definition.generationVersion()
                 && balanceVersion == definition.balanceVersion();
+    }
+
+    PaperMapEncounterRole selectRole(SplittableRandom random) {
+        Objects.requireNonNull(random, "random");
+        int totalWeight = 0;
+        for (PaperMapEncounterRole role : roles) {
+            totalWeight += role.weight();
+        }
+        int selected = random.nextInt(totalWeight);
+        for (PaperMapEncounterRole role : roles) {
+            if (selected < role.weight()) {
+                return role;
+            }
+            selected -= role.weight();
+        }
+        throw new IllegalStateException("Map encounter role selection escaped bounded weight total");
     }
 
     int requiredKills(int difficulty) {
