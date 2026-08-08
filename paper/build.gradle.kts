@@ -32,7 +32,6 @@ val verifyShadowRuntimeServices by tasks.registering {
         check(driverClass.isNotEmpty()) {
             "Paper shadow JAR is missing org/postgresql/Driver.class"
         }
-
         val serviceFiles = entries.matching {
             include("META-INF/services/java.sql.Driver")
         }.files
@@ -49,7 +48,8 @@ val verifyShadowRuntimeServices by tasks.registering {
         val requiredMigrations = listOf(
             "V6__unique_item_authority.sql",
             "V64__reserve_competitive_players_across_categories.sql",
-            "V87__fence_complete_competitive_runtime_api.sql"
+            "V87__fence_complete_competitive_runtime_api.sql",
+            "V88__starter_map_issuance_evidence.sql"
         )
         requiredMigrations.forEach { migration ->
             val matches = entries.matching {
