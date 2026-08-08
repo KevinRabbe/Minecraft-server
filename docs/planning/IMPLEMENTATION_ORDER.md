@@ -2,23 +2,24 @@
 
 Status: **V1 vertical implementation active.** The architecture-alignment gate is established for the implemented authorities. Continue outward from proven systems; do not reopen or rebuild settled contracts merely because the milestone list below is chronological.
 
-See [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) for the complete milestone map.
+See [`MASTER_ROADMAP.md`](MASTER_ROADMAP.md) for the complete milestone map and [`V1_CONTENT_DETAILS.md`](V1_CONTENT_DETAILS.md) for the locked launch combat/Map/equipment/death mechanics.
 
 ## Current implementation checkpoint — 2026-08-08
 
 The active branch has moved materially beyond the original architecture-only checkpoint:
 
 - economy/value Paper surfaces are live for Bank Manager, Bazaar, Auction House, secure direct trade, salvage, personal crafting, and crafting commissions;
-- individualized gear now has definition-owned normalized roll profiles, deterministic intrinsic roll resolution, strict crafting/profile ownership, validated runtime stat snapshots, derived lore, Auction House roll/upgrade inspection, conservative lower-bound rendering before exact authority refresh, fail-closed intrinsic-damage materialization on join/post-delivery, append-only upgrade evidence plus integrity reconciliation, and a replay-/concurrency-safe carried-item upgrade authority that atomically advances serialized player-state authority version and exact item `state_version`/`upgrade_level` under the owning session; exact upgrade economics/progression/power remain intentionally unresolved rather than guessed;
+- individualized gear now has definition-owned normalized roll profiles, deterministic intrinsic roll resolution, strict crafting/profile ownership, validated runtime stat snapshots, derived lore, Auction House roll/upgrade inspection, conservative lower-bound rendering before exact authority refresh, fail-closed intrinsic-damage materialization on join/post-delivery, append-only upgrade evidence plus integrity reconciliation, and a replay-/concurrency-safe carried-item upgrade authority that atomically advances serialized player-state authority version and exact item `state_version`/`upgrade_level` under the owning session; the V1 roll surface and +0..+5 deterministic progression are now locked while exact upgrade material/Coin quantities remain tuning;
 - item definitions now also support explicit skill-based use/equip requirements that remain separate from ownership/crafting/trade: missing skill rows project as level 0, relevant skill levels can be loaded in one bounded read, eligibility returns exact unmet requirements, bundled item requirements cross-validate against the skill catalog, equipment lore and Auction House inspection expose static requirements, and a bounded reconnect-fenced Paper eligibility projection now refreshes asynchronously on player lifecycle only when the catalog contains a real requirement; action-level enforcement remains dormant until launch content opts real items into requirements;
 - persistent MMO clans expose membership/roles/roster, network-wide bounded clan chat, a shared concurrency-safe configurable member cap (bundled `100` remains provisional tuning), treasury, shared commodity/unique-item storage, and player-facing Clan-War rating/history/leaderboard read models; clan member-count authority is reconciled by the global integrity verifier;
 - starter gathering and ordinary managed PvE feed authoritative commodity/XP progression; the development Zombie Bounty fixture has contract, kill-progress, boss-authorization/boss, reward, and pouch gameplay bridges;
 - capital-M Maps now have individualized persistent Map identity, exact open consumption, disposable-instance reservation/handoff, auto-pinned transfer evidence, managed Forest/Spider Extermination fixture gameplay, exactly-once successor-Map rewards, persisted return routing, abandoned/completed recovery, `/map open`, and Persistent-MMO Map leaderboards;
-- the canonical first-Map route is now locked: a renewable authored elite in the Hub's walkable starter Combat area awards a low-difficulty launch Map without a Coin/Bounty/vendor/crafting prerequisite; successful Maps then continue the successor-Map loop;
-- the launch Map content identities are locked to Forgotten Bastion / Flooded Depths / Windscar Ruins, Relic Guard / Deep Brood / Ruin Raiders, Extermination + Elite Hunt, Fortified / Relentless / Swarming, Bulwark / Hunter / Volatile, and Relic Alloy / Resonant Crystal / Waystone Shard; current Paper runtime support must be extended incrementally and fail closed for unsupported combinations;
+- the canonical first-Map route is now locked to the renewable **Ruinbound Champion** in the Hub's walkable starter Combat area, issuing a difficulty-1 Forgotten Bastion + Relic Guard + Extermination Map with no modifier from an exactly-once managed player kill;
+- the launch Map content identities are locked to Forgotten Bastion / Flooded Depths / Windscar Ruins, Relic Guard / Deep Brood / Ruin Raiders, Extermination + Elite Hunt, Fortified / Relentless / Swarming, Bulwark / Hunter / Volatile, and Relic Alloy / Resonant Crystal / Waystone Shard; the authored-template flows, package technical bases/roles and capability implementation order are locked in `V1_CONTENT_DETAILS.md`;
 - successful Map clears are the initial player-facing Coin faucet. Coin payout must use `CoinWalletRepository.creditFromSystem` with deterministic run/player operation identity and remain inside completed-Map recovery before terminal reservation release;
-- Bounties are normal-world regional activity ecosystems, not dungeon/Map instances. Canonical launch families are Rootborn, Ashbound, and Veilborn, arranged initially as the combat portal chain `Hub / starter Combat -> Rootborn Region -> Ashbound Region -> Veilborn Region`;
-- the launch item allowlist is locked at 28 meaningful items, including family-specialized gear, artifacts/active equipment, consumables, gathering/logistics equipment and family pouches; their source-material relationships are locked while exact quantities/rolls/XP remain tuning data;
+- Bounties are normal-world regional activity ecosystems, not dungeon/Map instances. Canonical launch families are Rootborn, Ashbound, and Veilborn, arranged initially as the combat portal chain `Hub / starter Combat -> Rootborn Region -> Ashbound Region -> Veilborn Region`; their ordinary-creature/boss technical bases and readable role mechanics are locked in `V1_CONTENT_DETAILS.md`;
+- the launch item allowlist is locked at 28 meaningful items, including family-specialized gear, artifacts/active equipment, consumables, gathering/logistics equipment and family pouches; source-material relationships and item mechanics/roll assignments are locked while exact recipe quantities/XP/upgrade costs/salvage quantities remain tuning data;
+- ordinary persistent combat death is locked to a 5% pocket-Coin sink in Rootborn/Ashbound/Veilborn regions only; Bank balance/items stay safe and the Hub/starter Combat, gathering areas, Maps and competitive instances are excluded;
 - player-directed expansion voting already has authoritative schedule/open/ballot/resolve, feature/world-era consequences, historical evidence, a bounded player read projection, and `/vote` ballot access. The initial candidate pool is locked to Deeper Woodcutting Region vs Deeper Mining Region vs Deeper Farming Region;
 - the normal-world layout is compact: a small starter civic core with essential NPCs/services and walkable starter Combat/Woodcutting/Mining/Farming spaces feeds spatial portal chains. Player-built districts consume the actual Minecraft blocks builders place rather than a duplicate abstract project-material deposit;
 - Ranked Arena has end-to-end isolated 1.8.9 dispatch/routing/admission, a config-driven disposable symmetric 1v1 arena and standardized temporary kit, materialization-gated combat/lease renewal, disconnect pause/no-show recovery, bounded no-winner timeout, and death -> exactly-once result/rating settlement;
@@ -32,7 +33,7 @@ Treat this checkpoint as the execution state, while the numbered sections below 
 
 Before more feature code:
 
-1. `V1_SCOPE.md`, `MASTER_ROADMAP.md`, `OPEN_DECISIONS.md`, design laws, and acceptance criteria must agree;
+1. `V1_SCOPE.md`, `V1_CONTENT_DETAILS.md`, `MASTER_ROADMAP.md`, `OPEN_DECISIONS.md`, design laws, and acceptance criteria must agree;
 2. previously locked V1 systems must not disappear merely because a newer roadmap omitted them;
 3. newly settled systems must not remain marked Deferred/Open in older documents;
 4. balance examples must not become architectural requirements;
@@ -93,11 +94,13 @@ Do not rebuild these merely to match milestone lettering. Extend them only where
 
 1. generic recipe transaction authority;
 2. persistent normalized roll quality for individualized gear;
-3. roughly 10–30% configured low-to-high relevant value spread per item family;
-4. upgrade-state separation from intrinsic roll quality;
-5. generic skill/XP framework;
-6. active cap 50 with tested future transitions to 75 and 100;
-7. Mining/Crafting first vertical slice, then other launch skills.
+3. V1 rolled property surface limited to `damage`, `defense`, and `gathering_speed`, exactly one property per rolled item;
+4. initial V1 ranges and item/property assignments from `V1_CONTENT_DETAILS.md`;
+5. deterministic +0..+5 upgrades, +2% rolled-stat stage per level, no reroll/failure/destruction;
+6. upgrade-state separation from intrinsic roll quality;
+7. generic skill/XP framework;
+8. active cap 50 with tested future transitions to 75 and 100;
+9. Mining/Crafting first vertical slice, then other launch skills.
 
 ## 5 — Starter gameplay/world bridge
 
@@ -105,9 +108,11 @@ Do not rebuild these merely to match milestone lettering. Extend them only where
 2. directly walkable starter Woodcutting/Mining/Farming/Combat spaces inside the Hub region;
 3. spatial portal-chain hooks from those starter activities to later compact regions rather than a central destination-selector lobby;
 4. authorized renewable gathering/mob sources;
-5. live gameplay -> persistent commodity/XP transaction bridge;
-6. dynamic per-zone replication only where concurrent demand requires it;
-7. ordinary player-built districts use the actual placed Minecraft blocks as their construction material cost; do not add duplicate abstract build deposits.
+5. implement the Ruinbound Champion as the starter-Combat managed elite/first-Map source;
+6. live gameplay -> persistent commodity/XP/first-Map transaction bridge;
+7. dynamic per-zone replication only where concurrent demand requires it;
+8. ordinary player-built districts use the actual placed Minecraft blocks as their construction material cost; do not add duplicate abstract build deposits;
+9. enable the 5% ordinary pocket-Coin death-loss policy only for explicitly configured deeper normal-world combat regions, not the Hub/starter Combat/gathering/Map/competitive surfaces.
 
 ## 6 — capital-M Map PvE
 
@@ -115,15 +120,16 @@ Do not rebuild these merely to match milestone lettering. Extend them only where
 2. unique tradable Map object;
 3. Map-open consumption and one-run creation;
 4. configurable numeric difficulty independent of player level;
-5. renewable first Map from an authored starter-Combat elite, then local successor-Map progression;
-6. V1 environments: Forgotten Bastion, Flooded Depths, Windscar Ruins;
+5. renewable first Map: difficulty 1 / Forgotten Bastion / Relic Guard / Extermination / no modifier;
+6. authored V1 environments: Forgotten Bastion, Flooded Depths, Windscar Ruins;
 7. V1 Map-only enemy packages: Relic Guard, Deep Brood, Ruin Raiders;
 8. V1 objectives: Extermination and Elite Hunt;
 9. V1 modifiers: Fortified, Relentless, Swarming;
 10. V1 elite traits: Bulwark, Hunter, Volatile;
 11. V1 Map materials: Relic Alloy, Resonant Crystal, Waystone Shard;
-12. successful-clear Coin payout through the central wallet authority with deterministic recovery-safe operation identity;
-13. authoritative solo/group historical clear records and leaderboards.
+12. implement the reusable capability order locked in `V1_CONTENT_DETAILS.md`, beginning with Forgotten Bastion + Relic Guard + Extermination;
+13. successful-clear Coin payout through the central wallet authority with deterministic recovery-safe operation identity;
+14. authoritative solo/group historical clear records and leaderboards.
 
 The existing Forest/Spider/Extermination path remains fixture/proof content. Unsupported V1 combinations must fail closed until their runtime semantics are implemented.
 
@@ -135,12 +141,13 @@ The existing Forest/Spider/Extermination path remains fixture/proof content. Uns
 4. boss authorization/consumption without requiring a dungeon-style player-facing presentation;
 5. boss encounter/reward once;
 6. two launch tiers per family with stronger roles/combinations/mechanics rather than only stat scaling;
-7. Rootborn material ladder: Root Fiber -> Ancient Resin -> Heartwood Core;
-8. Ashbound material ladder: Cinder Shard -> Blackglass -> Kilnheart;
-9. Veilborn material ladder: Veil Thread -> Phaseglass -> Gate Fragment;
-10. Bazaar integration for all Bounty materials;
-11. one family pouch per launch family;
-12. specialized family gear using the locked Rootborn/Ashbound/Veilborn item set.
+7. implement the exact Rootborn/Ashbound/Veilborn creature technical bases and readable capability composition locked in `V1_CONTENT_DETAILS.md`;
+8. Rootborn material ladder: Root Fiber -> Ancient Resin -> Heartwood Core;
+9. Ashbound material ladder: Cinder Shard -> Blackglass -> Kilnheart;
+10. Veilborn material ladder: Veil Thread -> Phaseglass -> Gate Fragment;
+11. Bazaar integration for all Bounty materials;
+12. one family pouch per launch family;
+13. specialized family gear using the locked Rootborn/Ashbound/Veilborn item set.
 
 Launch content is **Rootborn, Ashbound, and Veilborn** in normal-world regional activity areas. The current Zombie path remains development fixture content and must not be promoted back into canonical launch identity.
 
@@ -170,14 +177,15 @@ Generic project/contribution/archive infrastructure may be used for explicitly d
 Only after the systems above are structurally proven:
 
 1. author the locked 28-item launch allowlist and its exact stable IDs/representations;
-2. implement the locked recipe-source graph across ordinary resources, Map materials and Bounty materials, choosing only balance quantities/XP values during implementation;
-3. implement the locked Map combination pool and first-Map acquisition route;
-4. implement Rootborn/Ashbound/Veilborn rosters, two-tier content, material ladders, pouches and specialized gear;
-5. configure the locked first expansion candidate pool;
-6. apply the locked launch use-requirement direction to gathering tools and any later explicitly justified requirement;
-7. fill plausible approximate balance values and iterate by simulation/playtesting.
+2. implement the locked item mechanics, roll assignments/ranges, +0..+5 upgrade semantics and salvage eligibility from `V1_CONTENT_DETAILS.md`;
+3. implement the locked recipe-source graph across ordinary resources, Map materials and Bounty materials, choosing only balance quantities/XP values during implementation;
+4. implement the locked Map combination pool and Ruinbound-Champion first-Map route;
+5. implement Rootborn/Ashbound/Veilborn rosters, two-tier content, material ladders, pouches and specialized gear;
+6. configure the locked first expansion candidate pool;
+7. apply the locked launch use-requirement direction to gathering tools and any later explicitly justified requirement;
+8. fill plausible approximate balance values and iterate by simulation/playtesting.
 
-Numbers need to be plausible, not perfect. Stable content identity and source relationships are no longer open design questions.
+Numbers need to be plausible, not perfect. Stable content identity, mechanics, source relationships and progression shape are no longer open design questions.
 
 ## 11 — Simulation, scale, and destruction testing
 
@@ -189,7 +197,7 @@ Numbers need to be plausible, not perfect. Stable content identity and source re
 6. integrity-verifier runs after adversarial scenarios;
 7. backup + disposable restore proof.
 
-Current structural coverage now includes concurrent value/custody races, deterministic zone/backend routing churn, transfer fencing/recovery, injected pre-commit database failure with full rollback, injected post-commit acknowledgement loss with exact idempotent replay, aggregate integrity verification after adversarial recovery, and a high-cardinality managed-entity persistence burst: 64 independent sources each complete two rewarded entity cycles under 16-worker/8-connection contention, producing 128 exact kill claims, harvests, fulfillments and durable deliveries with no unresolved PENDING/ACTIVE spawn rows and the resource-source integrity verifier clean. Remaining stage-11 work should target genuinely unproven boundaries such as real Paper entity/TPS/MSPT behavior, question-driven economy simulation once launch numbers exist, and the actual disposable Windows/Docker restore rehearsal—not duplicate the same transaction or persistence load proof under another name.
+Current structural coverage now includes concurrent value/custody races, deterministic zone/backend routing churn, transfer fencing/recovery, injected pre-commit database failure with full rollback, injected post-commit acknowledgement loss with exact idempotent replay, aggregate persistent-integrity verification after adversarial recovery, and a high-cardinality managed-entity persistence burst: 64 independent sources each complete two rewarded entity cycles under 16-worker/8-connection contention, producing 128 exact kill claims, harvests, fulfillments and durable deliveries with no unresolved PENDING/ACTIVE spawn rows and the resource-source integrity verifier clean. Remaining stage-11 work should target genuinely unproven boundaries such as real Paper entity/TPS/MSPT behavior, question-driven economy simulation once launch numbers exist, and the actual disposable Windows/Docker restore rehearsal—not duplicate the same transaction or persistence load proof under another name.
 
 ## 12 — Private alpha
 
