@@ -9,11 +9,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 
-/** Strict JSON loader for ordinary-PvE pocket-Coin death-loss tuning. */
+/** Strict JSON loader for ordinary persistent-combat pocket-Coin death-loss tuning. */
 public final class PveDeathLossConfigLoader {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     private final ObjectMapper objectMapper = JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -66,7 +67,12 @@ public final class PveDeathLossConfigLoader {
             );
         }
         try {
-            return new PveDeathLossConfig(raw.enabled(), raw.policyVersion(), raw.lossBasisPoints());
+            return new PveDeathLossConfig(
+                    raw.enabled(),
+                    raw.policyVersion(),
+                    raw.lossBasisPoints(),
+                    raw.zoneIds()
+            );
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new CoinWalletException(
                     "Invalid PvE death-loss config in " + source + ": " + exception.getMessage(),
@@ -79,6 +85,7 @@ public final class PveDeathLossConfigLoader {
             @JsonProperty("schema_version") int schemaVersion,
             @JsonProperty("enabled") boolean enabled,
             @JsonProperty("policy_version") String policyVersion,
-            @JsonProperty("loss_basis_points") int lossBasisPoints
+            @JsonProperty("loss_basis_points") int lossBasisPoints,
+            @JsonProperty("zone_ids") List<String> zoneIds
     ) { }
 }

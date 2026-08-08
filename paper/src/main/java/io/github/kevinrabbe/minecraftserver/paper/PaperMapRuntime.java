@@ -175,15 +175,17 @@ final class PaperMapRuntime {
         }
 
         PveDeathLossConfig deathLossConfig = new PveDeathLossConfigLoader().loadResource(PVE_DEATH_LOSS_RESOURCE);
-        if (deathLossConfig.enabled()) {
-            boolean ordinaryPersistentZone = bootstrapZoneInstance != null && encounterController == null;
+        boolean configuredCombatRegion = bootstrapZoneInstance != null
+                && encounterController == null
+                && deathLossConfig.appliesToZone(bootstrapZoneInstance.zoneId());
+        if (configuredCombatRegion) {
             plugin.getServer().getPluginManager().registerEvents(
                     new PaperPveDeathLossListener(
                             plugin,
                             identities,
                             new PveDeathLossRepository(dataSource),
                             deathLossConfig,
-                            ordinaryPersistentZone
+                            true
                     ),
                     plugin
             );
