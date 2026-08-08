@@ -48,6 +48,7 @@ import java.util.logging.Level;
 /** Launch disposable runtime for authored solo Extermination Maps. Persistent run/reward state remains PostgreSQL-owned. */
 final class PaperMapExterminationController implements Listener {
     private static final String RUN_ID_KEY_NAME = "map_run_id";
+    private static final String ROLE_ID_KEY_NAME = "map_role_id";
     private static final String PLAYER_DEATH_REASON = "map.player_death";
     private static final String PLAYER_QUIT_REASON = "map.player_disconnect";
     private static final String ENVIRONMENTAL_DEATH_REASON = "map.unowned_entity_death";
@@ -65,6 +66,7 @@ final class PaperMapExterminationController implements Listener {
     private final PaperMapEncounterContentCatalog content;
     private final PaperMapCompletionService completion;
     private final NamespacedKey runIdKey;
+    private final NamespacedKey roleIdKey;
     private final ConcurrentHashMap<UUID, ActiveEncounter> activeByMinecraftUuid = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, UUID> minecraftUuidByEntityUuid = new ConcurrentHashMap<>();
     private final Set<UUID> terminalInFlight = ConcurrentHashMap.newKeySet();
@@ -89,6 +91,7 @@ final class PaperMapExterminationController implements Listener {
         this.content = Objects.requireNonNull(content, "content");
         this.completion = Objects.requireNonNull(completion, "completion");
         this.runIdKey = new NamespacedKey(plugin, RUN_ID_KEY_NAME);
+        this.roleIdKey = new NamespacedKey(plugin, ROLE_ID_KEY_NAME);
     }
 
     void start() {
@@ -177,7 +180,6 @@ final class PaperMapExterminationController implements Listener {
         if (active == null || !active.runId.equals(runId) || !active.entityUuids.remove(entityUuid)) {
             return;
         }
-
         Player killer = event.getEntity().getKiller();
         if (killer == null || !killer.getUniqueId().equals(minecraftUuid)) {
             beginFailure(active, ENVIRONMENTAL_DEATH_REASON, true);
@@ -272,15 +274,16 @@ final class PaperMapExterminationController implements Listener {
             SplittableRandom random = new SplittableRandom(run.definition().generationSeed());
             for (int index = 0; index < requiredKills; index++) {
                 Location location = spawnLocation(center, definition.spawnRadius(), index, requiredKills, random);
+                PaperMapEncounterRole role = definition.selectRole(random);
                 Entity entity = world.spawnEntity(
                         location,
-                        definition.entityType(),
+                        role.entityType(),
                         CreatureSpawnEvent.SpawnReason.CUSTOM,
-                        spawnedEntity -> configureSpawnedEntity(spawnedEntity, run, definition)
+                        spawnedEntity -> configureSpawnedEntity(spawnedEntity, run, definition, role)
                 );
                 if (!(entity instanceof LivingEntity living)) {
                     entity.remove();
-                    throw new IllegalStateException("Map encounter entity type did not materialize as LivingEntity");
+                    throw new IllegalStateException("Map encounter role did not materialize as LivingEntity");
                 }
                 spawned.add(living);
                 active.entityUuids.add(living.getUniqueId());
@@ -322,12 +325,16 @@ final class PaperMapExterminationController implements Listener {
     private void configureSpawnedEntity(
             Entity entity,
             MapRunSnapshot run,
-            PaperMapEncounterDefinition definition
+            PaperMapEncounterDefinition definition,
+            PaperMapEncounterRole role
     ) {
         entity.getPersistentDataContainer().set(runIdKey, PersistentDataType.STRING, run.runId().toString());
+        entity.getPersistentDataContainer().set(roleIdKey, PersistentDataType.STRING, role.roleId());
         if (!(entity instanceof LivingEntity living)) {
             return;
         }
+        living.customName(Component.text(role.displayName()));
+        living.setCustomNameVisible(true);
         living.setPersistent(true);
         living.setInvulnerable(true);
         if (living instanceof Mob mob) {
