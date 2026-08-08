@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Durable fulfillment result for one immutable resource harvest entitlement. */
+/** Durable fulfillment result for one immutable resource harvest/classification entitlement. */
 public record ResourceHarvestFulfillmentResult(
         ResourceHarvestEntitlement entitlement,
         UUID commodityDeliveryId,
@@ -15,7 +15,9 @@ public record ResourceHarvestFulfillmentResult(
 ) {
     public ResourceHarvestFulfillmentResult {
         entitlement = Objects.requireNonNull(entitlement, "entitlement");
-        commodityDeliveryId = Objects.requireNonNull(commodityDeliveryId, "commodityDeliveryId");
+        if (entitlement.hasCommodityReward() != (commodityDeliveryId != null)) {
+            throw new IllegalArgumentException("commodity delivery shape does not match entitlement");
+        }
         if ((entitlement.skillId() == null) != (experienceAward == null)) {
             throw new IllegalArgumentException("experience award shape does not match entitlement");
         }
