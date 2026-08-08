@@ -62,6 +62,14 @@
       "max_stack_size": 1,
       "category": "PROGRESSION",
       "identity_kind": "INDIVIDUAL"
+    },
+    {
+      "definition_id": "map.challenge",
+      "minecraft_material": "MAP",
+      "display_name": "Challenge Map",
+      "max_stack_size": 1,
+      "category": "PROGRESSION",
+      "identity_kind": "INDIVIDUAL"
     }
   ]
 }

@@ -21,6 +21,7 @@ import io.github.kevinrabbe.minecraftserver.common.pve.map.MapPendingDeliveryAut
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapPlayerStateOpenRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRewardFulfillmentRepository;
 import io.github.kevinrabbe.minecraftserver.common.pve.map.MapRewardSettlementRepository;
+import io.github.kevinrabbe.minecraftserver.common.pve.map.StarterMapIssuanceRepository;
 import io.github.kevinrabbe.minecraftserver.common.session.TransferRecoveryRepository;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -35,6 +36,7 @@ final class PaperMapRuntime {
     private static final String ROUTE_RESOURCE = "/content/map-encounter-routes.json";
     private static final String ENCOUNTER_CONTENT_RESOURCE = "/content/map-encounters.json";
     private static final String COIN_REWARD_RESOURCE = "/content/map-coin-rewards.json";
+    private static final String STARTER_MAP_RESOURCE = "/content/starter-map.json";
     private static final String PVE_DEATH_LOSS_RESOURCE = "/content/pve-death-loss.json";
     private static final Duration ROUTE_HEARTBEAT_FRESHNESS = Duration.ofSeconds(15);
     private static final Duration NO_HANDOFF_GRACE = Duration.ofSeconds(30);
@@ -44,15 +46,18 @@ final class PaperMapRuntime {
 
     private final PaperMapOpenService openService;
     private final PaperMapEncounterController encounterController;
+    private final PaperStarterMapIssuanceService starterMapIssuance;
     private final BukkitTask recoveryTask;
 
     private PaperMapRuntime(
             PaperMapOpenService openService,
             PaperMapEncounterController encounterController,
+            PaperStarterMapIssuanceService starterMapIssuance,
             BukkitTask recoveryTask
     ) {
         this.openService = openService;
         this.encounterController = encounterController;
+        this.starterMapIssuance = starterMapIssuance;
         this.recoveryTask = recoveryTask;
     }
 
@@ -78,6 +83,7 @@ final class PaperMapRuntime {
                 itemCatalog
         );
         PaperMapCoinRewardPolicy coinRewards = PaperMapCoinRewardPolicy.loadResource(COIN_REWARD_RESOURCE);
+        PaperStarterMapPolicy starterMapPolicy = PaperStarterMapPolicy.loadResource(STARTER_MAP_RESOURCE, itemCatalog);
         MapAuthorityRepository maps = new MapAuthorityRepository(dataSource, itemCatalog);
         PaperMapLiveContentCompatibilityValidator.validate(dataSource, maps, content, routes);
         MapEncounterReservationRepository reservations = new MapEncounterReservationRepository(
@@ -95,6 +101,19 @@ final class PaperMapRuntime {
                 routes,
                 uniqueItemRemoval
         );
+
+        PaperStarterMapIssuanceService starterMapIssuance = null;
+        MapPendingDeliveryAuthority pendingMapDeliveries = new MapPendingDeliveryAuthority(dataSource, itemCatalog);
+        if (bootstrapZoneInstance != null
+                && starterMapPolicy.sourceZoneId().equals(bootstrapZoneInstance.zoneId())) {
+            starterMapIssuance = new PaperStarterMapIssuanceService(
+                    plugin,
+                    starterMapPolicy,
+                    new StarterMapIssuanceRepository(dataSource),
+                    pendingMapDeliveries
+            );
+            starterMapIssuance.start();
+        }
 
         PaperMapRewardResolver rewardResolver = new PaperMapRewardResolver(content);
         MapRewardSettlementRepository settlements = new MapRewardSettlementRepository(
@@ -116,7 +135,7 @@ final class PaperMapRuntime {
                 dataSource,
                 commodityDeliveries,
                 new PendingUniqueDeliveryRepository(dataSource, itemCatalog),
-                new MapPendingDeliveryAuthority(dataSource, itemCatalog)
+                pendingMapDeliveries
         );
         PaperMapCompletionService completion = new PaperMapCompletionService(
                 plugin,
@@ -194,7 +213,7 @@ final class PaperMapRuntime {
         PaperChronicleCommand.install(plugin, dataSource);
         PaperIntegrityCommand.install(plugin, dataSource);
         PaperLeaderboardRouterCommand.scheduleInstall(plugin, dataSource);
-        return new PaperMapRuntime(openService, encounterController, recoveryTask);
+        return new PaperMapRuntime(openService, encounterController, starterMapIssuance, recoveryTask);
     }
 
     PaperMapOpenService openService() {
@@ -203,6 +222,9 @@ final class PaperMapRuntime {
 
     void shutdown() {
         recoveryTask.cancel();
+        if (starterMapIssuance != null) {
+            starterMapIssuance.stop();
+        }
         if (encounterController != null) {
             encounterController.shutdown();
         }

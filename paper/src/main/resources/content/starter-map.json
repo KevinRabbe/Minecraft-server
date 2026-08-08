@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "source_definition_id": "starter_combat.ruinbound_champion",
+  "source_zone_id": "city",
+  "map_definition_id": "map.challenge",
+  "difficulty": 1,
+  "environment_id": "forgotten_bastion",
+  "enemy_package_id": "relic_guard",
+  "objective_id": "extermination",
+  "modifier_ids": [],
+  "generation_version": 1,
+  "balance_version": 1
+}
