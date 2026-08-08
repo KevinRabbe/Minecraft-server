@@ -70,9 +70,9 @@ Future content should usually add definitions inside established categories rath
 
 ## V1 content-surface rule
 
-The launch target is roughly **25–30 meaningful equipment/items across the established categories**, not hundreds of filler definitions.
+The launch target is roughly **25–30 meaningful equipment/items across the established categories**, not hundreds of filler definitions. The canonical V1 allowlist is 28 items; its detailed mechanics are locked in [`../planning/V1_CONTENT_DETAILS.md`](../planning/V1_CONTENT_DETAILS.md).
 
-The initial equipment pool should contain a small number of mechanically distinct weapons, combat/utility wearables, artifacts, active-use equipment, consumables, and gathering/logistics/QoL items.
+The initial equipment pool contains a small number of mechanically distinct weapons, combat/utility wearables, artifacts, active-use equipment, consumables, and gathering/logistics/QoL items.
 
 ## Minecraft-native behavior
 
@@ -120,9 +120,11 @@ Keep the stat surface small. Candidate core families include:
 
 Do not persist effective/calculated stats. Persist their authoritative sources and derive the result deterministically.
 
+For **V1 intrinsic rolled stats**, the surface is narrower and locked to exactly three property IDs: `damage`, `defense`, and `gathering_speed`. Every rolled launch item has exactly one intrinsic rolled property. Fixed-function utility items do not gain hidden roll lotteries.
+
 ## Rolled individualized gear
 
-Individualized equipment may roll one or more configured properties at creation.
+The architecture can support configured roll profiles, but V1 launch content uses exactly one property per rolled item.
 
 ### Persistent representation
 
@@ -138,7 +140,13 @@ The current implementation stores normalized roll quality in bounded basis point
 
 ### Bounded variance
 
-The intended low-to-high relevant item value spread is generally about **10–30% depending on the item**. Exact ranges/distributions are content/balance data.
+The broad design envelope remains roughly **10–30% low-to-high relevant value depending on the item**. For the initial V1 content, the exact assignments are locked in `V1_CONTENT_DETAILS.md`:
+
+- launch weapon `damage`: `10000..12000` basis points;
+- launch wearable `defense`: `10000..11500`;
+- launch gathering-tool `gathering_speed`: `10000..12000`.
+
+Creation uses the existing normalized uniform quality `0..10000`; later balance-version changes may tune current ranges without changing historical quality.
 
 Most rolls should remain usable. Near-perfect/perfect rolls are optional luxury optimization and may become extremely valuable on the Auction House without being required for basic progression.
 
@@ -153,7 +161,7 @@ Upgrading must not silently reroll intrinsic quality.
 
 ### Upgrade authority
 
-Upgrade economics/progression remain tuning/content decisions, but the persistent mutation contract is fixed:
+The persistent mutation contract is fixed:
 
 - one committed upgrade step advances `upgrade_level` exactly once;
 - the exact item `state_version` advances exactly once with it;
@@ -167,7 +175,7 @@ Upgrade economics/progression remain tuning/content decisions, but the persisten
 
 A carried-item upgrade has an additional single-writer requirement: the serialized ItemStack representation contains the item authority version, so the new player-state payload and upgraded item authority head must commit in the same PostgreSQL transaction under the owning live session. The Paper adapter deterministically reconstructs the expected next inventory payload by changing only that exact item's authority-version claim; any unrelated inventory/metadata mutation fails closed.
 
-The exact upgrade cost curve, progression, maximum gameplay investment, and whether success is deterministic remain explicit balance/content decisions. If a later failure mechanic exists, the item itself remains intact; cost can carry the risk instead.
+V1 progression is now product-locked rather than open-ended: rolled launch items use deterministic `+0..+5`; each committed level contributes +2% at the rolled-stat upgrade stage, for +10% at +5. There is no random failure, downgrade, destruction, or intrinsic reroll. Fixed utility mechanics do not scale from upgrade level. Exact Coin/material costs remain balance data, and the three scarce Bounty boss components are not repeat upgrade costs.
 
 ### Runtime inspection/presentation
 
@@ -221,7 +229,19 @@ Conceptual order:
 
 `base item/action -> intrinsic roll -> upgrade state -> player skill -> equipment set/context -> enchantment -> temporary effect -> effective result`
 
-Exact mathematics may vary by stat but must be centralized/deterministic rather than scattered across event handlers.
+For the V1 rolled-stat upgrade stage, `upgrade state` contributes `1 + 0.02 * upgrade_level` for levels 0..5. Exact mathematics for future stats may vary but must remain centralized/deterministic rather than scattered across event handlers.
+
+## Salvage
+
+V1 salvage is a guaranteed poor exit, not recipe reversal:
+
+- destroys the exact individualized item through authoritative custody/provenance mutation;
+- returns only an item-specific configured subset of ordinary/common/mid-tier recipe material families;
+- may include Map materials when the original recipe family uses them;
+- never returns Heartwood Core, Kilnheart, or Gate Fragment;
+- never refunds Coin or consumed upgrade costs;
+- roll quality and upgrade level do not increase salvage yield;
+- exact quantities remain balance data and must stay materially below reconstruction cost.
 
 ## Enchantments
 
@@ -235,7 +255,7 @@ A tradable Map is an individualized item whose instance carries the authoritativ
 
 - numeric difficulty;
 - environment ID;
-- enemy-family ID;
+- enemy-package/family ID;
 - objective ID;
 - modifier IDs;
 - deterministic generation/seed data;
@@ -286,7 +306,7 @@ Current fail-closed Paper boundaries therefore prevent managed representations f
 - lectern and flower-pot holders;
 - managed nested transform/consumption state that lacks an explicit settlement adapter.
 
-On ordinary player death, managed carried items are selectively retained rather than materialized as world drops. This is a custody-safety rule, not soulbinding and not a decision that all items are permanently protected from every future death mechanic.
+On ordinary player death, managed carried items are selectively retained rather than materialized as world drops. This is a custody-safety rule, not soulbinding. The V1 ordinary persistent-combat consequence is a region-gated pocket-Coin sink, not managed-item destruction.
 
 Explicit durable custody transitions such as Auction House escrow, secure trade escrow/settlement, clan storage, pending delivery, Map consumption, salvage, crafting, and other proven authorities remain valid.
 
@@ -307,11 +327,11 @@ Examples:
 
 ### Bounty-family pouches
 
-Examples:
+V1 examples:
 
-- Spider Pouch
-- Zombie Pouch
-- Golem Pouch
+- Rootborn Pouch
+- Ashbound Pouch
+- Veilborn Pouch
 
 A bounty pouch accepts only the fungible materials for its configured family. Capacity/QoL may improve with that family progression.
 

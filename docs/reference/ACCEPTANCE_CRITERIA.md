@@ -2,7 +2,7 @@
 
 V1 is accepted only when the complete persistent-world loop survives normal use and deliberate failure without duplication, double rewards, ambiguous ownership, invalid votes, or authority corruption.
 
-Exact tuning values are not release gates unless they make the game unusable. Structural correctness is.
+Exact tuning values are not release gates unless they make the game unusable. Structural correctness is. Canonical launch mechanics/identities are defined by the V1 planning documents, including `../planning/V1_CONTENT_DETAILS.md`.
 
 ## A. Join, identity, and persistent state
 
@@ -50,7 +50,9 @@ For starter gameplay and at least one disposable PvE activity:
 - integer/fixed-point arithmetic only;
 - no negative spendable balance;
 - concurrent spending cannot exceed owned balance;
-- configured PvE death loss destroys only the intended pocket amount exactly once.
+- ordinary persistent combat death in Rootborn/Ashbound/Veilborn regions destroys exactly 5% of the locked current pocket balance, rounded down, once;
+- the same ordinary death-loss rule does not fire in the Hub/starter Combat area, gathering-only areas, capital-M Maps, Ranked Arena, or Clan War;
+- the lost Coin is destroyed through authoritative economic evidence and never materialized as world loot.
 
 ### Protected bank
 
@@ -92,23 +94,27 @@ For at least one commodity before broad content expansion:
 
 1. a successful craft consumes all required inputs and creates outputs in one authoritative operation;
 2. duplicate craft requests return/refer to the original result rather than rerolling another item;
-3. individualized gear stores persistent normalized roll quality;
+3. individualized rolled gear stores persistent normalized roll quality;
 4. changing balance definitions changes derived current stats without changing historical roll quality;
-5. configured roll ranges remain bounded per item (target envelope roughly 10–30% low-to-high relevant value);
-6. most ordinary rolls remain usable; perfect rolls are not required for progression;
-7. upgrade state is separate from intrinsic roll quality and upgrading never rerolls intrinsic quality;
-8. one committed upgrade step advances the exact item's `upgrade_level` and item `state_version` exactly once without changing custody;
-9. carried-item upgrades commit the serialized player-state authority-version change and the item authority head atomically under the owning live session;
-10. stale/concurrent upgrade attempts from the same item/session head result in at most one commit;
-11. replaying one upgrade operation returns the original result and cannot bind that operation to another item, payload, version, level, or session context;
-12. an uncommitted/failed upgrade attempt leaves the item intact and does not silently degrade, destroy, reroll, or ambiguously advance it;
-13. upgrade evidence/provenance is append-only enough for the global integrity verifier to detect live-item chain/provenance corruption;
-14. salvage destroys exactly the intended unique item and creates configured output once;
-15. craft/Bazaar/transfer races cannot spend the same commodity twice;
-16. live rolled-equipment stats are rebuilt from trusted item definition/roll authority rather than trusting arbitrary carried ItemStack attributes, and unsupported runtime attribute shapes fail closed;
-17. intrinsic-roll materialization affects the definition-owned base item contribution without accidentally scaling later player-skill, upgrade, enchantment, set/context, or temporary-effect stages.
+5. V1 rolled items use exactly one intrinsic property from `damage`, `defense`, or `gathering_speed` according to the locked item assignment;
+6. initial V1 ranges resolve as weapon damage `10000..12000`, wearable defense `10000..11500`, and gathering-tool speed `10000..12000`, with normalized creation quality in `0..10000`;
+7. most ordinary rolls remain usable and perfect rolls are not required for progression;
+8. upgrade state is separate from intrinsic roll quality and upgrading never rerolls intrinsic quality;
+9. V1 rolled items permit only deterministic `+0..+5`; each committed level adds 2% at the rolled-stat upgrade stage and cannot randomly fail, downgrade, or destroy the item;
+10. one committed upgrade step advances the exact item's `upgrade_level` and item `state_version` exactly once without changing custody;
+11. carried-item upgrades commit the serialized player-state authority-version change and the item authority head atomically under the owning live session;
+12. stale/concurrent upgrade attempts from the same item/session head result in at most one commit;
+13. replaying one upgrade operation returns the original result and cannot bind that operation to another item, payload, version, level, or session context;
+14. an uncommitted/failed upgrade attempt leaves the item intact and does not silently degrade, destroy, reroll, or ambiguously advance it;
+15. upgrade evidence/provenance is append-only enough for the global integrity verifier to detect live-item chain/provenance corruption;
+16. upgrade costs never consume Heartwood Core, Kilnheart, or Gate Fragment as repeat V1 upgrade taxes;
+17. salvage destroys exactly the intended unique item and creates configured output once;
+18. salvage refunds no Coin, boss component, consumed upgrade investment, or roll/upgrade-dependent bonus yield;
+19. craft/Bazaar/transfer races cannot spend the same commodity twice;
+20. live rolled-equipment stats are rebuilt from trusted item definition/roll authority rather than trusting arbitrary carried ItemStack attributes, and unsupported runtime attribute shapes fail closed;
+21. intrinsic-roll materialization affects the definition-owned base item contribution without accidentally scaling later player-skill, upgrade, enchantment, set/context, or temporary-effect stages.
 
-Exact upgrade cost/progression/power values are tuning/content decisions, not substitutes for these authority invariants.
+Exact recipe quantities, upgrade Coin/material costs, and salvage return quantities remain tuning/content values; the V1 progression shape above is not open for implementation-time reinvention.
 
 ## H. Skills and staged caps
 
@@ -138,7 +144,9 @@ For starter Woodcutting/Foraging, Mining, Farming, and ordinary PvE sources:
 1. valid source creates configured commodity/XP once;
 2. invalid/replayed/player-manufactured source cannot mint value where not intended;
 3. equivalent zone instances use identical persistent progression/economy rules;
-4. resource generation, transfer, Bazaar sale, crafting use, reconnect, and restart preserve exact accounting.
+4. resource generation, transfer, Bazaar sale, crafting use, reconnect, and restart preserve exact accounting;
+5. a qualifying Ruinbound Champion kill is represented by the managed-source authority before any first-Map issuance occurs;
+6. one authoritative Champion kill can issue at most one bootstrap Map even across lost acknowledgements/restarts.
 
 ## J. Portal/Map PvE
 
@@ -149,7 +157,16 @@ For starter Woodcutting/Foraging, Mining, Farming, and ordinary PvE sources:
 3. completion/failure transition occurs once;
 4. completion reward occurs once;
 5. disposable runtime can be cleaned up without losing persistent result/evidence;
-6. disconnect/death/restart follows a documented deterministic policy.
+6. disconnect/death/restart follows a documented deterministic policy;
+7. Map death/failure does not also charge the ordinary 5% persistent-world pocket-Coin death loss.
+
+### First Map bootstrap
+
+1. the renewable Ruinbound Champion exists in the walkable starter Combat area before but does not block the first Rootborn portal;
+2. a qualifying authoritative player kill issues exactly one tradable difficulty-1 Map with `Forgotten Bastion + Relic Guard + Extermination + no modifier`;
+3. non-player/environmental Champion resolution creates no Map;
+4. issuance is recoverable from durable managed-kill evidence;
+5. the source remains renewable without a per-player daily/weekly lockout so a failed/consumed first Map cannot permanently lock the player out of Maps.
 
 ### Map object lifecycle
 
@@ -157,9 +174,19 @@ For starter Woodcutting/Foraging, Mining, Farming, and ordinary PvE sources:
 2. opening consumes/moves the exact Map exactly once;
 3. open/trade/AH races cannot both succeed;
 4. one Map cannot create two valid runs;
-5. run configuration records difficulty/environment/enemy family/objective/modifiers/generation/balance context;
+5. run configuration records difficulty/environment/enemy package/objective/modifiers/generation/balance context;
 6. failed run does not silently return the consumed Map;
-7. successful run can create configured Map materials/new nearby Maps once.
+7. successful run can create configured Map materials/new nearby Maps once;
+8. successful eligible participants receive the configured Coin payout at most once through deterministic run/player wallet operations.
+
+### Canonical content/runtime semantics
+
+1. V1 environments are Forgotten Bastion, Flooded Depths, and Windscar Ruins and use authored compact templates with deterministic encounter anchors;
+2. V1 Map packages are Relic Guard, Deep Brood, and Ruin Raiders and remain separate from Bounty family progress;
+3. Extermination uses sequential objective-owned packs; Elite Hunt uses bounded guard gates followed by one authoritative marked elite target;
+4. Fortified, Relentless, and Swarming preserve readable tells and bounded entity/cadence behavior as defined in `V1_CONTENT_DETAILS.md`;
+5. Bulwark, Hunter, and Volatile preserve explicit counterplay and do not introduce hidden permanent guard/speed or zero-delay burst behavior;
+6. unsupported content combinations fail closed rather than silently downgrading to a fixture/default encounter.
 
 ### Difficulty
 
@@ -180,22 +207,24 @@ For starter Woodcutting/Foraging, Mining, Farming, and ordinary PvE sources:
 
 ## L. Bounties
 
-For one family/tier first, then the configured V1 families:
+For one family/tier first, then Rootborn, Ashbound, and Veilborn:
 
 1. contract fee is paid exactly once as an explicit Coin sink;
-2. only eligible category mob kills advance the bounty;
+2. only eligible authored normal-world family creature kills advance the bounty;
 3. duplicate/replayed kills do not advance twice;
-4. summon eligibility becomes available only after the configured requirement;
-5. one authorization cannot summon multiple valid bosses unless explicitly designed that way;
+4. boss authorization becomes available only after the configured requirement;
+5. one authorization cannot create multiple valid boss attempts unless explicitly designed that way;
 6. boss completion/reward applies exactly once;
-7. failure/restart/disconnect follows deterministic contract/summon semantics;
-8. higher tiers can introduce higher-grade family materials;
-9. all configured bounty-family materials are Bazaar-tradable;
-10. personal completion is not required merely to buy/own/craft with a tradable family material.
+7. failure/restart/disconnect follows deterministic contract/boss-authorization semantics;
+8. higher tiers introduce the locked stronger roles/combinations/mechanics rather than only numerical HP scaling;
+9. the configured Rootborn/Ashbound/Veilborn technical bases and authored ability capabilities preserve their player-facing family identities instead of reverting to vanilla mob behavior;
+10. all configured bounty-family materials are Bazaar-tradable;
+11. personal completion is not required merely to buy/own/craft with a tradable family material;
+12. ordinary persistent death in these three deeper regions applies the 5% pocket-Coin policy once without dropping managed items.
 
 ### Bounty pouches
 
-- each pouch stores only its configured family commodities;
+- Rootborn/Ashbound/Veilborn pouches store only their configured family commodities;
 - capacity upgrades are authoritative;
 - moving/selling from a pouch cannot duplicate quantity;
 - pouch custody does not make the commodity non-tradable.
@@ -266,7 +295,7 @@ Deliberately test at minimum:
 - repeated transfer ticket replay;
 - deliberate corruption of live session/player-state version pairing, session ownership/lease shape, transfer-ticket/session pairing, and routed instance identity must be detected by bounded integrity verification;
 - database response lost after a successful transaction commit;
-- duplicate economic/crafting/XP/Map/Bounty/vote/upgrade operation requests;
+- duplicate economic/crafting/XP/Map/Bounty/vote/upgrade/first-Map operation requests;
 - Bazaar cancel/fill and AH cancel/buy races;
 - simultaneous bank/spend/death-loss operations;
 - concurrent carried-item upgrades from one stale item/session head;
@@ -275,7 +304,8 @@ Deliberately test at minimum:
 - Velocity restart;
 - PostgreSQL temporary unavailability;
 - Map instance failure;
-- bounty completion/summon failure timing;
+- Ruinbound Champion kill committed immediately before first-Map delivery failure/restart;
+- bounty completion/boss-authorization failure timing;
 - clan storage/treasury races;
 - ranked/war instance failure;
 - restart with empty/active disposable instances;
@@ -307,7 +337,8 @@ The public world may open when:
 
 - no known critical persistent-state/economic duplication path remains;
 - recovery/restore has been proven;
-- core Map + Bounty PvE loops work end-to-end;
+- canonical Map + Bounty PvE loops work end-to-end;
+- the Ruinbound Champion can bootstrap the first Map recoverably from a fresh player path;
 - markets/crafting/skills/clans/voting survive required acceptance tests;
 - configured item use/equip requirements are inspectable before purchase and enforceable independently of ownership/trade authority;
 - structural feature set is frozen for release;

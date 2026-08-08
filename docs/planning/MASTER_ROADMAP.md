@@ -25,7 +25,7 @@ Before remaining feature milestones proceed, the repository must expose stable c
 8. Coin pocket + protected Bank Manager semantics;
 9. generic progression/skill contracts with staged active caps;
 10. crafting and normalized rolled-item quality;
-11. generic Portal/Map run and bounty-family contracts;
+11. generic Map run and Bounty-family contracts;
 12. clan/competitive custody boundaries;
 13. world voting, feature-access/world-era state, Chronicle/history, and authoritative leaderboard records;
 14. verification, backup/recovery, concurrency, crash-injection, and adversarial test harnesses.
@@ -67,7 +67,9 @@ Launch active cap: **50**. Later expansion: **75**. Much later progression era: 
 **Proof:** concurrency cannot lose/duplicate XP; cap transitions reopen progression without duplicating rewards.
 
 ### G — Starter-world vertical slice
-Persistent City/starter region plus compact Wood/Mining/Farming/ordinary-PvE activity spaces. Authorized resource generation connects live gameplay to persistent value.
+Build one compact persistent Hub Region with a simple functional starter settlement plus directly walkable Woodcutting, Mining, Farming, and starter-Combat areas. All essential launch NPCs/services live in this civic core. Authorized resource generation connects live gameplay to persistent value.
+
+Do **not** build a giant finished capital. Later districts are player-built, and their material cost is the actual Minecraft blocks builders place rather than a duplicate abstract deposit requirement.
 
 **Proof:** gather -> persist -> transfer/trade -> reconnect survives instance replacement and restart.
 
@@ -77,7 +79,7 @@ Generic isolated PvE instance lifecycle: create, admit participants, start, comp
 **Proof:** instance churn does not leak persistent authority or duplicate completion rewards.
 
 ### I — Map object system
-Tradable individualized Map items define difficulty, environment, enemy family, objective, modifiers, and deterministic generation data. Opening a Map consumes it exactly once and creates one run.
+Tradable individualized Map items define difficulty, environment, Map enemy package, objective, modifiers, and deterministic generation data. Opening a Map consumes it exactly once and creates one run.
 
 **Proof:** open/trade/AH races cannot duplicate a Map or create multiple runs.
 
@@ -86,10 +88,19 @@ Difficulty is encounter strength, not a character-level requirement. Scaling is 
 
 **Proof:** successful clears can generate nearby future Maps; balance curves can change without corrupting historical records.
 
-### K — Map variety
-V1 adds a small combinatorial pool of environments, enemy families, objectives, modifiers, and elite traits rather than large amounts of handcrafted disposable content.
+### K — Map variety and bootstrap
+V1 implements the locked compact Map pool rather than a large handcrafted catalog:
 
-Initial objective families: Extermination, Elite Hunt, Defense, Assault.
+- environments: **Forgotten Bastion, Flooded Depths, Windscar Ruins**;
+- Map-only enemy packages: **Relic Guard, Deep Brood, Ruin Raiders**;
+- objectives: **Extermination, Elite Hunt**;
+- modifiers: **Fortified, Relentless, Swarming**;
+- elite traits: **Bulwark, Hunter, Volatile**;
+- materials: **Relic Alloy, Resonant Crystal, Waystone Shard**.
+
+A renewable authored elite encounter in the Hub starter-Combat area awards the first low-difficulty Map without Coin/Bounty/vendor/crafting gates. Successful Map clears become the initial fresh-player Coin faucet using the central wallet authority with deterministic per-run/player payout identity.
+
+The existing Forest + Spider + Extermination path remains fixture/proof content.
 
 ### L — PvE leaderboards
 Server-authoritative solo/group clear records store difficulty, time, Map configuration, participants, loadout context, balance version, and world era.
@@ -97,22 +108,42 @@ Server-authoritative solo/group clear records store difficulty, time, Map config
 **Proof:** leaderboard state is derivable from authoritative clear records; historical pre-power-jump records remain queryable.
 
 ### M — Bounty framework
-Bounty families are original enemy ecosystems rather than one-to-one vanilla Minecraft mob categories. V1 begins with **Rootborn**, **Ashbound**, and **Veilborn**. Each family may contain multiple normal creatures, specialist/support variants, elites, and bosses while reusing modified vanilla entities or custom presentation underneath. A player pays to unlock a bounty contract, completes eligible family-hunt requirements, earns summon access, fights a family boss, and receives family materials.
+Bounty families are original enemy ecosystems rather than one-to-one vanilla Minecraft mob categories. V1 begins with **Rootborn**, **Ashbound**, and **Veilborn**.
+
+Bounty families live in normal persistent regional activity areas, not Bounty dungeons or capital-M Map instances. The initial combat geography is the portal-linked chain:
+
+`Hub / starter Combat -> Rootborn Region -> Ashbound Region -> Veilborn Region`
+
+Players traverse each compact regional map to reach its onward portal. A Bounty contract overlays progression onto authored family kills in those normal-world regions.
 
 The existing Zombie T1 path remains development fixture content that proves the generic authority; it is not canonical launch content.
 
-**Proof:** contract payment, hunt progress, summon consumption, boss completion, and rewards are idempotent and crash-safe.
+**Proof:** contract payment, hunt progress, boss authorization/attempt, boss completion, and rewards are idempotent and crash-safe.
 
 ### N — Tiered bounty materials
-Each family exposes a compact material ladder whose identities fit that ecosystem rather than generic numbered tokens. Higher bounty tiers supply higher-grade inputs.
+The locked launch ladders are:
 
-All bounty materials are Bazaar-tradable. Personal completion is not required merely to own/buy/craft with a material unless a separate use requirement explicitly exists.
+- Root Fiber -> Ancient Resin -> Heartwood Core;
+- Cinder Shard -> Blackglass -> Kilnheart;
+- Veil Thread -> Phaseglass -> Gate Fragment.
+
+V1 uses two tiers per family, with four normal creature roles plus one boss identity across each launch family envelope. Higher tiers add roles/variants/mechanics rather than only HP/damage.
+
+All Bounty materials are Bazaar-tradable. Personal completion is not required merely to own/buy/craft with a material unless a separate use requirement explicitly exists.
 
 ### O — Bounty pouches
-One dedicated pouch per bounty family stores that family's fungible materials. Capacity/QoL may improve with family progression. Pouch custody does not change market fungibility.
+One dedicated pouch per Bounty family stores that family's fungible materials. Capacity/QoL may improve with family progression. Pouch custody does not change market fungibility.
 
-### P — Specialized gear
-Equipment can specialize against bounty-family mechanics while general Map gear remains viable. Recipes cross-connect normal resources, district inputs, Map materials, and bounty materials.
+### P — Specialized gear and V1 recipe graph
+The launch item allowlist is **28 meaningful items/equipment pieces**. Recipes cross-connect ordinary resources, Map materials, and Bounty materials; exact quantities remain tuning.
+
+The three scarce boss components are reserved for signature launch recipes:
+
+- Heartwood Core -> Thornhook;
+- Kilnheart -> Kilnbreaker;
+- Gate Fragment -> Phase Anchor.
+
+Specialized family pairs are Heartwood Mantle + Thornhook, Blackglass Guard + Kilnbreaker, and Gatefinder Lens + Phase Anchor.
 
 Rolled low-to-high relevant value is generally bounded around **10–30% depending on the item**. Near-perfect/perfect rolls are luxury optimization and may command extreme AH prices without being required for viability.
 
@@ -130,29 +161,37 @@ Preserve the previously locked V1 competitive layer:
 
 **Proof:** disposable match state cannot duplicate or corrupt persistent economic state.
 
-### S — World expansion voting
+### S — World expansion voting and regional portal chains
 Players vote on which capability/theme becomes available next. The system guarantees valid voting and authoritative outcomes but does not steer which option should win.
 
-Players are not given a canonical physical blueprint. Ordinary district form and scale are player outcomes, not developer completion requirements.
+The first expansion-candidate pool is locked to:
+
+- **Deeper Woodcutting Region**;
+- **Deeper Mining Region**;
+- **Deeper Farming Region**.
+
+Each winning choice activates the next compact portal-chain region from the corresponding starter branch rather than enlarging the Hub into a huge continent or presenting a central destination-selection menu.
+
+Players are not given a canonical physical district blueprint. Ordinary district form and scale are player outcomes, not developer completion requirements.
 
 ### T — Feature/district integration
-Winning world choices enable configured resources, gear, skills, activities, or QoL. Most districts expand horizontally; selected milestones such as Nether and End can provide major vertical power jumps.
+Winning world choices enable configured resources, gear, skills, activities, QoL, or new regional portal-chain segments. Most districts expand horizontally; selected milestones such as Nether and End can provide major vertical power jumps.
 
 Difficulty levels themselves are not unlocked by Nether/End; stronger available gear raises the practical ceiling.
 
-Generic project/contribution infrastructure may support explicitly defined exceptional projects, but ordinary districts must not inherit a hidden blueprint/progress-bar requirement.
+Generic project/contribution infrastructure may support explicitly defined exceptional projects, but ordinary districts must not inherit a hidden blueprint/progress-bar requirement. Their construction consumes the blocks players actually place.
 
 ### U — Chronicle/history
 Record actual world events: launch, major votes, feature unlocks, significant first clears, competitive records, project events where explicitly used, and other authoritative achievements. History describes what players actually did rather than authored lore pretending they did it.
 
 ### V — V1 content pass
-Populate proven systems with a deliberately narrow launch set: roughly 25–30 meaningful equipment/items, the Rootborn/Ashbound/Veilborn bounty ecosystems, compact Map content, starting skills/resources, initial expansion choices, recipes, consumables, and the minimal ranked/clan-war content already in scope.
+Populate proven systems with the locked launch set: 28 meaningful items/equipment pieces and their recipe-source graph, Rootborn/Ashbound/Veilborn normal-world Bounty ecosystems, the compact canonical Map pool, Map-clear Coin faucet, starter Hub/activity areas, portal-chain topology, starting skills/resources, and the initial deeper Woodcutting/Mining/Farming expansion vote pool.
 
 ### W — Economy simulation
-Simulate large populations, crafting volume, Bazaar/AH trading, faucets/sinks, bank interest/death loss, wealth concentration, specialization, and resource demand. Fix structural failures; tune values only enough to keep the loop plausible.
+Simulate large populations, crafting volume, Bazaar/AH trading, Map-clear Coin faucets, Bounty/market/bank sinks, bank interest/death loss, wealth concentration, specialization, and resource demand. Fix structural failures; tune values only enough to keep the loop plausible.
 
 ### X — Performance/scale
-Stress zone routing, instance churn, entities, persistence, market matching, clan state, leaderboards, voting, and concurrent player operations. Scale processes only from measured need.
+Stress zone routing, portal-chain transfers, instance churn, entities, persistence, market matching, clan state, leaderboards, voting, and concurrent player operations. Scale processes only from measured need.
 
 ### Y — Private alpha
 Friends/family and trusted internal testers. Resets are disposable. Test normal usability, progression comprehension, gross balance errors, and operational recovery.
@@ -179,10 +218,10 @@ A public countdown ends and the persistent world begins. From that moment, world
 1. Tune cheap values from real data without steering player choices.
 2. Repair exploits/corruption/security/performance defects when necessary.
 3. Add new items/content primarily inside the established V1 categories rather than inventing new progression systems.
-4. Let expansion order emerge from player voting.
+4. Let expansion order emerge from player voting and extend the regional portal chains accordingly.
 5. Raise the active skill cap to 75 with a later expansion and to 100 in a much later era.
 6. Add Dungeons after Maps + Bounties are mature; Dungeons extend the existing resource/gear ecosystem rather than replacing it.
 
 ## Planning rule
 
-A milestone may implement a documented mechanism or tune configuration. It must not silently create a new authority model, identity rule, transaction semantic, forced progression route, physical district blueprint, or developer-steered world outcome.
+A milestone may implement a documented mechanism or tune configuration. It must not silently create a new authority model, identity rule, transaction semantic, forced progression route, physical district blueprint, central portal-selector topology, or developer-steered world outcome.
