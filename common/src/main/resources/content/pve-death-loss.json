@@ -1,6 +1,11 @@
 {
-  "schema_version": 1,
-  "enabled": false,
-  "policy_version": "disabled-v1",
-  "loss_basis_points": 0
+  "schema_version": 2,
+  "enabled": true,
+  "policy_version": "combat-regions-v1",
+  "loss_basis_points": 500,
+  "zone_ids": [
+    "rootborn",
+    "ashbound",
+    "veilborn"
+  ]
 }
