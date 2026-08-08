@@ -21,9 +21,8 @@ public final class ResourceHarvestLiveContentCompatibilityValidator {
     private ResourceHarvestLiveContentCompatibilityValidator() { }
 
     /**
-     * Verifies that every unfulfilled harvest can still issue its frozen commodity and optional skill XP.
-     * Material, display, stack-limit, and XP-threshold tuning may change behind stable IDs.
-     * Fulfilled history no longer pins those content definitions.
+     * Verifies that every unfulfilled harvest can still issue its frozen optional commodity and optional skill XP.
+     * Rewardless managed-combat cycles intentionally pin neither catalog. Fulfilled history no longer pins content.
      */
     public static void validate(
             DataSource dataSource,
@@ -56,19 +55,21 @@ public final class ResourceHarvestLiveContentCompatibilityValidator {
                 String definitionId = rows.getString("commodity_definition_id");
                 String skillId = rows.getString("skill_id");
 
-                ItemDefinition definition = itemCatalog.find(definitionId).orElseThrow(() -> new ItemCatalogException(
-                        "Loaded item catalog is missing commodity definition_id " + definitionId
-                                + " required by unfulfilled resource harvest " + harvestId
-                                + " for player_id " + playerId
-                                + " at source " + sourceId + " cycle " + sourceCycleNo
-                ));
-                if (definition.identityKind() != ItemIdentityKind.COMMODITY) {
-                    throw new ItemCatalogException(
-                            "Unfulfilled resource harvest " + harvestId
-                                    + " requires definition_id " + definitionId
-                                    + " to remain COMMODITY, but loaded identity kind is "
-                                    + definition.identityKind()
-                    );
+                if (definitionId != null) {
+                    ItemDefinition definition = itemCatalog.find(definitionId).orElseThrow(() -> new ItemCatalogException(
+                            "Loaded item catalog is missing commodity definition_id " + definitionId
+                                    + " required by unfulfilled resource harvest " + harvestId
+                                    + " for player_id " + playerId
+                                    + " at source " + sourceId + " cycle " + sourceCycleNo
+                    ));
+                    if (definition.identityKind() != ItemIdentityKind.COMMODITY) {
+                        throw new ItemCatalogException(
+                                "Unfulfilled resource harvest " + harvestId
+                                        + " requires definition_id " + definitionId
+                                        + " to remain COMMODITY, but loaded identity kind is "
+                                        + definition.identityKind()
+                        );
+                    }
                 }
 
                 if (skillId != null) {
